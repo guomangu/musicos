@@ -1,0 +1,40 @@
+# Environnement Python local
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Banques de samples locales & index SQLite généré
+pack/
+samples
+mcp-servers/audio-index/samples.db*
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.aif
+*.aiff
+*.zip
+*.tar.gz
+*.tar.xz
+*.7z
+
+# Binaires, modèles lourds et voicebanks téléchargés par install.sh
+tools/OpenUtau/
+tools/NeuralNote/
+tools/models/*.onnx
+voicebanks/*
+!voicebanks/README.md
+
+# Rendus, stems et fichiers temporaires de session
+renders/
+projects/*/renders/
+projects/*/stems/
+projects/*/source/
+projects/*/vocals/*.wav
+projects/*/midi/*.mid
+
+# Config locale générée dynamiquement par install.sh (chemins absolus machine)
+.zed/settings.json
+*.bak
+*.bak2
