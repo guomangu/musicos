@@ -7,6 +7,23 @@
   "key": "C minor",
   "swing": 0.0,
   "target_lufs": -14.0,
+  "harmonic_core": {
+    "key": "C",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      { "bar": 1, "symbol": "Cm7", "bass_midi": 36, "voicing_midi": [55, 58, 60, 63], "chord_tones_pc": [0, 3, 7, 10] },
+      { "bar": 2, "symbol": "Abmaj7", "bass_midi": 32, "voicing_midi": [55, 56, 60, 63], "chord_tones_pc": [8, 0, 3, 7] },
+      { "bar": 3, "symbol": "Fm7", "bass_midi": 41, "voicing_midi": [53, 56, 60, 63], "chord_tones_pc": [5, 8, 0, 3] },
+      { "bar": 4, "symbol": "Gm7", "bass_midi": 43, "voicing_midi": [53, 55, 58, 62], "chord_tones_pc": [7, 10, 2, 5] }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [0, 3, 7, 5],
+      "rhythm_beats": [0.0, 0.5, 1.0, 2.0],
+      "apex_midi": 79
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
   "structure": [
     {
       "section": "Intro",

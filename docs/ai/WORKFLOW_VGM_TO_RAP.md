@@ -20,8 +20,8 @@ Ce guide définit la chaîne exacte à suivre lorsqu'un utilisateur fournit un c
 2. Récupère le tableau `gridline_notes` (`[{start, length, pitch, velocity}]`).
    - Nettoie/filtre si nécessaire (ex. supprimer les notes ghost très courtes < 50 de vélocité ou hors tessiture).
 
-## Phase 4 : Rédaction du `song_blueprint.json`
-Avant d'assembler dans Gridline, écris `song_blueprint.json` en précisant la stratégie choisie (ou hybride) :
+## Phase 4 : Rédaction du `song_blueprint.json` (`harmonic_core`) & Gate `master_sketch.mid`
+Avant d'assembler dans Gridline, écris `song_blueprint.json` avec **`harmonic_core`** (voicings optimisés par *Smooth Voice Leading* `<= 2.5 st` et cellule `A-A'-A''-B`), génère la réduction `master_sketch.mid` et passe le Gate `audio-analyzer:audit_midi_harmony(..., strict_musicality=True)` (`PASS`) avant d'ajouter la batterie. Stratégie choisie (ou hybride) :
 - **Stratégie A — Sample Flip (Boom-Bap / Trap Sampled)** :
   - Utilise le stem `other.wav` / `piano.wav` dans `gl.seltmann` (chop/beat sync) ou `gl.slicer` (Kerf) + coupe passe-haut à `130–160 Hz` (`gl.eq`, ou `TDR Nova` / `ZL Equalizer 2` si mode Live) + patine analogique (`gl.dist`/`gl.eq` ou `CHOWTapeModel` en mode Live).
 - **Stratégie B — Remake / Ré-orchestration MIDI (Trap / Drill / Hybride Moderne)** :

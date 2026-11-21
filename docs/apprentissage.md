@@ -125,10 +125,10 @@ L'enchaînement réel observé lors du mixage d'« Obsidian Midnight » illustre
 
 ## 4. Protocole Standard d'Itération (Checklist pour Tout Agent)
 
-1. **Blueprint & Architecture Multi-Échelles d'abord** : Rédiger `song_blueprint.json` dans le dossier projet cible et valider contre `schemas/song_blueprint.schema.json`, en respectant le [protocole universel multi-échelles](protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) (max 3 couches hors batterie, règle Staccato/Legato, dimensionnement temporel `T_noire = 60000 / BPM`, renouvellement 4/8 mesures).
-2. **Audit des samples & Enveloppes** : Chercher via `audio-index`, puis mesurer en Python `f0`, durée et DC offset des kicks et 808 avant programmation ; dimensionner les enveloppes ADSR (`Voices = 1` *cut itself* sur 808, ticks courts `20–90 ms`, queues reverb/delay multiples de `T_noire` coupées aux transitions).
-3. **Construction modulaire** :
-   - Routing strict : chaque canal sur son insert (`>= 1`), groupé vers `BUS Drums (10)`, `BUS Music (11)`, `FX Hall (12)` → `Master (0)`.
+1. **Blueprint (`harmonic_core`) & Gate `master_sketch.mid` d'abord** : Rédiger `song_blueprint.json` (incluant `harmonic_core` avec voicings calculés par *Smooth Voice Leading* `<= 2.5 st` et cellule `A-A'-A''-B`) et valider contre `schemas/song_blueprint.schema.json`. Générer la réduction unique `master_sketch.mid` et passer le Gate bloquant `audit_midi_harmony(..., strict_musicality=True)` (`musicality_verdict == "PASS"`) **avant** toute batterie ou mixage, conformément à [regles_melodie_et_cohesion_inter_pistes.md](regles_melodie_et_cohesion_inter_pistes.md) et [protocole_universel...md](protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md).
+2. **Audit des samples, Accordage `440 Hz` & Enveloppes** : Chercher via `audio-index`, mesurer en Python `f0`, tuning en cents (`A4 = 440 Hz ± 5 ct`), durée et DC offset ; dimensionner les enveloppes ADSR (`Voices = 1` *cut itself* sur 808, ticks courts `20–90 ms`, queues reverb/delay multiples de `T_noire` coupées aux transitions). Jamais de transposition parallèle d'un sample d'accord complet.
+3. **Construction modulaire & Ciment Timbral `BUS Music`** :
+   - Routing strict : chaque canal sur son insert (`>= 1`), groupé vers `BUS Drums (10/17)`, `BUS 808 (18)`, `BUS Music (11/19)` (chaîne `gl.eq` LPF `11–14 kHz` + `gl.dist Soft 4x Mix 8–12%` + `gl.comp Glue` + `gl.comp` Sidechain Micro-Ducking Kick), `FX Room (12/20)` (`Dry = 0`, `Dry (full) = 0`) → `Master (0)`.
    - Vérifier `"silent": false` dès le premier pattern via `analyze_loudness(scope="pattern")`.
    - Vérifier l'accordage 808 par FFT sur un rendu court.
 4. **Boucle Auto-Mix itérative (ne jamais livrer au 1er rendu)** :

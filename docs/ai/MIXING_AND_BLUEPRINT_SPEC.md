@@ -22,16 +22,18 @@ Doit toujours valider `schemas/song_blueprint.schema.json` :
 /home/gamo/Bureau/musicos/.venv/bin/python -c \
   "import json, jsonschema; jsonschema.validate(json.load(open('projects/active/song_blueprint.json')), json.load(open('schemas/song_blueprint.schema.json')))"
 ```
-Champs obligatoires : `title`, `genre`, `bpm`, `time_signature`, `key`, `structure`, `tracks`.
+Champs obligatoires : `title`, `genre`, `bpm`, `time_signature`, `key`, `harmonic_core`, `structure`, `tracks`.
 Champs fortement recommandés : `target_lufs`, `frequency_plan`, `vocals` (si chant).
 
 ## 4. Organisation de la Playlist (Lisibilité humaine)
 - Placer **chaque instrument et chaque variation sur sa propre piste Playlist dédiée** (ne jamais empiler tout le morceau sur `Track 1`), avec des patterns nommés par instrument et par section (ex. `808 Infinite - M1`, `808 Infinite - Climax`, `Pad High +12`).
 - Pour les règles d'harmonie modale (Phrygien, Éolien, Dorien), de voicing ouvert, de rolls de hi-hats (pitch-down) et de sous-genres Trap (Cloud, Dark/Hard, Rage, Drill), consulter [docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md](../sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md).
 
-## 5. Architecture Multi-Échelles, Harmonisation Inter-Pistes & Enveloppes Temporelles
-Consulter [docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md](../protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) et [docs/harmonisation_verticale_et_horizontale.md](../harmonisation_verticale_et_horizontale.md) pour le cadre complet :
-- **Cohésion verticale & horizontale** : accordage strict à `A4 = 440 Hz ± 5 ct` de tous les samples tonaux, horloge rythmique unique (extraire les boucles étrangères en one-shots propres calés à `t = 0`, verrouiller `Kick + 808 + Accord` sur les appuis forts), grille d'accords maîtresse partagée, relais *Call-and-Response* sans superposition de deux leaders dans le même registre, et ciment acoustique (`FX Room` unique + Bus Glue + EQ miroir).
+## 5. Architecture Multi-Échelles, Composition Top-Down & Ciment Timbral
+Consulter [docs/regles_melodie_et_cohesion_inter_pistes.md](../regles_melodie_et_cohesion_inter_pistes.md), [docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md](../protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) et [docs/harmonisation_verticale_et_horizontale.md](../harmonisation_verticale_et_horizontale.md) :
+- **Réduction Unique & Gate Bloquant (`master_sketch.mid`)** : composer d'abord la réduction 3 voix (`Bass`, `Chords` en *voice leading* `<= 2.5 st` via `optimize_voice_leading`, `Lead` `A-A'-A''-B`) et valider via `audio-analyzer:audit_midi_harmony(..., strict_musicality=True)` (`musicality_verdict == "PASS"`) avant toute orchestration ou batterie.
+- **Cohésion verticale & horizontale** : accordage strict `A4 = 440 Hz ± 5 ct`, horloge rythmique unique (`one-shots` à `t = 0`), interdiction de transposition parallèle d'accords complets samplés, mouvement contraire/oblique `>= 55%`, relais d'attaques (`<= 15%` de chevauchement).
+- **Chaîne de Ciment Timbral `BUS Music`** : `gl.eq` (`HPF 120–150 Hz` + `LPF 11–14 kHz`) -> `gl.dist` (`Soft 4x`, `Mix 8–12%`) -> `gl.comp` Bus Glue (`Ratio 2.0`, `Attack 20 ms`, `Release 110 ms`) -> `gl.comp` Micro-Ducking Sidechain depuis le Kick (`Attack 5 ms`, `Release 80 ms`, `GR 1.5–2.5 dB`), complétés par `FX Room` unique (`Dry = 0`, `Dry (full) = 0`, `RT60 <= T_noire`).
 - **Double axe** : cohérence verticale (spectre/harmonie, max **3 couches fonctionnelles** hors batterie : Fondation, Harmonie/Texture, Motif/Voix) et horizontale (modèle prédictif en 4 étapes : Encodage -> Validation -> Surprise contrôlée 70/30 -> Résolution, avec renouvellement toutes les 4 et 8 mesures et ancrage *half-time* du Clap/Snare sur le 3e temps).
 - **Physique des durées & dimensionnement ADSR** ($T_{\text{noire}} = \frac{60\,000}{\text{BPM}}\text{ ms}$, ex. `333.3 ms` à `180 BPM`) :
   - *Ticks / Hi-Hats / Rimshots* : **`20–90 ms`** (`Attack 0 ms`, `Decay 30–70 ms`, `Sustain 0%`), extinction avant la subdivision suivante pour créer un silence intercalaire.

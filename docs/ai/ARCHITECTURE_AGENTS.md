@@ -8,7 +8,7 @@ Ce document décrit l'infrastructure exacte de `/home/gamo/Bureau/musicos` (lien
 | :--- | :--- | :--- |
 | `gridline` | `scripts/gridline-mcp.sh` | Pilote Gridline 0.7.7 (live via `--attach` si port `47390` actif, sinon fichier `projects/active/projet.gridline`). |
 | `audio-index` | `.venv/bin/python mcp-servers/audio-index/audio_index_server.py` | Recherche hybride Essentia + LAION CLAP (`laion/clap-htsat-unfused`) sur `mcp-servers/audio-index/samples.db` (1 898 fichiers dont 1 682 avec vecteurs CLAP). |
-| `audio-analyzer` | `.venv/bin/python mcp-servers/audio-analyzer/audio_analyzer_server.py` | Analyse ITU-R BS.1770 (`pyloudnorm`), True Peak 4x, spectre 5 bandes, corrélation de phase et masquage Kick/808. |
+| `audio-analyzer` | `.venv/bin/python mcp-servers/audio-analyzer/audio_analyzer_server.py` | Analyse ITU-R BS.1770 (`pyloudnorm`), True Peak 4x, spectre 5 bandes, corrélation de phase, masquage Kick/808, audit psychoacoustique profond (`audit_mix_deep`) et Gate de musicalité/voice leading (`audit_midi_harmony` + `musicality_metrics.py`). |
 | `vocaloid` | `.venv/bin/python mcp-servers/vocaloid/vocaloid_server.py` | Syllabation FR/EN, génération `.ustx` (OpenUTAU/DiffSinger) et synthèse d'aperçu vocal `.wav` via `espeak-ng` + `librosa`. |
 | `reverse-engineer` | `.venv/bin/python mcp-servers/reverse-engineer/reverse_engineer_server.py` | Séparation de stems (`gridline stems` avec `htdemucs` / `htdemucs_6s`), transcription Audio->MIDI (Basic Pitch ONNX `tools/models/nmp.onnx`), analyse harmonique et plan de flip Rap. |
 

@@ -30,12 +30,12 @@ La cohérence verticale est prioritaire : à chaque milliseconde, l'ensemble des
 * **Verrouillage d'Impact Composite (*Composite Hit*) :** Sur les temps forts structurels (ex. temps `1` et contretemps clés `1.5`, `2.75`), verrouiller simultanément (`± 5 ms`) l'attaque du **Kick** + la fondamentale de la **808** + l'attaque de l'**accord / stab harmonique** afin qu'ils fusionnent en un seul impact massif et cohérent.
 * **Un seul moteur de hi-hats principal :** Utiliser un seul motif de hi-hats cohérent (éventuellement doublé en stéréo/couches sur les **mêmes** subdivisions exactes), jamais 2 ou 3 boucles de hats aux rythmes indépendants.
 
-### V3. Grille d'Accords Maîtresse & Zéro Note Orpheline (*Shared Chord-Tone Grid*)
-* **Règle :** Définir une progression d'accords unique mesure par mesure dans le blueprint (ex. `4` mesures : `Em -> C -> Am -> B7` ou `Em -> C -> G -> D`).
-* **Alignement absolu des pistes :**
-  * La **808 / Basse** joue exclusivement la **fondamentale** (ou quinte/octave de passage brève) de l'accord actif à l'instant $t$.
-  * Tout **sample d'accord / stab** extrait en one-shot (`Root note = tonique du stab`) est **transposé en MIDI** pour suivre exactement la même progression (ou remplacé par des notes compatibles avec l'accord courant).
-  * Les **mélodies et arpèges** ne jouent que des notes appartenant à l'accord courant sur les temps forts (tonique, tierce, quinte, 7e) ; les notes de passage diatoniques ne sont autorisées que sur des subdivisions faibles et courtes.
+### V3. Grille d'Accords Maîtresse, Voice Leading & Zéro Transposition Parallèle d'Accords Samplés
+*(Voir les règles normatives détaillées dans [regles_melodie_et_cohesion_inter_pistes.md](regles_melodie_et_cohesion_inter_pistes.md) — Section C, V1 & V2.)*
+* **Règle :** Définir `harmonic_core` dans `song_blueprint.json` et générer la partition mère `master_sketch.mid` avant toute orchestration :
+  * **Conduite des voix minimale (*Smooth Voice Leading*)** : interdiction des accords en position fondamentale qui sautent en bloc. Calculer des renversements conservant les notes pivots avec un déplacement moyen **`<= 2.5` demi-tons** via `optimize_voice_leading(...)`.
+  * **Interdiction de transposition parallèle d'accords complets samplés** : ne jamais transposer un sample audio contenant déjà un accord complet (majeur ou mineur) sur tous les degrés d'une gamme (cela génère des accords parallèles hors gamme). Utiliser exclusivement un instrument polyphonique (`Headroom Piano Clean.sfz`, `gl.dcosynth`, `gl.analog`), un one-shot **monophonique** rejoué en polyphonie MIDI, ou un *power chord* strict (fondamentale + quinte sans tierce).
+  * La **808 / Basse** joue la fondamentale de l'accord actif ; les **mélodies** respectent les notes d'accord sur temps forts (`strong_beat_chord_tone_ratio >= 0.80`) et maintiennent un **mouvement contraire ou oblique** face à la basse (`contrary_or_oblique_ratio >= 0.55`).
 
 ### V4. Règle du Relais Vertical (*Call-and-Response* — Jamais deux leaders simultanés)
 * **Séparation temporelle dans la mesure :** Au lieu de faire jouer `Accords + Piano A + Piano B` à chaque temps, répartir les interventions en relais :
@@ -49,7 +49,14 @@ La cohérence verticale est prioritaire : à chaque milliseconde, l'ensemble des
   * `BUS Drums` (`Ratio 2.5:1`, `Attack 12 ms`, `Release 85 ms`) pour souder Kick, Snare, Clap et Hats.
   * `BUS Music` (`Ratio 2.0:1`, `Attack 20 ms`, `Release 110 ms`) pour souder Accords, Pianos et Textures.
   * `Master Comp` (`Ratio 1.6:1`, `Threshold -10 à -12 dB`, `GR 1–2 dB`) pour que l'instru entière respire sur un même battement.
-* **Égalisation Miroir (*Complementary EQ*) :** Chaque fois qu'un instrument leader est accentué dans une bande (ex. `+2 dB @ 1.2 kHz` sur le piano principal), creuser symétriquement (`-2 à -3 dB @ 1.2 kHz`) sur les accords ou pads d'accompagnement.
+* **Égalisation Miroir (*Complementary / Dynamic Carve EQ*) :** Chaque fois qu'un instrument leader est accentué dans une bande (`800 Hz – 3 kHz`), creuser symétriquement (`-2 à -4 dB`) sur les accords ou pads d'accompagnement (`TDR Nova` / `ZL Equalizer 2` en Live, ou EQ complémentaire `gl.eq` en Headless).
+
+### V6. Ciment Timbral Collectif (`BUS Music` Sonic Glue & Micro-Ducking)
+En complément de `FX Room`, **`BUS Music`** (Insert 11 ou bus harmonique dédié) doit appliquer une chaîne unificatrice complète sur l'ensemble des pistes mélodiques et harmoniques :
+1. **Coupe-haut unificateur (`gl.eq`)** : `Low cut 120–150 Hz` + `High cut (LPF) 11–14 kHz` ($12\text{ dB/oct}$) pour fondre la texture dans un même espace fréquentiel et laisser l'air $> 12\text{ kHz}$ aux hi-hats.
+2. **Saturation harmonique collective** : saturation très légère (`gl.dist` mode `Soft`, `Oversampling = 4x`, `Mix = 0.08–0.12` en portable natif, ou `CHOWTapeModel` subtil en Live GUI).
+3. **Compression de bus (`gl.comp`)** : `Ratio = 2.0`, `Attack = 0.020 s`, `Release = 0.110 s`, seuil ajusté pour `1.5–2.5 dB` de GR.
+4. **Micro-Ducking rythmique (`gl.comp`)** : `Detector input = Sidechain` alimenté par un send pré-fader du `Kick`, `Attack = 0.005 s`, `Release = 0.080 s` ($\approx 1/8$ de temps), `1.5–2.5 dB` de GR pour faire respirer l'harmonie sur le groove.
 
 ---
 
@@ -81,11 +88,19 @@ Un morceau est fluide lorsque chaque mesure et chaque section découlent logique
 
 ---
 
-## 4. Checklist Anti-Cafouillis (À valider avant tout rendu final)
+## 4. Checklist Anti-Cafouillis & Gate de Musicalité (À valider avant tout rendu final)
 
+* [ ] **Test de la Réduction Unique (`master_sketch.mid` + Test de la Nudité) :** La basse, les accords (en *voice leading*) et le Lead chantable (`A - A' - A'' - B`) ont-ils été validés seuls sur piano sec avant d'ajouter la batterie ?
+* [ ] **Gate `audit_midi_harmony` (`strict_musicality=True` -> `PASS`) :**
+  * `stepwise_ratio >= 0.65` et `gap_fill_compliance >= 0.60`
+  * `melody_rest_ratio` dans `[0.20, 0.50]`
+  * `strong_beat_chord_tone_ratio >= 0.80`
+  * `voice_leading_avg_semitones <= 2.50`
+  * `lead_overlap_conflict <= 0.15`
+  * `contrary_or_oblique_ratio >= 0.55`
 * [ ] **Test d'Accordage (`± 5 ct`) :** Tous les samples tonaux (808, accords, pianos, synthés) ont-ils été mesurés et recalés à `A4 = 440.0 Hz` ?
 * [ ] **Test de l'Horloge Unique :** Toutes les boucles étrangères ont-elles été remplacées par des one-shots propres (`t = 0`, sans pick-up caché) verrouillés sur la grille maîtresse du morceau ?
-* [ ] **Test de Verrouillage Harmonique :** À chaque mesure, la 808, les accords et les mélodies suivent-ils exactement le même accord de la grille (zéro note résiduelle de l'accord précédent) ?
-* [ ] **Test du Relais (*Call-and-Response*) :** Les attaques des accords et des contre-mélodies alternent-elles dans le temps au lieu de se chevaucher sur chaque temps ?
-* [ ] **Test du Ciment Acoustique :** Toutes les familles partagent-elles un bus réverb court (`FX Room`) et une compression de bus (`BUS Drums`, `BUS Music`, `Master Glue`) ?
+* [ ] **Test de Verrouillage Harmonique :** À chaque mesure, la 808, les accords (sans transposition parallèle d'accord complet samplé) et les mélodies suivent-ils exactement `harmonic_core` ?
+* [ ] **Test du Relais (*Call-and-Response*) :** Les attaques des accords et des contre-mélodies alternent-elles dans le temps au lieu de se chevaucher sur chaque temps (`lead_overlap_conflict <= 0.15`) ?
+* [ ] **Test du Ciment Timbral & Acoustique :** `BUS Music` applique-t-il `EQ (LPF 11-14k)` + `gl.dist Soft (Mix 8-12%)` + `gl.comp Glue` + `Kick Sidechain Micro-Ducking`, et toutes les familles partagent-elles `FX Room` (`Dry = 0`, `Dry (full) = 0`) ?
 * [ ] **Test d'Arc Dynamique :** Existe-t-il au moins `3 dB` d'écart LUFS réel entre Intro/Pont et Refrains ?

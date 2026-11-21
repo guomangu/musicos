@@ -455,10 +455,12 @@ def audit_midi_file(
     expected_key: str = "",
     min_pitch: int = 24,
     max_pitch: int = 91,
+    strict_musicality: bool = True,
 ) -> dict[str, Any]:
-    """Audite la justesse harmonique, la tessiture (notes trop aiguës) et les clashs MIDI."""
+    """Audite la justesse harmonique, la tessiture (notes trop aiguës), les clashs MIDI et les métriques de musicalité."""
     import music21
     import pretty_midi
+    from musicality_metrics import evaluate_midi_musicality
 
     abs_path = os.path.abspath(os.path.expanduser(midi_path))
     if not os.path.isfile(abs_path):
@@ -489,7 +491,7 @@ def audit_midi_file(
 
     track_reports: list[dict[str, Any]] = []
     melodic_notes: list[tuple[float, float, int, str]] = []
-    perc_re = re.compile(r"\b(kick|snare|clap|hi[- ]?hat|hat|perc|rim|cymbal|crash|tom|shaker|808 kick)\b")
+    perc_re = re.compile(r"\b(kick|snare|clap|open[- ]?hat|hi[- ]?hat|hat|perc|rim|cymbal|crash|tom|shaker|drum|808 kick)\b")
     for inst in pm.instruments:
         name = inst.name or f"Track_{inst.program}"
         if not inst.notes:
@@ -548,11 +550,26 @@ def audit_midi_file(
                     }
                 )
 
+    musicality = evaluate_midi_musicality(abs_path)
+    out_of_scale_total = sum(tr.get("out_of_scale_count", 0) for tr in track_reports if not tr["is_drum"])
+    gate_ok = (
+        musicality["musicality_verdict"] == "PASS"
+        and out_of_scale_total == 0
+        and len(clashes) == 0
+        and len(sub_collisions) == 0
+    )
+
     return {
         "midi_path": abs_path,
         "detected_key": detected_key_str,
         "expected_key": ref_key_str,
         "key_matches_expected": detected_key_str.lower() == ref_key_str.lower(),
+        "strict_musicality": strict_musicality,
+        "musicality_verdict": musicality["musicality_verdict"],
+        "gate_passed": gate_ok if strict_musicality else (out_of_scale_total == 0 and len(clashes) == 0),
+        "musicality_metrics": musicality["metrics"],
+        "musicality_detected_roles": musicality["detected_roles"],
+        "musicality_failures": musicality["failures"],
         "tracks": track_reports,
         "minor_2nd_clashes": clashes,
         "low_end_simultaneous_collisions": sub_collisions,

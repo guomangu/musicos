@@ -16,7 +16,8 @@ Ce guide permet aux agents IA de concevoir rapidement un `song_blueprint.json` s
    - **Trap sombre / Hard** : Mineur naturel (Éolien) ou Phrygien (`bII -> i`, tension demi-ton).
    - **Cloud / Mélodique** : Mineur naturel ou Dorien.
    - **Règle d'accordage 808** : mesurer `f0` après le transitoire (`50–450 ms`), régler `Root note` (`24` pour `C1`, `36` pour `C2`) et `Fine tune` en cents ; privilégier les fondamentales entre **`41 et 85 Hz`** (`E1–E2`, éviter de rester sous `38 Hz`).
-4. **Assembler `structure` + `frequency_plan` + `tracks`** selon les modèles ci-dessous.
+4. **Assembler `harmonic_core` + `structure` + `frequency_plan` + `tracks`** selon les modèles ci-dessous :
+   - Calculer les renversements `voicing_midi` par minimisation $L_1$ (*Smooth Voice Leading* `<= 2.5` demi-tons), définir `motif_cell` et `phrase_plan` (`A-A'-A''-B`), puis valider `master_sketch.mid` avec `audit_midi_harmony(..., strict_musicality=True)` (`PASS` obligatoire avant batterie).
 5. **Valider immédiatement** contre le schéma officiel :
    ```bash
    /home/gamo/Bureau/musicos/.venv/bin/python -c \
@@ -66,10 +67,11 @@ Idéal pour un morceau Rap / Trap complet suivant le protocole multi-échelles (
   1. *Fondation* (`808 / Sub`)
   2. *Harmonie / Texture* (`Pad / Chords / Guitare`)
   3. *Motif / Voix* (`Lead Rap / Vocal / Contre-chant aigu`)
-- **Cohésion Inter-Pistes (Verticale & Horizontale)** (voir [harmonisation_verticale_et_horizontale.md](../harmonisation_verticale_et_horizontale.md)) :
-  - **Accordage unifié (`440 Hz ± 5 ct`)** sur tous les samples tonaux (808, accords, pianos).
-  - **Horloge unique** : découper toute boucle d'un autre groove en one-shots propres (`t = 0` sans pick-up caché) et re-quantifier sur la grille maîtresse ; verrouiller `Kick + 808 + Accord` sur les temps forts.
-  - **Relais *Call-and-Response*** & **grille d'accords partagée** : les stabs d'accords suivent les fondamentales de la 808 en MIDI, et les contre-mélodies répondent dans les vides rythmiques.
+- **Cohésion Inter-Pistes & Composition Top-Down** (voir [regles_melodie_et_cohesion_inter_pistes.md](../regles_melodie_et_cohesion_inter_pistes.md) et [harmonisation_verticale_et_horizontale.md](../harmonisation_verticale_et_horizontale.md)) :
+  - **Réduction Unique (`master_sketch.mid`)** : écrire `Bass`, `Chords` (voice leading `<= 2.5 st`) et `Lead` (`M1–M5`) seuls sur piano sec et passer le Gate `audit_midi_harmony(..., strict_musicality=True)` (`PASS`) avant tout drum.
+  - **Interdiction de transposition parallèle d'accords samplés** : jamais de sample d'accord majeur/mineur complet transposé sur tous les degrés ; utiliser un instrument polyphonique, un one-shot monophonique ou un *power chord* strict (fondamentale + quinte sans tierce).
+  - **Accordage unifié (`440 Hz ± 5 ct`)** & **Horloge unique** (`one-shots` à `t = 0`, verrouillage `Kick + 808 + Accord`).
+  - **Ciment Timbral `BUS Music`** : `gl.eq` (`LPF 11–14 kHz`), `gl.dist` (`Soft 4x Mix 8–12%`), `gl.comp` Glue (`2:1`), `gl.comp` Micro-Ducking Kick Sidechain (`GR 1.5–2.5 dB`).
 - **Dimensionnement temporel & Enveloppes ADSR (`T_noire = 60000 / BPM ms`)** (voir [protocole_universel...md](../protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md)) :
   - Calculer la grille en ms (ex. à `180 BPM` : `1 mesure = 1333.3 ms`, `1 noire = 333.3 ms`, `1 croche = 166.7 ms`, `1 double-croche = 83.3 ms`, `1 triple-croche = 41.7 ms`).
   - **Ticks / Hi-Hats** : `20–90 ms` (`Attack 0`, `Decay 30–70 ms`, `Sustain 0%`), extinction avant la subdivision suivante.
@@ -100,6 +102,23 @@ Idéal pour un morceau Rap / Trap complet suivant le protocole multi-échelles (
   "key": "E minor",
   "swing": 0.06,
   "target_lufs": -10.5,
+  "harmonic_core": {
+    "key": "E",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      { "bar": 1, "symbol": "Em7", "bass_midi": 28, "voicing_midi": [52, 55, 59, 62], "chord_tones_pc": [4, 7, 11, 2] },
+      { "bar": 2, "symbol": "Cmaj7", "bass_midi": 36, "voicing_midi": [52, 55, 59, 60], "chord_tones_pc": [0, 4, 7, 11] },
+      { "bar": 3, "symbol": "Am9", "bass_midi": 33, "voicing_midi": [52, 57, 59, 60], "chord_tones_pc": [9, 0, 4, 11] },
+      { "bar": 4, "symbol": "Bm7", "bass_midi": 35, "voicing_midi": [50, 54, 57, 59], "chord_tones_pc": [11, 2, 6, 9] }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [0, 3, 7, 5],
+      "rhythm_beats": [0.0, 0.5, 1.0, 2.0],
+      "apex_midi": 79
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
   "structure": [
     {
       "section": "Intro",

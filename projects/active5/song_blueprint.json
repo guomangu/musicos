@@ -10,6 +10,23 @@
   "key": "E minor",
   "swing": 0.05,
   "target_lufs": -10.5,
+  "harmonic_core": {
+    "key": "E",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      { "bar": 1, "symbol": "Em7", "bass_midi": 28, "voicing_midi": [55, 59, 62, 64], "chord_tones_pc": [4, 7, 11, 2] },
+      { "bar": 2, "symbol": "Cadd9", "bass_midi": 36, "voicing_midi": [55, 60, 62, 64], "chord_tones_pc": [0, 4, 7, 2] },
+      { "bar": 3, "symbol": "Am7", "bass_midi": 33, "voicing_midi": [55, 57, 60, 64], "chord_tones_pc": [9, 0, 4, 7] },
+      { "bar": 4, "symbol": "Bm7", "bass_midi": 35, "voicing_midi": [54, 57, 59, 62], "chord_tones_pc": [11, 2, 6, 9] }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [0, 3, 2, 3],
+      "rhythm_beats": [0.0, 0.5, 1.0, 2.0],
+      "apex_midi": 81
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
   "structure": [
     {
       "section": "Intro (Encodage)",
