@@ -1,87 +1,87 @@
 {
-  "title": "Stoicville Ignition (180 BPM Progressive Trap)",
-  "genre": "Dark Trap / Rap Flip",
-  "mood": "Sombre, percutant, progressif et cinématique",
+  "title": "Obsidian Pulse (180 BPM Progressive Trap)",
+  "genre": "Dark Melodic Trap (Instrumental)",
+  "mood": "Cohésif, sombre, rythmé et progressif",
   "bpm": 180,
   "time_signature": {
     "numerator": 4,
     "denominator": 4
   },
   "key": "E minor",
-  "swing": 0.06,
+  "swing": 0.05,
   "target_lufs": -10.5,
   "structure": [
     {
       "section": "Intro (Encodage)",
       "start_bar": 1,
       "bars": 8,
-      "energy": 0.35,
-      "active_roles": ["chords_pad_filtered", "piano_pizz", "vocal_intro"],
-      "notes": "T_noire=333.3ms (1 mesure=1333.3ms). M1-4 : Chords E filtré LPF + ostinato Upright Pizz E3 (question/réponse) + Stoicville Intro. M5-8 : entrée Techno Key Hats filtrés (pulse 1/8) + pivot M8 temps 4 : mute + Techno Chords Riser (4 temps) + Bankroll Alright."
+      "energy": 0.32,
+      "active_roles": ["pad_filtered", "piano_pizz", "rim_shaker"],
+      "notes": "Grille maîtresse Em -> Em -> C -> Am/Bm (440 Hz strict). M1-4 : Techno Pad E filtré + Upright Pizz question/réponse. M5-8 : entrée Rim & Shaker sur grille unique + pivot M8 temps 4 (mute + FX Room cut + Riser 4 temps)."
     },
     {
       "section": "Refrain 1 (Drop Initial)",
       "start_bar": 9,
       "bars": 8,
-      "energy": 0.90,
-      "active_roles": ["808_blxckout", "chords_pad_open", "lead_rap_hook"],
-      "notes": "Contraste Staccato/Legato : 808 Blxckout mono (Voices=1, Release=45ms) soutenue vs drums/pizz staccato. Kick (gl.kick + techno_kick_oneshot 125ms) sidechain BUS 808 ; Snare + Clap (gl.clap + techno_clap_oneshot 190ms) verrouillés temps 3 ; Hat (gl.hat + techno_hat_oneshot 65ms) avec rolls 1/32T ; Stoicville Hook + (SXJ) Chants (6) ; M13-16 variation 808 turnaround + fill M16."
+      "energy": 0.88,
+      "active_roles": ["808_blxckout", "chord_stab_main", "piano_high"],
+      "notes": "Verrouillage composite Kick + 808 Blxckout (mono cut itself) + Chord Stab (Em->C->Am->Bm) sur temps forts ; Headroom Piano High en relais call-and-response dans les vides ; Snare/Clap temps 3 ; Hat 45ms avec triolets 1/32T."
     },
     {
-      "section": "Couplet 1 (Rap - 8+8)",
+      "section": "Couplet 1 (Groove Épuré - 8+8)",
       "start_bar": 17,
       "bars": 16,
-      "energy": 0.76,
-      "active_roles": ["808_apollo", "piano_pizz", "lead_rap_v1"],
-      "notes": "M17-24 : soustraction des Chords/High Piano pour dégager 800Hz-2.5kHz sous Stoicville Verse 1 ; 808 Apollo en mode Bounce court (1/4-1/2 temps, mono cut itself). M25-32 : ajout Upright Pizz staccato + Techno Perc 180BPM (>1.6kHz) + rolls 1/32T M28/M32 + mute total temps 4 de M32."
+      "energy": 0.72,
+      "active_roles": ["808_apollo", "piano_pizz", "pad_filtered"],
+      "notes": "M17-24 : soustraction Chord Stab et Headroom High ; Upright Pizz + 808 Apollo bounce court + Rim perc. M25-32 : ajout Pad E doux + Shaker 70ms + rolls 1/32T ; mute total temps 4 de M32."
     },
     {
-      "section": "Pont / Pré-Refrain (Tension)",
+      "section": "Pont / Pré-Refrain (Suspension)",
       "start_bar": 33,
       "bars": 8,
-      "energy": 0.45,
-      "active_roles": ["chords_pad_filtered", "piano_high", "vocal_intro"],
-      "notes": "Coupure 808 et Kick. Tension harmonique Chords E + Headroom Piano High (+12 st) + Stoicville Intro ; M37-40 : montée percussive + roll snare M40 + Riser inversé + Bankroll Alright."
+      "energy": 0.42,
+      "active_roles": ["pad_filtered", "piano_high", "rim_shaker"],
+      "notes": "Coupure 808 et Kick. Pad E (Em->C->Am->Bm) + arpège suspendu Headroom Piano High ; M37-40 montée snare + Riser 4 temps."
     },
     {
-      "section": "Refrain 2 (Climax Progressif - 8+8)",
+      "section": "Refrain 2 (Élévation - 8+8)",
       "start_bar": 41,
       "bars": 16,
-      "energy": 0.95,
-      "active_roles": ["808_blxckout", "chords_pad_open", "lead_rap_hook"],
-      "notes": "M41-48 : retour plein + Techno Hats 180BPM top-loop (>4kHz) + 808 Blxckout avec slides/octaves + (SXJ) Chants. M49-56 : ajout couche Chords E High +12st (HPF 650Hz) + Open Hat contretemps + fill M56 temps 4."
+      "energy": 0.94,
+      "active_roles": ["808_blxckout", "chord_stab_main", "piano_high"],
+      "notes": "M41-48 : retour plein + OpenHat & Shaker sur grille unique + (SXJ) Chants ponctuation M42/M46. M49-56 : ajout Chord Stab High (+12 st, HPF 550 Hz) + glissandos 808 + fill M56."
     },
     {
-      "section": "Couplet 2 (Texture Chopped - 8+8)",
+      "section": "Couplet 2 (Staccato & Relais - 8+8)",
       "start_bar": 57,
       "bars": 16,
-      "energy": 0.82,
-      "active_roles": ["808_apollo", "chords_pad_chopped", "lead_rap_v2"],
-      "notes": "Erreur de prédiction 70/30 : Techno Chords E Chopped (stabs staccato) + Techno Perc 180BPM + 808 Apollo syncopée + Stoicville Verse 2. M65-72 : retour Upright Pizz + rolls pitch-down M68/M72 + mute temps 4 M72 + Riser + Bankroll Alright."
+      "energy": 0.78,
+      "active_roles": ["808_apollo", "chord_stab_main", "piano_pizz"],
+      "notes": "Relais serré : Chord Stab court sur temps 1/3 face à Upright Pizz en réponse sur contretemps + 808 Apollo syncopée + Rim/Shaker ; M65-72 montée rythmique + mute M72 + Riser 4 temps."
     },
     {
-      "section": "Refrain 3 (Énergie Maximale - 8+8)",
+      "section": "Refrain 3 (Climax Maximal - 8+8)",
       "start_bar": 73,
       "bars": 16,
       "energy": 1.0,
-      "active_roles": ["808_blxckout", "chords_pad_high12", "lead_rap_hook"],
-      "notes": "Climax maximal (3 couches max hors batterie) : Chords E Open + High +12st + Headroom Piano High en réponses + double top-loop Hats/Key Hats (>4kHz) + Techno Perc + 808 Blxckout glides M73-88."
+      "active_roles": ["808_blxckout", "chord_stab_high12", "piano_high"],
+      "notes": "Énergie maximale (3 couches max hors drums) : 808 Blxckout glides + Chord Stab & High +12 + Headroom Piano en relais aigu + double couche Hats/Shaker/OpenHat."
     },
     {
       "section": "Outro (Résolution)",
       "start_bar": 89,
       "bars": 8,
       "energy": 0.25,
-      "active_roles": ["chords_pad_filtered", "piano_high", "vocal_outro"],
-      "notes": "Soustraction progressive : coupe 808 à M89, coupe batterie complète à M93 ; reste Chords E filtré + notes isolées Headroom Piano + Upright Pizz tonique E3 + Stoicville Outro + Bankroll Alright en extinction propre."
+      "active_roles": ["pad_filtered", "piano_pizz", "piano_high"],
+      "notes": "Soustraction progressive : coupe 808 à M89, coupe batterie à M93, résolution finale sur tonique Em."
     }
   ],
   "frequency_plan": {
-    "sub_20_60": "Exclusivement réservé à 808 Apollo et 808 Blxckout (mono strict < 120 Hz, HPF 28 Hz, Voices=1 cut itself).",
-    "bass_60_250": "Kick (gl.kick + techno_kick_oneshot 125ms, HPF 32 Hz) sidechain 15-40ms vers BUS 808 ; HPF >= 140 Hz sur tous les mélodiques/voix.",
-    "low_mids_250_500": "Corps Snare/Clap, Upright Piano Pizz et Chords E (coupe douce ~300 Hz, garder <= 24% d'énergie).",
-    "mids_500_4000": "Poche vocale 800 Hz - 3 kHz prioritaire pour Stoicville Vocals ; creux -3 dB @ 1.8 kHz sur Chords E et Pianos.",
-    "highs_4000_20000": "Ticks courts 20-65ms (gl.hat + techno_hat_oneshot), top-loops > 4 kHz, Headroom Piano +12st, FX Room RT60=0.67s (2*T_noire, HPF 450Hz, Dry=0)."
+    "sub_20_60": "Mono strict réservé à 808 Apollo et 808 Blxckout (Voices=1 cut itself, HPF 28 Hz).",
+    "bass_60_250": "Kick (gl.kick + techno_kick_oneshot 125ms) sidechain -> BUS 808 ; HPF >= 155 Hz sur tous les accords, pianos et percs.",
+    "low_mids_250_500": "Corps Snare, Upright Pizz et base Chord Stab (EQ miroir -2.5 dB @ 320 Hz sur Pad/Stab).",
+    "mids_500_4000": "Zone leader partagée par relais temporel : Upright Pizz en couplets vs Chord Stab & Headroom Piano en refrains (EQ miroir -2 dB @ 1.2 kHz sur Pad).",
+    "highs_4000_20000": "Ticks secs (Hat 45ms + Techno Hat 65ms + Shaker 70ms), OpenHat 180ms, brillance Headroom Piano, FX Room unique (RT60=0.333s=T_noire, Dry=0)."
   },
   "tracks": [
     {
@@ -90,12 +90,12 @@
       "source_type": "gridline_native",
       "plugin": "gl.kick",
       "mixer_track": 1,
-      "freq_lane": "55-120 Hz + click 2-4 kHz",
+      "freq_lane": "54-120 Hz + click 2-4 kHz",
       "pan": 0.0,
-      "notes": "Decay court (~120 ms), sidechain pré-fader vers BUS 808."
+      "notes": "Decay 125 ms, verrouillé avec 808 et Chord Stab, sidechain vers BUS 808."
     },
     {
-      "name": "Techno Kick OneShot (Derived)",
+      "name": "Techno Kick OneShot",
       "role": "kick_layer",
       "source_type": "sample",
       "plugin": "gl.sampler",
@@ -103,7 +103,7 @@
       "mixer_track": 1,
       "freq_lane": "60-140 Hz",
       "pan": 0.0,
-      "notes": "Extrait 125 ms de Techno Batch Kick 125.wav (HPF 32 Hz), renforce l'attaque du Kick."
+      "notes": "125 ms dérivé de Techno Batch Kick 125."
     },
     {
       "name": "MZ 808 [Apollo]",
@@ -114,7 +114,7 @@
       "mixer_track": 2,
       "freq_lane": "30-150 Hz (mono)",
       "pan": 0.0,
-      "notes": "Root note 24 (C1), Fine tune -14 ct, Voices=1 cut itself, Release 45 ms, Glide 55 ms (couplets bounce)."
+      "notes": "Root 24 (C1), Fine -14 ct (440 Hz), Voices=1, Release 45 ms, Glide 55 ms (Couplets bounce)."
     },
     {
       "name": "MZ 808 [Blxckout]",
@@ -125,7 +125,7 @@
       "mixer_track": 3,
       "freq_lane": "30-180 Hz (mono)",
       "pan": 0.0,
-      "notes": "Root note 24 (C1), Fine tune +6 ct, Voices=1 cut itself, Release 45 ms, Glide 55 ms (refrains sostenuto)."
+      "notes": "Root 24 (C1), Fine +6 ct (440 Hz), Voices=1, Release 45 ms, Glide 55 ms (Refrains sostenuto)."
     },
     {
       "name": "Snare (Native)",
@@ -135,7 +135,7 @@
       "mixer_track": 4,
       "freq_lane": "180 Hz - 10 kHz",
       "pan": 0.0,
-      "notes": "Verrouillé sur le 3e temps (half-time 180 BPM) + fills de transition M16/M40/M56."
+      "notes": "Temps 3 (half-time) + ghost notes + builds."
     },
     {
       "name": "Clap (Native)",
@@ -145,193 +145,155 @@
       "mixer_track": 5,
       "freq_lane": "800 Hz - 12 kHz",
       "pan": 0.0,
-      "notes": "Layer sec sur le 3e temps."
+      "notes": "Layer sec temps 3."
     },
     {
-      "name": "Techno Clap OneShot (Derived)",
+      "name": "Techno Clap OneShot",
       "role": "clap_layer",
       "source_type": "sample",
       "plugin": "gl.sampler",
       "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_clap_oneshot.wav",
       "mixer_track": 5,
       "freq_lane": "600 Hz - 12 kHz",
-      "pan": -0.08,
-      "notes": "Extrait 190 ms de Techno Batch Clap 125.wav pour largeur et claquant sur temps 3."
+      "pan": -0.06,
+      "notes": "190 ms dérivé de Techno Batch Clap 125."
     },
     {
       "name": "Hat (Native)",
-      "role": "hihat_rolls",
+      "role": "hihat_main",
       "source_type": "gridline_native",
       "plugin": "gl.hat",
       "mixer_track": 6,
       "freq_lane": "4-18 kHz",
-      "pan": 0.08,
-      "notes": "Decay court (< 60 ms), subdivisions 1/8, 1/16, 1/32T pitch-down humanisées."
+      "pan": 0.06,
+      "notes": "Decay 45 ms, subdivisions 1/8, 1/16, 1/32T."
     },
     {
-      "name": "Techno Hat OneShot (Derived)",
-      "role": "hat_accent",
+      "name": "Techno Hat OneShot",
+      "role": "hihat_layer",
       "source_type": "sample",
       "plugin": "gl.sampler",
       "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_hat_oneshot.wav",
       "mixer_track": 6,
       "freq_lane": "4-18 kHz",
-      "pan": -0.14,
-      "notes": "Tick sec 65 ms extrait de Techno Key Hats 125.wav, alternance binaire/ternaire."
+      "pan": -0.10,
+      "notes": "65 ms dérivé de Techno Key Hats 125."
     },
     {
-      "name": "Techno OpenHat OneShot (Derived)",
+      "name": "Techno OpenHat OneShot",
       "role": "openhat",
       "source_type": "sample",
       "plugin": "gl.sampler",
       "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_openhat_oneshot.wav",
       "mixer_track": 7,
       "freq_lane": "4-18 kHz",
-      "pan": 0.18,
-      "notes": "180 ms extrait de Techno Key Hats 125.wav sur les contretemps et fins de mesures."
+      "pan": 0.14,
+      "notes": "180 ms sur contretemps en Refrain 2 & 3."
     },
     {
-      "name": "Techno Hats 180BPM (Derived)",
-      "role": "top_loop_hats",
+      "name": "Techno Rim OneShot",
+      "role": "rim_perc",
       "source_type": "sample",
       "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_hats_180bpm.wav",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_rim_oneshot.wav",
       "mixer_track": 7,
-      "freq_lane": "4.2-18 kHz (HPF)",
-      "pan": -0.1,
-      "notes": "Dérivé de Techno Batch Hats 125.wav pour Refrain 2 & 3."
+      "freq_lane": "650 Hz - 10 kHz",
+      "pan": -0.14,
+      "notes": "95 ms extrait de Techno Batch Drums Kick Free, calé sur grille Trap."
     },
     {
-      "name": "Techno Key Hats 180BPM (Derived)",
-      "role": "top_loop_key_hats",
+      "name": "Techno Shaker OneShot",
+      "role": "rim_shaker",
       "source_type": "sample",
       "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_key_hats_180bpm.wav",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_shaker_oneshot.wav",
       "mixer_track": 7,
-      "freq_lane": "4.2-18 kHz (HPF)",
+      "freq_lane": "3.2-16 kHz",
       "pan": 0.12,
-      "notes": "Dérivé de Techno Key Hats 125.wav (Intro M5-8, Pont, Refrain 3)."
+      "notes": "70 ms extrait de Techno Solar Drums, pulse binaire unifié."
     },
     {
-      "name": "Techno Perc 180BPM (Derived)",
-      "role": "perc_loop",
+      "name": "Techno Pad E (440 Hz)",
+      "role": "pad_filtered",
       "source_type": "sample",
       "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_perc_180bpm.wav",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_pad_e_440.wav",
       "mixer_track": 8,
-      "freq_lane": "1.6-12 kHz (HPF)",
-      "pan": 0.15,
-      "notes": "Dérivé de Techno Batch Drums Kick Free 125.wav (HPF 1.6 kHz) pour Couplet 1/2 et Refrain 3."
+      "freq_lane": "165 Hz - 2.8 kHz",
+      "pan": 0.0,
+      "notes": "Root 64 (E4), Fine -4 ct (440 Hz). Suit Em->C->Am->Bm en Intro, Couplet 1b, Pont, Outro."
     },
     {
-      "name": "Upright Piano Pizz E",
+      "name": "Techno Chord Stab (440 Hz)",
+      "role": "chord_stab_main",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chord_stab_e_440.wav",
+      "mixer_track": 9,
+      "freq_lane": "165 Hz - 8 kHz",
+      "pan": 0.0,
+      "notes": "Power chord E+B calé t=0, Root 64, Fine -4 ct (440 Hz). Suit Em->C->Am->Bm verrouillé sur Kick/808."
+    },
+    {
+      "name": "Techno Chord High +12 (440 Hz)",
+      "role": "chord_stab_high12",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chord_stab_e_440.wav",
+      "mixer_track": 12,
+      "freq_lane": "550 Hz - 12 kHz",
+      "pan": 0.0,
+      "notes": "Même stab joué +12 st (Root 52, Fine -4 ct) pour élévation Refrain 2b & Refrain 3."
+    },
+    {
+      "name": "Techno Chord Riser (440 Hz)",
+      "role": "riser_rev",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chord_riser_440.wav",
+      "mixer_track": 12,
+      "freq_lane": "200 Hz - 6 kHz",
+      "pan": 0.0,
+      "notes": "Riser 4 temps calé avant Refrain 1, 2, 3."
+    },
+    {
+      "name": "Upright Piano Pizz E (440 Hz)",
       "role": "piano_pizz",
       "source_type": "sample",
       "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/soundbanks/155852__day_tripper13__upright-piano-pizz-e-dull-2.wav",
-      "mixer_track": 9,
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/upright_pizz_e3_440.wav",
+      "mixer_track": 10,
       "freq_lane": "180 Hz - 4.5 kHz",
-      "pan": -0.18,
-      "notes": "Root note 52 (E3), Fine tune +39 ct. Motif question/réponse en Mi mineur."
+      "pan": -0.14,
+      "notes": "Trimmed t=0, Root 52 (E3), Fine +8 ct (440 Hz). Notes d'accord strictes en relais."
     },
     {
-      "name": "Headroom Piano High",
+      "name": "Headroom Piano High (440 Hz)",
       "role": "piano_high",
       "source_type": "sample",
       "plugin": "gl.sampler",
       "sample_path": "/home/gamo/Bureau/musicos/soundbanks/sfz/headroom-piano/Samples/HEADROOM PIANO LEVEL5 CLOSE 93.flac",
-      "mixer_track": 10,
+      "mixer_track": 11,
       "freq_lane": "450 Hz - 12 kHz",
-      "pan": 0.20,
-      "notes": "Root note 93 (A5), Fine tune -15 ct. Contre-chant aigu (+12 st) staccato dans Pont/Refrains/Outro."
-    },
-    {
-      "name": "Techno Chords E Open (Derived)",
-      "role": "chords_pad_open",
-      "source_type": "sample",
-      "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chords_e_180bpm.wav",
-      "mixer_track": 11,
-      "freq_lane": "160 Hz - 4 kHz",
-      "pan": 0.0,
-      "notes": "Dérivé de Techno Batch Chords E 125.wav (HPF 150 Hz, creux vocal 1.8 kHz)."
-    },
-    {
-      "name": "Techno Chords E Chopped (Derived)",
-      "role": "chords_pad_chopped",
-      "source_type": "sample",
-      "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chords_e_chop.wav",
-      "mixer_track": 11,
-      "freq_lane": "160 Hz - 4 kHz",
-      "pan": 0.0,
-      "notes": "Version staccato découpée pour Couplet 2."
-    },
-    {
-      "name": "Techno Chords E High +12 (Derived)",
-      "role": "chords_pad_high12",
-      "source_type": "sample",
-      "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chords_e_high12.wav",
-      "mixer_track": 12,
-      "freq_lane": "650 Hz - 10 kHz",
-      "pan": 0.0,
-      "notes": "Octave +12 st de Techno Chords E pour élévation Refrain 2 (2e moitié) et Refrain 3."
-    },
-    {
-      "name": "Techno Chords E Riser (Derived)",
-      "role": "riser_rev",
-      "source_type": "sample",
-      "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/techno_chords_e_rev.wav",
-      "mixer_track": 12,
-      "freq_lane": "200 Hz - 6 kHz",
-      "pan": 0.0,
-      "notes": "Riser inversé 1.333 s (4 temps) avant Refrain 1, Refrain 2 et Refrain 3."
-    },
-    {
-      "name": "Stoicville Rap Vocal (Derived)",
-      "role": "lead_rap",
-      "source_type": "sample",
-      "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/stoicville_verse1.wav",
-      "mixer_track": 13,
-      "freq_lane": "150 Hz - 12 kHz (présence 1.5-3 kHz)",
-      "pan": 0.0,
-      "notes": "Segments Intro, Hook, Verse 1, Verse 2, Outro dérivés du stem Stoicville."
+      "pan": 0.16,
+      "notes": "Root 93 (A6), Fine -14 ct (440 Hz). Contre-chant aigu en relais dans les espaces libres."
     },
     {
       "name": "(SXJ) Chants (6)",
-      "role": "chant_vox",
+      "role": "chant_accent",
       "source_type": "sample",
       "plugin": "gl.sampler",
       "sample_path": "/home/gamo/Bureau/musicos/soundbanks/JMizzy The Best Drum Kits/JUGG DRUM KIT/Chants (Voxs)/(SXJ) Chants (6).wav",
-      "mixer_track": 14,
-      "freq_lane": "300 Hz - 8 kHz",
-      "pan": 0.24,
-      "notes": "Chants trap sur contretemps dans les refrains."
-    },
-    {
-      "name": "Vocal FX Bankroll Alright (Derived)",
-      "role": "vocal_fx_alright",
-      "source_type": "sample",
-      "plugin": "gl.sampler",
-      "sample_path": "/home/gamo/Bureau/musicos/projects/active5/samples/bankroll_alright_clean.wav",
-      "mixer_track": 14,
-      "freq_lane": "300 Hz - 9 kHz",
-      "pan": -0.22,
-      "notes": "Marqueur de transition aux pivots M8, M40, M72 et Outro."
+      "mixer_track": 13,
+      "freq_lane": "350 Hz - 8 kHz",
+      "pan": 0.18,
+      "notes": "Courte ponctuation rythmique Trap (200 ms) sur mesures 2 et 6 des refrains."
     }
   ],
   "vocals": {
-    "enabled": true,
+    "enabled": false,
     "language": "en",
-    "singer": "T-Pain (Stoicville Acapella)",
-    "lyrics_sections": [
-      {
-        "section": "Intro / Hook / Verse 1 / Verse 2 / Outro",
-        "lyrics": "Extraits rap de '90 BPM - T-Pain - Stoicville.mp3' découpés et calés sur la grille 180 BPM half-time."
-      }
-    ]
+    "singer": "",
+    "lyrics_sections": []
   }
 }

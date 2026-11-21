@@ -271,3 +271,17 @@ Conformément à [sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sou
 - **Zéro faux clash `audit_midi_harmony` sur samplers de boucles** :
   - Régler `Root note = 64` (`E4`) et déclencher les boucles/voix sur `pitch = 64` (au lieu de `C4 = 60` face à `B3` de `Upright Pizz`) supprime tous les faux positifs `minor_2nd_cluster` (`0` clash, `0` note hors gamme `E minor`).
 - **Résultat final vérifié (`Stoicville_Ignition_final.wav`, `128.51 s` = `96 mesures @ 180 BPM`)** : **`-11.48 LUFS`**, **`-1.09 dBTP`**, `0` sample clippé, `0` résonance 1/3 octave, `correlation_low_end_150hz = 1.000`, `low_mid_200_800hz_correlation = 0.942`, `sharpness = 1.776 acum`, `air = 6.25%`, `PQ = 7.945`, `CU = 7.585`, `detected_key = "E minor"`.
+
+---
+
+## 11. Résolution Universelle du « Cafouillis » & Refonte Instrumentale *Obsidian Pulse* (`projects/active5/projet.gridline`, 2026-11-22)
+- **Diagnostic racine sur retour utilisateur (*« sons pas liés entre eux, brouillon et cafouillis »*)** :
+  1. **Dérive micro-tonale cumulée (`45 cents`)** : `Upright Pizz E` (`-31 ct` + `17.1 ms` de silence pré-transitoire), `Techno Chords E` (`-13 ct`), et `Headroom 93` (`+14 ct`), donnant `tuning_a4_hz = 453.15 Hz (+51 ct)` sur le mix global.
+  2. **Pick-up dissonant caché à `t = 0` & poly-grooves** : `Techno Batch Chords E 125.wav` démarre par une queue `B / D#` à `0.023 s` avant son accord principal (`0.221 s`, contretemps techno), et les 3 boucles Techno (`Hats`, `Key Hats`, `Perc`) créaient une horloge 4/4 concurrente du *half-time* Trap.
+  3. **Absence de grille harmonique unifiée** : un accord statique `Em` affrontait une ligne `808` mobile (`Em -> C -> G -> B`) et deux pianos jouant simultanément sans relais temporel.
+- **Solution universelle formalisée dans [docs/harmonisation_verticale_et_horizontale.md](harmonisation_verticale_et_horizontale.md) et appliquée** :
+  - Suppression complète de la piste de rappeur (`Stoicville` + `Bankroll`).
+  - Extraction de **one-shots propres calés à `t = 0`** et **accordés à `A4 = 440.0 Hz`** (`techno_chord_stab_e_440.wav` Power Chord `E+B`, `techno_pad_e_440.wav`, `techno_chord_riser_440.wav`, `upright_pizz_e3_440.wav` trimmé des `17.1 ms`, `techno_rim_oneshot.wav`, `techno_shaker_oneshot.wav`), tous re-programmés sur l'unique grille `180 BPM`.
+  - **Grille d'accords maîtresse unique (`Em -> Em7 -> Cmaj7 -> Am/Bm`)** : les stabs d'accords sont transposés en MIDI et verrouillés sur `Kick + 808` (`beat 0.0 / 1.5`), tandis que `Upright Pizz` et `Headroom Piano` répondent strictement dans les vides (`1.0 / 2.5 / 3.5`) en notes d'accord.
+  - **Ciment acoustique** : `FX Room` unique partagé (`0.333 s`, `Dry = 0`, `HPF 420 Hz`, automation de coupure sur M8/M32/M40/M56/M72) + compression glue sur `BUS Drums`, `BUS Music` (`Attack 20 ms`, `Ratio 2.0`) et `Master` + EQ miroir (`-2.5 dB @ 320 Hz`, `-2.2 dB @ 1.25 kHz`).
+- **Résultat final vérifié (`Obsidian_Pulse_final.wav`, `128.675 s` = `96 mesures @ 180 BPM`)** : **`-11.54 LUFS`**, **`-1.08 dBTP`**, `0` sample clippé, `0` résonance 1/3 octave, `correlation_full = 0.901`, `correlation_low_end_150hz = 0.999`, `low_mid_200_800hz_correlation = 0.785`, `sharpness = 1.741 acum`, `detected_key = "E minor"` (`0.819`), `high_mids = 30.24%`, `air = 5.13%`, verdict `audio-analyzer` : *« Mix équilibré : loudness, True Peak, spectre et phase dans les cibles. »*

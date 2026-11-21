@@ -39,7 +39,7 @@ Quand tu écris un prompt dans **Antigravity** ou **Zed**, l'IA n'invente pas de
 
 ## Chapitre 3 — Créer un morceau de zéro par prompt
 
-Par défaut, l'IA suit un workflow strict défini dans `.rules` et dans la documentation théorique ([protocole multi-échelles & durées acoustiques](protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) et [spécifications harmoniques/rythmiques Trap](sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md)) : **Plan (`song_blueprint.json`) → Construction → Contrôle Durées/Silences → Auto-Mixage**.
+Par défaut, l'IA suit un workflow strict défini dans `.rules` et dans la documentation théorique ([protocole multi-échelles & durées acoustiques](protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md), [harmonisation inter-pistes verticale & horizontale](harmonisation_verticale_et_horizontale.md) et [spécifications harmoniques/rythmiques Trap](sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md)) : **Plan (`song_blueprint.json`) → Construction → Contrôle Durées/Silences → Auto-Mixage**.
 
 ### Étape 1 : Demander un morceau
 Copie-colle par exemple un de ces prompts dans Antigravity ou Zed :

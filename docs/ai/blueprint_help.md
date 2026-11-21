@@ -66,6 +66,10 @@ Idéal pour un morceau Rap / Trap complet suivant le protocole multi-échelles (
   1. *Fondation* (`808 / Sub`)
   2. *Harmonie / Texture* (`Pad / Chords / Guitare`)
   3. *Motif / Voix* (`Lead Rap / Vocal / Contre-chant aigu`)
+- **Cohésion Inter-Pistes (Verticale & Horizontale)** (voir [harmonisation_verticale_et_horizontale.md](../harmonisation_verticale_et_horizontale.md)) :
+  - **Accordage unifié (`440 Hz ± 5 ct`)** sur tous les samples tonaux (808, accords, pianos).
+  - **Horloge unique** : découper toute boucle d'un autre groove en one-shots propres (`t = 0` sans pick-up caché) et re-quantifier sur la grille maîtresse ; verrouiller `Kick + 808 + Accord` sur les temps forts.
+  - **Relais *Call-and-Response*** & **grille d'accords partagée** : les stabs d'accords suivent les fondamentales de la 808 en MIDI, et les contre-mélodies répondent dans les vides rythmiques.
 - **Dimensionnement temporel & Enveloppes ADSR (`T_noire = 60000 / BPM ms`)** (voir [protocole_universel...md](../protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md)) :
   - Calculer la grille en ms (ex. à `180 BPM` : `1 mesure = 1333.3 ms`, `1 noire = 333.3 ms`, `1 croche = 166.7 ms`, `1 double-croche = 83.3 ms`, `1 triple-croche = 41.7 ms`).
   - **Ticks / Hi-Hats** : `20–90 ms` (`Attack 0`, `Decay 30–70 ms`, `Sustain 0%`), extinction avant la subdivision suivante.

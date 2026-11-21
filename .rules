@@ -49,6 +49,11 @@ Pour les détails techniques complets (IDs de plugins CLAP/VST3, protocole VGM->
 
 ## 4. Discipline musicale, temporelle et fréquentielle
 - Applique le [protocole multi-échelles](docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) : max **3 couches fonctionnelles** hors batterie, renouvellement toutes les **4 et 8 mesures** (pivots/mutes de transition), cycle prédictif en 4 étapes et checklist de validation en 5 points avant rendu.
+- **Harmonisation inter-pistes verticale & horizontale** ([docs/harmonisation_verticale_et_horizontale.md](docs/harmonisation_verticale_et_horizontale.md)) :
+  - **Accordage unifié (`A4 = 440 Hz ± 5 ct`)** : mesurer et corriger via `Fine tune` / `pitch_shift` **chaque** sample tonal (808, accords, pianos, boucles).
+  - **Horloge rythmique unique** : ne jamais superposer une boucle brute d'un autre groove (ex. Techno 4/4) sur une grille Trap ; découper en **one-shots propres calés à `t = 0`** (sans pick-up dissonant) et verrouiller `Kick + 808 + Accord` sur les temps forts.
+  - **Grille d'accords partagée & Relais (*Call-and-Response*)** : transposer les stabs d'accords en MIDI pour suivre exactement la même progression que la 808 ; alterner accords et contre-mélodies dans les espaces vides (jamais deux leaders simultanés dans le même registre).
+  - **Ciment acoustique** : `FX Room` unique partagé (`6–12%`, `RT60 <= T_noire`) + compression de bus cohésive (`BUS Drums`, `BUS Music`, `Master Glue`) + égalisation miroir.
 - **Physique des durées & enveloppes (`T_noire = 60000 / BPM ms`)** : `808` **strictement monophonique (*cut itself*, `Release 30–60 ms`)**, ticks/hats courts (`20–90 ms`, `Sustain 0%`), kick court (`80–160 ms`), contraste vertical **Staccato / Legato** (808 longue vs percussions/mélodies courtes, ou inversement), et `RT60`/delay synchronisés sur un multiple/sous-multiple de `T_noire` et coupés lors des silences de transition.
 - Respecte strictement la tonalité (`key`) et les altérations de la gamme définie dans `song_blueprint.json`.
 - Sépare les plages de fréquences :
