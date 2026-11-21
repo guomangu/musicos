@@ -195,7 +195,7 @@ setup_python_venv() {
   local venv_pip="$STUDIO_DIR/.venv/bin/pip"
 
   if [[ $CHECK_ONLY -eq 1 ]]; then
-    if [[ -x "$venv_py" ]] && "$venv_py" -c "import mcp, pyloudnorm, soundfile, scipy, librosa, essentia, yaml, jsonschema, onnxruntime, mido, torch, transformers" 2>/dev/null; then
+    if [[ -x "$venv_py" ]] && "$venv_py" -c "import mcp, pyloudnorm, soundfile, scipy, librosa, essentia, yaml, jsonschema, onnxruntime, mido, torch, torchaudio, transformers, mosqito, music21, pretty_midi, pyroomacoustics, matchering, audiobox_aesthetics" 2>/dev/null; then
       ok "Environnement .venv complet et importable."
     else
       warn "Environnement .venv absent ou dépendances Python incomplètes."
@@ -208,12 +208,12 @@ setup_python_venv() {
     python3 -m venv "$STUDIO_DIR/.venv"
   fi
 
-  if "$venv_py" -c "import mcp, pyloudnorm, soundfile, scipy, librosa, essentia, yaml, jsonschema, onnxruntime, mido, torch, transformers" 2>/dev/null; then
+  if "$venv_py" -c "import mcp, pyloudnorm, soundfile, scipy, librosa, essentia, yaml, jsonschema, onnxruntime, mido, torch, torchaudio, transformers, mosqito, music21, pretty_midi, pyroomacoustics, matchering, audiobox_aesthetics" 2>/dev/null; then
     ok "Dépendances Python .venv déjà toutes satisfaites."
   else
-    log "Installation des paquets Python (PyTorch CPU + requirements.txt)..."
+    log "Installation des paquets Python (PyTorch/Torchaudio CPU + requirements.txt)..."
     "$venv_py" -m pip install --upgrade pip
-    "$venv_pip" install torch --index-url https://download.pytorch.org/whl/cpu
+    "$venv_pip" install --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple torch torchaudio
     "$venv_pip" install -r "$STUDIO_DIR/requirements.txt"
     ok "Dépendances Python installées dans .venv."
   fi
@@ -224,6 +224,12 @@ setup_python_venv() {
       "$venv_py" -c "from transformers import ClapModel, ClapProcessor; ClapProcessor.from_pretrained('laion/clap-htsat-unfused'); ClapModel.from_pretrained('laion/clap-htsat-unfused')"
     fi
     ok "Modèle LAION CLAP en cache local."
+
+    if ! HF_HUB_OFFLINE=1 "$venv_py" -c "from audiobox_aesthetics.infer import initialize_predictor; initialize_predictor()" >/dev/null 2>&1; then
+      log "Préchargement du modèle perceptuel Meta Audiobox Aesthetics (facebook/audiobox-aesthetics)..."
+      "$venv_py" -c "from audiobox_aesthetics.infer import initialize_predictor; initialize_predictor()" >/dev/null 2>&1 || warn "Audiobox Aesthetics non préchargé (réessayera à la première analyse)."
+    fi
+    ok "Modèle Audiobox Aesthetics prêt en cache local."
   fi
 }
 
@@ -404,12 +410,124 @@ install_native_plugins() {
     fi
   fi
 
+  # sfizz VST3 (lecteur d'instruments SFZ multi-vélocités)
+  if [[ -d "/usr/lib64/vst3/sfizz.vst3" || -d "$HOME/.vst3/sfizz.vst3" ]]; then
+    ok "sfizz.vst3 déjà installé."
+  elif [[ $CHECK_ONLY -eq 1 || $SKIP_PLUGINS -eq 1 ]]; then
+    warn "sfizz.vst3 absent (ignoré en mode --check-only ou --skip-plugins)."
+  else
+    if [[ $NO_SUDO -eq 0 ]] && have dnf && run_sudo dnf copr enable -y lexridge/sfizz-ui >/dev/null 2>&1; then
+      log "Installation de sfizz-ui-vst3 via Fedora COPR (lexridge/sfizz-ui)..."
+      if run_sudo dnf install -y sfizz-ui-vst3 >/dev/null 2>&1; then
+        changed=1
+      fi
+    fi
+    if [[ ! -d "/usr/lib64/vst3/sfizz.vst3" && ! -d "$HOME/.vst3/sfizz.vst3" ]] && have rpm2cpio && have cpio; then
+      log "Extraction user-space de sfizz.vst3 dans ~/.vst3..."
+      mkdir -p "$HOME/.vst3"
+      local sfz_rpm
+      sfz_rpm="https://download.copr.fedorainfracloud.org/results/lexridge/sfizz-ui/fedora-44-x86_64/09866468-sfizz-ui/sfizz-ui-vst3-1.2.3-2.20251130git.fc44.x86_64.rpm"
+      if curl -fsSL "$sfz_rpm" -o "$tmp_dl/sfizz-ui-vst3.rpm"; then
+        mkdir -p "$tmp_dl/sfizz_extract"
+        (cd "$tmp_dl/sfizz_extract" && rpm2cpio "$tmp_dl/sfizz-ui-vst3.rpm" | cpio -idm >/dev/null 2>&1)
+        if [[ -d "$tmp_dl/sfizz_extract/usr/lib64/vst3/sfizz.vst3" ]]; then
+          cp -r "$tmp_dl/sfizz_extract/usr/lib64/vst3/sfizz.vst3" "$HOME/.vst3/"
+          changed=1
+          ok "sfizz.vst3 installé dans ~/.vst3/."
+        fi
+      else
+        warn "Téléchargement sfizz.vst3 échoué (ignoré)."
+      fi
+    fi
+  fi
+
   rm -rf "$tmp_dl"
 
   if have gridline && [[ $CHECK_ONLY -eq 0 ]]; then
     if [[ $changed -eq 1 || $FORCE_RESCAN -eq 1 || ! -f "$HOME/.config/gridline/plugin-cache.json" ]]; then
       log "Scan des plugins dans Gridline..."
       gridline scan-plugins --force
+    fi
+  fi
+
+  # Courbes AutoEq cibles casques (Sony WH-1000XM6 / XM5 / XM4)
+  local targets_dir="$STUDIO_DIR/mcp-servers/audio-analyzer/targets"
+  local targets_base="https://raw.githubusercontent.com/jaakkopasanen/AutoEq/master/results"
+  local -A autoeq_urls=(
+    ["Sony_WH-1000XM6.csv"]="$targets_base/Kuulokenurkka/over-ear/Sony%20WH-1000XM6/Sony%20WH-1000XM6.csv"
+    ["Sony_WH-1000XM5.csv"]="$targets_base/oratory1990/over-ear/Sony%20WH-1000XM5/Sony%20WH-1000XM5.csv"
+    ["Sony_WH-1000XM4.csv"]="$targets_base/oratory1990/over-ear/Sony%20WH-1000XM4/Sony%20WH-1000XM4.csv"
+  )
+  local missing_targets=0
+  for csv_name in "${!autoeq_urls[@]}"; do
+    local csv_dest="$targets_dir/$csv_name"
+    if [[ ! -f "$csv_dest" ]]; then
+      if [[ $CHECK_ONLY -eq 1 ]]; then
+        missing_targets=1
+      else
+        mkdir -p "$targets_dir"
+        curl -fsSL "${autoeq_urls[$csv_name]}" -o "$csv_dest" || warn "Courbe AutoEq $csv_name indisponible."
+      fi
+    fi
+  done
+  if [[ $missing_targets -eq 0 ]]; then
+    ok "Courbes cibles casques AutoEq (XM6/XM5/XM4) prêtes."
+  else
+    warn "Courbes AutoEq manquantes dans $targets_dir."
+  fi
+
+  # Banques SFZ acoustiques CC0/libres (piano, Rhodes, choeurs/dialogue — hors samples/ pour ne pas polluer search_samples)
+  local -A sfz_repos=(
+    ["jRhodes3c"]="https://github.com/sfzinstruments/jlearman.jRhodes3c/archive/refs/heads/master.tar.gz"
+    ["merry-orks"]="https://github.com/sfzinstruments/karoryfer.272-merry-orks/archive/refs/heads/master.tar.gz"
+    ["headroom-piano"]="https://github.com/sfzinstruments/BengtNilsson.HeadroomPiano/archive/refs/heads/master.tar.gz"
+  )
+  local missing_sfz=0
+  for sfz_dir in "${!sfz_repos[@]}"; do
+    local target_sfz="$STUDIO_DIR/soundbanks/sfz/$sfz_dir"
+    if [[ ! -d "$target_sfz" || -z "$(find "$target_sfz" -maxdepth 2 -name '*.sfz' 2>/dev/null)" ]]; then
+      if [[ $CHECK_ONLY -eq 1 ]]; then
+        missing_sfz=1
+      else
+        log "Téléchargement banque SFZ $sfz_dir..."
+        local tgz="/tmp/sfz_${sfz_dir}.tar.gz"
+        if curl -fsSL "${sfz_repos[$sfz_dir]}" -o "$tgz"; then
+          mkdir -p "$target_sfz"
+          tar -xzf "$tgz" -C "$target_sfz" --strip-components=1
+          rm -f "$tgz"
+        else
+          warn "Banque SFZ $sfz_dir non téléchargée."
+        fi
+      fi
+    fi
+  done
+  if [[ $missing_sfz -eq 0 ]]; then
+    ok "Banques d'instruments SFZ prêtes dans soundbanks/sfz/."
+  else
+    warn "Banques d'instruments SFZ manquantes dans soundbanks/sfz/."
+  fi
+
+  # Voicebank DiffSinger FR/EN pour OpenUTAU (TIGER_DS v1.06)
+  if [[ -f "$STUDIO_DIR/voicebanks/TIGER_DS_v106/dsconfig.yaml" ]]; then
+    ok "Voicebank DiffSinger TIGER_DS_v106 déjà installée."
+  elif [[ $CHECK_ONLY -eq 1 ]]; then
+    warn "Voicebank DiffSinger TIGER_DS_v106 absente dans voicebanks/."
+  else
+    log "Téléchargement de la voicebank DiffSinger FR/EN (TIGER_DS v1.06)..."
+    local ds_zip="/tmp/TIGER_DS_v106_PACK.zip"
+    if curl -fsSL "https://github.com/spicytigermeat/tiger_diffsinger/releases/download/v106/TIGER_DS_v106_PACK.zip" -o "$ds_zip"; then
+      mkdir -p "$STUDIO_DIR/voicebanks" /tmp/tiger_ds_unpack "$HOME/.local/share/OpenUtau/Plugins"
+      unzip -q -o "$ds_zip" -d /tmp/tiger_ds_unpack
+      if [[ -f "/tmp/tiger_ds_unpack/TIGER_DS_v106_PACK/Voice Library/TIGER_DS_v106.zip" ]]; then
+        unzip -q -o "/tmp/tiger_ds_unpack/TIGER_DS_v106_PACK/Voice Library/TIGER_DS_v106.zip" -d "$STUDIO_DIR/voicebanks/TIGER_DS_v106"
+      fi
+      if [[ -d "/tmp/tiger_ds_unpack/TIGER_DS_v106_PACK/OpenUTAU Plugins" ]]; then
+        cp -f /tmp/tiger_ds_unpack/TIGER_DS_v106_PACK/OpenUTAU\ Plugins/*.dll "$HOME/.local/share/OpenUtau/Plugins/" 2>/dev/null || true
+      fi
+      rm -rf "$ds_zip" /tmp/tiger_ds_unpack
+      ok "Voicebank DiffSinger TIGER_DS_v106 installée."
+    else
+      warn "Téléchargement TIGER_DS_v106 échoué (réessayer plus tard)."
     fi
   fi
 }
@@ -561,6 +679,15 @@ index_samples_and_verify() {
     warn "Aucun sample audio détecté dans $STUDIO_DIR/samples/ (dépose tes packs ici puis relance install.sh ou indexer.py)."
   fi
 
+  if have gridline; then
+    log "Indexation spectrale des presets synthés natifs Gridline (gl.*)..."
+    if [[ $SKIP_CLAP -eq 0 ]]; then
+      HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/preset_indexer.py" --with-clap
+    else
+      "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/preset_indexer.py"
+    fi
+  fi
+
   "$venv_py" - << PY
 import json, jsonschema, os, subprocess
 
@@ -571,7 +698,7 @@ with open(os.path.join(studio, "projects/active/song_blueprint.json")) as f:
     bp = json.load(f)
 jsonschema.validate(bp, schema)
 
-# Test rapide initialize JSON-RPC sur les 5 serveurs MCP
+# Test rapide initialize + tools/list JSON-RPC sur les 5 serveurs MCP
 servers = [
     [os.path.join(studio, "scripts/gridline-mcp.sh")],
     [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/audio-index/audio_index_server.py")],
@@ -579,15 +706,27 @@ servers = [
     [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/vocaloid/vocaloid_server.py")],
     [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/reverse-engineer/reverse_engineer_server.py")],
 ]
+init_msg = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "install-check", "version": "1.0"}}}) + "\n"
+notif_msg = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+tools_msg = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}) + "\n"
+
 for cmd in servers:
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "install-check", "version": "1.0"}}}) + "\n")
+    env = os.environ.copy()
+    env["AI_STUDIO_DIR"] = studio
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, text=True, bufsize=1)
+    proc.stdin.write(init_msg)
     proc.stdin.flush()
-    resp = json.loads(proc.stdout.readline())
-    assert "result" in resp, f"Echec initialize sur {cmd}: {resp}"
+    r1 = json.loads(proc.stdout.readline())
+    assert "result" in r1, f"Echec initialize sur {cmd}: {r1}"
+    proc.stdin.write(notif_msg + tools_msg)
+    proc.stdin.flush()
+    r2 = json.loads(proc.stdout.readline())
+    t_count = len(r2.get("result", {}).get("tools", []))
+    assert t_count > 0, f"Aucun outil sur {cmd}: {r2}"
+    print(f"MCP OK: {os.path.basename(cmd[-1])} ({r1['result'].get('serverInfo', {}).get('name')}, tools={t_count})")
     proc.stdin.close()
     proc.wait(timeout=10)
-print("Validation JSON Schema + handshake des 5 serveurs MCP : OK")
+print("Validation JSON Schema + handshake & tools/list des 5 serveurs MCP : OK")
 PY
 
   ok "Installation et vérification complète terminées !"

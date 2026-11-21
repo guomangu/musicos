@@ -324,5 +324,99 @@ def reindex_samples(force: bool = False, with_clap: bool = False) -> str:
     return json.dumps(stats, ensure_ascii=False, indent=2)
 
 
+@mcp.tool()
+def search_synth_presets(
+    query: str = "",
+    category: str = "",
+    brightness: str = "",
+    use_clap: bool = True,
+    limit: int = 10,
+) -> str:
+    """Recherche sémantique (CLAP + Essentia) parmi les presets d'usine des synthés natifs Gridline (gl.*)."""
+    import numpy as np
+    from preset_indexer import init_presets_table
+
+    conn = _get_conn()
+    init_presets_table(conn)
+
+    clauses: list[str] = []
+    params: list[Any] = []
+    if category.strip():
+        clauses.append("LOWER(category) = LOWER(?)")
+        params.append(category.strip())
+    if brightness.strip():
+        clauses.append("LOWER(brightness_band) = LOWER(?)")
+        params.append(brightness.strip())
+
+    where_sql = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    rows = conn.execute(f"SELECT * FROM synth_presets {where_sql}", params).fetchall()
+    conn.close()
+    if not rows:
+        return json.dumps(
+            {
+                "count": 0,
+                "results": [],
+                "hint": "Aucun preset indexé dans synth_presets : lance reindex_synth_presets(with_clap=True).",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    tokens = _expand_query_tokens(query)
+    q_vec = None
+    if use_clap and query.strip() and any(r["clap_embedding"] is not None for r in rows):
+        enc = _get_clap_text_encoder()
+        if enc is not None:
+            processor, text_model, torch = enc
+            eng_query = " ".join(tokens) if tokens else query
+            t_in = processor(text=[f"{query} ({eng_query})"], return_tensors="pt", padding=True)
+            with torch.no_grad():
+                out = text_model(**t_in)
+                feats = getattr(out, "text_embeds", getattr(out, "pooler_output", out[0]))
+                feats = feats / feats.norm(dim=-1, keepdim=True)
+            q_vec = feats.squeeze(0).cpu().numpy().astype(np.float32)
+
+    scored: list[tuple[float, sqlite3.Row]] = []
+    for row in rows:
+        score = 1.0
+        tags = (row["tags"] or "").lower()
+        if tokens:
+            hits = sum(1 for t in tokens if t in tags)
+            score += hits * 0.45
+        if q_vec is not None and row["clap_embedding"] is not None:
+            vec = np.frombuffer(row["clap_embedding"], dtype=np.float32)
+            if len(vec) == len(q_vec):
+                score += max(0.0, float(np.dot(q_vec, vec))) * 3.0
+        if not tokens and q_vec is None:
+            score += max(0.0, -float(row["inharmonicity"] or 0.0))
+        if score > 0.05:
+            scored.append((score, row))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = [
+        {
+            "plugin": r["plugin_id"],
+            "plugin_name": r["plugin_name"],
+            "preset": r["preset_name"],
+            "category": r["category"],
+            "brightness_band": r["brightness_band"],
+            "spectral_centroid_hz": r["spectral_centroid_hz"],
+            "inharmonicity": r["inharmonicity"],
+            "rms_db": r["rms_db"],
+            "score": round(s, 3),
+        }
+        for s, r in scored[: max(1, min(limit, 40))]
+    ]
+    return json.dumps({"count": len(out), "results": out}, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def reindex_synth_presets(with_clap: bool = True, force: bool = False) -> str:
+    """Rend et indexe les presets des synthés natifs Gridline (gl.*) dans samples.db."""
+    from preset_indexer import index_gridline_presets
+
+    return json.dumps(index_gridline_presets(db_path=DEFAULT_DB_PATH, with_clap=with_clap, force=force), ensure_ascii=False, indent=2)
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

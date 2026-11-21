@@ -1,23 +1,31 @@
 # Dépendances Python du studio AI-Studio (Python 3.12 - 3.14, Linux x86_64/aarch64)
-# Note : PyTorch CPU est installé depuis https://download.pytorch.org/whl/cpu par install.sh
+# Note : torch et torchaudio CPU sont installés depuis https://download.pytorch.org/whl/cpu par install.sh
 
 # Protocole MCP
 mcp>=2.3.0
 
-# Analyse audio, DSP & Auto-mixage
+# Analyse audio, DSP, psychoacoustique & Auto-mixage
 numpy>=2.0.0
 scipy>=1.14.0
 soundfile>=0.12.1
 pyloudnorm>=0.2.0
 librosa>=1.0.0
 essentia>=2.1b6.dev1438
+mosqito>=1.2.1
+pyroomacoustics>=0.10.1
+matchering>=2.0.6
+
+# Théorie musicale & audit MIDI
+music21>=10.0.0
+pretty_midi>=0.2.11
 
 # Transcription Audio->MIDI & Reverse Engineering (Basic Pitch ONNX)
 onnxruntime>=1.20.0
 mido>=1.3.0
 
-# Sémantique CLAP (laion/clap-htsat-unfused)
+# Sémantique CLAP & Esthétique perceptuelle (laion/clap-htsat-unfused, facebook/audiobox-aesthetics)
 transformers>=5.0.0
+audiobox_aesthetics>=0.0.4
 
 # Configuration, Blueprint & OpenUTAU .ustx
 PyYAML>=6.0.0

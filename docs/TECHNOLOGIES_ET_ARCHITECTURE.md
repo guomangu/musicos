@@ -122,3 +122,21 @@ Intervient **en fin de chaîne avant livraison** pour vérifier et corriger obje
 | :--- | :--- |
 | **Création par prompt** | `Zed/Antigravity` → `.rules` + `song_blueprint.json` → `audio-index` (CLAP+Essentia) → `gridline` (Lua + `gl.*` + samples) → *(optionnel `vocaloid`)* → `gridline render` → `audio-analyzer` (`pyloudnorm` + SciPy) → corrections → `export` |
 | **Reverse Engineering VGM → Rap** | `reverse-engineer` (`analyze_song_for_rap_flip` → `htdemucs_6s` → `Basic Pitch ONNX`) → `song_blueprint.json` → `audio-index` (808 & drums accordés) → `gridline` (chop `gl.seltmann` / remake MIDI + mix) → `audio-analyzer` → `export` |
+
+---
+
+## 4. Extensions d'Autonomie Complète (Conception → Réalisation → Audit Perceptuel)
+
+Les technologies suivantes complètent la chaîne pour éliminer les angles morts (synthèse acoustique, harmonie MIDI, timbre des synthés natifs, perception de pièce vide/résonance, acuité et craquements) :
+
+| Domaine | Technologie / Asset | Rôle exact | Emplacement / Outil MCP |
+| :--- | :--- | :--- | :--- |
+| **Instruments Acoustiques SFZ** | **`sfizz.vst3` + `soundbanks/sfz/`** (`Headroom Piano`, `jRhodes3c`, `merry-orks`) | Pianos, Fender Rhodes et voix multi-vélocités pour remplacer les synthés synthétiques criards | `~/.vst3/sfizz.vst3` + `soundbanks/sfz/` |
+| **Chant FR/EN prêt à l'emploi** | **DiffSinger `TIGER_DS_v106`** | Voicebank neuronale OpenUTAU FR/EN installée localement avec phonémiseurs | `voicebanks/TIGER_DS_v106/` + `vocaloid:list_voicebanks` |
+| **Catalogue Timbre Synthés** | **`preset_indexer.py` + CLAP/Essentia** | Rendu audio réel & recherche sémantique parmi les presets `gl.*` dans `samples.db` | `audio-index:search_synth_presets` |
+| **Audit Harmonique MIDI** | **`music21` + `pretty_midi`** | Vérification de gamme, notes trop aiguës (> C6) et clashs d'un demi-ton/9ème mineure | `audio-analyzer:audit_midi_harmony` |
+| **Psychoacoustique & Réverb** | **`MoSQITo` + `PyRoomAcoustics` + SciPy 1/3 oct** | Acuité DIN (`acum`), résonances localisées 1/3 octave, `RT60` et corrélation 200–800 Hz | `audio-analyzer:audit_mix_deep` |
+| **Simulation Casque** | **Courbes AutoEq (`Sony WH-1000XM6 / XM5 / XM4`)** | Détection de coloration perçue (bosse 100–315 Hz, creux 1 kHz, pic 2 kHz sur XM6) | `mcp-servers/audio-analyzer/targets/` |
+| **Évaluation Perceptuelle IA** | **Meta `audiobox_aesthetics` + LAION CLAP Probes** | Scores `PQ / PC / CE / CU` + détection sémantique *réverb caverneuse / crépitements / boue* | `audio-analyzer:audit_mix_deep(use_neural=True)` |
+| **Matching & Stems** | **`Matchering 2.0` + `gridline render --tracks`** | Comparaison spectrale à une référence pro + audit piste par piste | `match_reference_audio` / `render_project_stems` |
+| **Santé Temps Réel Audio** | **`pw-top` (PipeWire monitor)** | Détection de quantum trop faible sous Bluetooth (`bluez_output`) et de xruns `gridline-app` | `audio-analyzer:check_pipewire_health` |

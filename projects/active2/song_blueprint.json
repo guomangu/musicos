@@ -1,0 +1,158 @@
+{
+  "title": "Obsidian Midnight",
+  "genre": "Dark Trap",
+  "mood": "Dark, Menacing, Hypnotic, Heavy",
+  "bpm": 140,
+  "time_signature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "key": "C minor",
+  "swing": 0.0,
+  "target_lufs": -11.0,
+  "structure": [
+    {
+      "section": "Intro",
+      "start_bar": 1,
+      "bars": 4,
+      "energy": 0.35,
+      "active_roles": ["pad", "piano", "hat"],
+      "notes": "Pad sombre nettoyé en Do mineur (Cm -> Ab -> Fm -> Gm), motif de piano sombre et hi-hats minimalistes avant l'impact."
+    },
+    {
+      "section": "Refrain / Drop 1",
+      "start_bar": 5,
+      "bars": 8,
+      "energy": 0.95,
+      "active_roles": ["kick", "808", "clap", "snare", "hat", "open_hat", "pad", "piano"],
+      "notes": "Drop complet avec kick punchy, 808 accordée en C minor, hi-hats rapides avec rolls en Lua et thème de piano sombre."
+    },
+    {
+      "section": "Couplet",
+      "start_bar": 13,
+      "bars": 8,
+      "energy": 0.7,
+      "active_roles": ["kick", "808", "clap", "snare", "hat", "open_hat", "pad", "piano"],
+      "notes": "Section plus aérée pour laisser de l'espace (mesures 13-16 sans piano avec groove 808/clap, retour progressif mesures 17-20)."
+    },
+    {
+      "section": "Refrain / Drop 2",
+      "start_bar": 21,
+      "bars": 8,
+      "energy": 1.0,
+      "active_roles": ["kick", "808", "clap", "snare", "hat", "open_hat", "pad", "piano"],
+      "notes": "Second drop à intensité maximale avec variations d'octave sur la 808 et fills rapides de hi-hats Lua."
+    },
+    {
+      "section": "Outro",
+      "start_bar": 29,
+      "bars": 4,
+      "energy": 0.25,
+      "active_roles": ["808", "pad", "piano"],
+      "notes": "Impact 808 initial sur la mesure 29 puis extinction progressive du pad sombre et du piano."
+    }
+  ],
+  "frequency_plan": {
+    "sub_20_60": "808 accordée uniquement (mono strict sous 200 Hz, passe-haut 30 Hz, fondamentale C1/C2)",
+    "bass_60_250": "Kick punchy (60-140 Hz) + harmoniques 808 avec sidechain Kick -> 808 (gl.comp)",
+    "low_mids_250_500": "Corps chaud du pad et du piano (passe-haut 135-140 Hz, sans résonance creuse)",
+    "mids_500_4000": "Thème de piano sombre (C4-Ab4, gl.keys Grand piano), pad filtré LP12 980 Hz et attaque clap/snare",
+    "highs_4000_20000": "Hi-hats rapides Lua, open hat et clarté naturelle sans dureté (coupe-haut master 17.5 kHz)"
+  },
+  "tracks": [
+    {
+      "name": "Kick",
+      "role": "kick",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/samples/TriSamples_-_808_Trapstep_Pack_Vol_2/TriSamples - 808 Trapstep Pack Vol 2/Kick Drums/Kick Drum 046 Tit Tit.wav",
+      "mixer_track": 1,
+      "freq_lane": "55-130 Hz + attaque 2-4 kHz",
+      "pan": 0.0,
+      "notes": "Routé vers BUS Drums (10) + envoi sidechain vers 808 (piste 2) et BUS Music (11)."
+    },
+    {
+      "name": "808 Bass",
+      "role": "808",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/samples/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/03. 808s_Bass/06. 808 - bat wing yaiba (zayspinz).wav",
+      "mixer_track": 2,
+      "freq_lane": "32-180 Hz (mono)",
+      "pan": 0.0,
+      "notes": "Accordée en C (Root note 24, Fine tune -14 ct), monophonique (Voices=1, One shot=0), sidechain du Kick + saturation douce."
+    },
+    {
+      "name": "Trap Clap",
+      "role": "clap",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/samples/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/01. Claps/03. clap - bankroll.wav",
+      "mixer_track": 3,
+      "freq_lane": "1.2-8 kHz",
+      "pan": 0.0,
+      "notes": "Temps 3 de chaque mesure (half-time trap à 140 BPM), routé vers BUS Drums (10) + envoi léger FX Dark Hall (12)."
+    },
+    {
+      "name": "Bounce Snare",
+      "role": "snare",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/samples/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/05. Snares/04. snare - bankroll.wav",
+      "mixer_track": 4,
+      "freq_lane": "200 Hz - 7 kHz",
+      "pan": -0.08,
+      "notes": "Contre-temps trap et ghost hits en syncope, routé vers BUS Drums (10)."
+    },
+    {
+      "name": "Hi-Hat Closed",
+      "role": "hat",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/samples/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/02. Hi-hats/05. hh - bankroll.wav",
+      "mixer_track": 5,
+      "freq_lane": "6-16 kHz",
+      "pan": 0.1,
+      "notes": "Motifs rapides 1/8, 1/16, triolets et rolls 1/32 générés par le script Lua projects/active2/scripts/trap_hihats.lua."
+    },
+    {
+      "name": "Open Hat",
+      "role": "open_hat",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/samples/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/04. Open Hats_Crash/04. oh - bankroll.wav",
+      "mixer_track": 6,
+      "freq_lane": "5-15 kHz",
+      "pan": -0.15,
+      "notes": "Accents d'ouverture sur les fins de mesures et transitions, routé vers BUS Drums (10)."
+    },
+    {
+      "name": "Dark Pad",
+      "role": "pad",
+      "source_type": "gridline_native",
+      "plugin": "gl.analog",
+      "preset": "Velvet Pad",
+      "mixer_track": 7,
+      "freq_lane": "140 Hz - 4 kHz",
+      "pan": 0.0,
+      "notes": "Pad analogique sombre propre (LP12 980 Hz, Unison 2 voix modéré, sans LFO pitch ni résonance creuse), routé vers BUS Music (11) + send court FX Clean Room (12)."
+    },
+    {
+      "name": "Dark Piano",
+      "role": "piano",
+      "source_type": "gridline_native",
+      "plugin": "gl.keys",
+      "preset": "Soft",
+      "mixer_track": 8,
+      "freq_lane": "135 Hz - 8.5 kHz",
+      "pan": 0.04,
+      "notes": "Piano acoustique sombre (gl.keys modèle Grand piano, registre C4-Ab4, muffle 3.8 kHz, délai léger 1/8D à 10% + send court FX Clean Room 12%)."
+    }
+  ],
+  "vocals": {
+    "enabled": false,
+    "language": "fr",
+    "singer": "",
+    "lyrics_sections": []
+  }
+}

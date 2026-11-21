@@ -13,12 +13,21 @@ import soundfile as sf
 from mcp.server.mcpserver import MCPServer
 from scipy import signal
 
+from deep_diagnostics import (
+    audit_midi_file,
+    inspect_pipewire,
+    match_with_reference,
+    render_stems_and_audit,
+    run_deep_audit,
+)
+
 mcp = MCPServer(
     name="audio-analyzer",
     instructions=(
-        "Analyse mathématique de mixage pour Gridline : LUFS (ITU-R BS.1770), "
-        "True Peak 4x, clipping, balance spectrale sur 5 bandes, corrélation de phase "
-        "et détection de masquage Kick/808."
+        "Analyse mathématique et perceptuelle de mixage pour Gridline : LUFS (ITU-R BS.1770), "
+        "True Peak 4x, clipping, résonances 1/3 octave, acuité DIN MoSQITo, RT60/réverb, "
+        "détection de grésillements/xruns, simulation Sony WH-1000XM6 AutoEq, "
+        "Audiobox Aesthetics & sondes CLAP, audit harmonique MIDI, Matchering et rendu stems."
     ),
 )
 
@@ -344,6 +353,81 @@ def compare_renders(before_path: str, after_path: str, target_lufs: float = -14.
         ensure_ascii=False,
         indent=2,
     )
+
+
+@mcp.tool()
+def audit_mix_deep(
+    audio_path: str,
+    target_lufs: float = -11.0,
+    target_genre: str = "trap",
+    use_neural: bool = True,
+    headphone_target: str = "sony_xm6",
+) -> str:
+    """Audit complet psychoacoustique, spectral 1/3 octave, réverbération/RT60, grésillements, simulation casque AutoEq et scores neuraux (Audiobox Aesthetics + CLAP)."""
+    base = _analyze_file(audio_path, target_lufs)
+    if "error" in base:
+        return json.dumps(base, ensure_ascii=False, indent=2)
+    abs_path = os.path.abspath(os.path.expanduser(audio_path))
+    data, sr = _load_audio(abs_path)
+    report = run_deep_audit(
+        audio_path=abs_path,
+        base_metrics=base,
+        data=data,
+        sr=sr,
+        target_genre=target_genre,
+        use_neural=use_neural,
+        headphone_target=headphone_target,
+    )
+    return json.dumps(report, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def audit_midi_harmony(
+    midi_path: str,
+    expected_key: str = "",
+    min_pitch: int = 24,
+    max_pitch: int = 91,
+) -> str:
+    """Audite un fichier MIDI via music21 + pretty_midi : justesse dans la gamme, notes trop aiguës (> max_pitch) et clashs simultanés."""
+    return json.dumps(
+        audit_midi_file(midi_path=midi_path, expected_key=expected_key, min_pitch=min_pitch, max_pitch=max_pitch),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+def match_reference_audio(
+    mix_path: str,
+    reference_path: str,
+    out_matched_wav: str = "",
+) -> str:
+    """Compare la balance fréquentielle du mix à un morceau de référence pro et peut générer un master auto-matché via Matchering."""
+    return json.dumps(
+        match_with_reference(mix_path=mix_path, reference_path=reference_path, out_matched_wav=out_matched_wav),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+def render_project_stems(
+    project_path: str,
+    output_dir: str = "",
+    mode: str = "tracks",
+) -> str:
+    """Exporte les pistes/stems séparés d'un fichier .gridline et mesure pour chacun son niveau, centroïde et énergie 200-500Hz / 2-6kHz."""
+    return json.dumps(
+        render_stems_and_audit(project_path=project_path, output_dir=output_dir, mode=mode),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+def check_pipewire_health() -> str:
+    """Diagnostique PipeWire en temps réel (quantum actif, casque Bluetooth, xruns/craquements sur gridline-app)."""
+    return json.dumps(inspect_pipewire(), ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":
