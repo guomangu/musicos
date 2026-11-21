@@ -150,12 +150,12 @@
       "role": "piano",
       "source_type": "gridline_native",
       "plugin": "gl.multisampler",
-      "preset": "Headroom Piano SFZ",
-      "sample_path": "/home/gamo/Bureau/musicos/soundbanks/sfz/headroom-piano/Headroom Piano (NoFX).sfz",
+      "preset": "Headroom Piano Clean SFZ",
+      "sample_path": "/home/gamo/Bureau/musicos/soundbanks/sfz/headroom-piano/Headroom Piano Clean.sfz",
       "mixer_track": 8,
-      "freq_lane": "145 Hz - 16 kHz",
+      "freq_lane": "155 Hz - 12 kHz",
       "pan": 0.03,
-      "notes": "Vrai piano acoustique multi-vélocités SFZ (registre C3-Ab5), remplace le DarkBell aigu et le délai Tracer 80% défectueux."
+      "notes": "Vrai piano acoustique multi-vélocités SFZv1 aplati (1 directive/ligne, compatible gridline-app live & CLI) avec présence dédiée (MIX 8 EQ)."
     },
     {
       "name": "Nylon Pluck",

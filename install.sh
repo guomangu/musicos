@@ -502,6 +502,29 @@ install_native_plugins() {
     fi
   done
   if [[ $missing_sfz -eq 0 ]]; then
+    local hr_dir="$STUDIO_DIR/soundbanks/sfz/headroom-piano"
+    local hr_clean="$hr_dir/Headroom Piano Clean.sfz"
+    if [[ -d "$hr_dir/Samples" && ! -f "$hr_clean" ]]; then
+      if [[ $CHECK_ONLY -eq 1 ]]; then
+        warn "Preset SFZ v1 aplati Headroom Piano Clean.sfz absent."
+      else
+        python3 - "$hr_clean" <<'PY'
+import sys
+out_path = sys.argv[1]
+keys = list(range(21, 109, 3))
+levels = [("LEVEL1", 1, 59, 13.3), ("LEVEL2", 60, 89, 6.2), ("LEVEL3", 90, 105, 3.3), ("LEVEL4", 106, 119, 1.1), ("LEVEL5", 120, 127, 0.0)]
+lines = []
+for vname, lo_v, hi_v, gvol in levels:
+    lines += ["<group>", f"lovel={lo_v}", f"hivel={hi_v}", f"volume={gvol:.1f}", "ampeg_attack=0.002", "ampeg_release=0.48"]
+    for k in keys:
+        lo_k, hi_k = (21 if k == 21 else k - 1), (108 if k == 108 else k + 1)
+        lines += ["<region>", f"sample=Samples/HEADROOM PIANO {vname} CLOSE {k}.flac", f"lokey={lo_k}", f"hikey={hi_k}", f"pitch_keycenter={k}"]
+with open(out_path, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(lines) + "\n")
+PY
+        ok "Preset SFZ v1 Headroom Piano Clean.sfz généré pour gl.multisampler."
+      fi
+    fi
     ok "Banques d'instruments SFZ prêtes dans soundbanks/sfz/."
   else
     warn "Banques d'instruments SFZ manquantes dans soundbanks/sfz/."
