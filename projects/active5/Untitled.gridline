@@ -1,0 +1,2669 @@
+{
+  "channels": [
+    {
+      "color": 14186330,
+      "gain": 0.5,
+      "id": 20,
+      "mixerTrack": 3,
+      "muted": false,
+      "name": "Kick",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "params": [
+          220,
+          48,
+          0.059999998658895493,
+          0.44999998807907104,
+          0.30000001192092896,
+          0.20000000298023224,
+          0.89999997615814209,
+          1,
+          0,
+          4000,
+          0.0040000001899898052,
+          0,
+          20000,
+          0,
+          0,
+          0.079999998211860657,
+          0
+        ],
+        "type": "gl.kick"
+      }
+    },
+    {
+      "color": 5224624,
+      "gain": 0.77999997138977051,
+      "id": 25,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "155852__day_tripper13__upright-piano-pizz-e-dull-2",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/155852__day_tripper13__upright-piano-pizz-e-dull-2.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 14178959,
+      "gain": 0.77999997138977051,
+      "id": 38,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "MZ 808 [Apollo]",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/JMizzy The Best Drum Kits/!Mike Zara's Stash/808s/MZ 808 [Apollo].wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 9412789,
+      "gain": 0.77999997138977051,
+      "id": 40,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "MZ 808 [Blxckout]",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/JMizzy The Best Drum Kits/!Mike Zara's Stash/808s/MZ 808 [Blxckout].wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 13214780,
+      "gain": 0.77999997138977051,
+      "id": 49,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "HEADROOM PIANO LEVEL5 CLOSE 93",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/sfz/headroom-piano/Samples/HEADROOM PIANO LEVEL5 CLOSE 93.flac",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 5935064,
+      "gain": 0.77999997138977051,
+      "id": 43,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "(SXJ) Chants (6)",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/JMizzy The Best Drum Kits/JUGG DRUM KIT/Chants (Voxs)/(SXJ) Chants (6).wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 14186330,
+      "gain": 0.77999997138977051,
+      "id": 45,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "06.  vocal fx - bankroll_alright (171 bpm)",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/06. FX_Percs/06.  vocal fx - bankroll_alright (171 bpm).wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 7257962,
+      "gain": 0.77999997138977051,
+      "id": 47,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "90 BPM - T-Pain - Stoicville",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/JMizzy The Best Drum Kits/Pi'erre (Shows the Screen) Drumkit/Extras/90 BPM - T-Pain - Stoicville.mp3",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 5935064,
+      "gain": 0.77999997138977051,
+      "id": 31,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Batch Clap 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Batch Clap 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 14186330,
+      "gain": 0.77999997138977051,
+      "id": 32,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Batch Chords E 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Batch Chords E 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 7257962,
+      "gain": 0.77999997138977051,
+      "id": 33,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Batch Bass E 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Batch Bass E 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 13214780,
+      "gain": 0.77999997138977051,
+      "id": 34,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Batch Drums Kick Free 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Batch Drums Kick Free 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 10841304,
+      "gain": 0.77999997138977051,
+      "id": 35,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Batch Hats 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Batch Hats 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 5224624,
+      "gain": 0.77999997138977051,
+      "id": 36,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Key Hats 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Key Hats 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 14178959,
+      "gain": 0.77999997138977051,
+      "id": 27,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Solar Drums 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Solar Drums 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 9412789,
+      "gain": 0.77999997138977051,
+      "id": 29,
+      "mixerTrack": 2,
+      "muted": false,
+      "name": "Techno Batch Kick 125",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "data": "/home/gamo/Bureau/musicos/soundbanks/New Loops - Club Techno Loops/New Loops - Club Techno Loops/Techno Batch Kick 125.wav",
+        "params": [
+          60,
+          0,
+          0.00050000002374872565,
+          10,
+          1,
+          0.019999999552965164,
+          0,
+          0,
+          0,
+          1,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          20000,
+          0,
+          0,
+          0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          1,
+          32,
+          0.0010000000474974513,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1041.25,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        "type": "gl.sampler"
+      }
+    },
+    {
+      "color": 13214780,
+      "gain": 0.46000000834465027,
+      "id": 21,
+      "mixerTrack": 4,
+      "muted": false,
+      "name": "Clap",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "params": [
+          0.25,
+          0.010999999940395355,
+          1300,
+          0.69999998807907104,
+          3,
+          0.0035000001080334187,
+          0,
+          0.5,
+          0,
+          0,
+          0
+        ],
+        "type": "gl.clap"
+      }
+    },
+    {
+      "color": 5224624,
+      "gain": 0.62000000476837158,
+      "id": 22,
+      "mixerTrack": 5,
+      "muted": false,
+      "name": "Hat",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "params": [
+          0.059999998658895493,
+          8000,
+          0,
+          0.5,
+          0.17000000178813934,
+          205,
+          0.5,
+          1,
+          0,
+          0,
+          0
+        ],
+        "type": "gl.hat"
+      }
+    },
+    {
+      "color": 5935064,
+      "gain": 0.47999998927116394,
+      "id": 23,
+      "mixerTrack": 6,
+      "muted": false,
+      "name": "Snare",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "params": [
+          0.5,
+          0.60000002384185791,
+          0.11999999731779099,
+          0.20000000298023224,
+          190,
+          0.80000001192092896,
+          0,
+          0.019999999552965164,
+          1800,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "type": "gl.snare"
+      }
+    },
+    {
+      "color": 10841304,
+      "gain": 0.62000000476837158,
+      "id": 24,
+      "mixerTrack": 7,
+      "muted": false,
+      "name": "Synth",
+      "pan": 0,
+      "pitch": 0,
+      "plugin": {
+        "params": [
+          2,
+          0.80000001192092896,
+          3,
+          0.40000000596046448,
+          -12,
+          6,
+          2,
+          0,
+          7,
+          -6,
+          0,
+          0.004999999888241291,
+          0.30000001192092896,
+          0.69999998807907104,
+          0.25,
+          6000,
+          0.20000000298023224,
+          0.30000001192092896,
+          0.40000000596046448,
+          0.0010000000474974513,
+          16,
+          0.69999998807907104,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0.20000000298023224,
+          1,
+          0
+        ],
+        "type": "gl.synth"
+      }
+    }
+  ],
+  "clipLoops": true,
+  "format": "gridline-project",
+  "info": {
+    "author": "",
+    "comments": "",
+    "genre": "",
+    "title": "Untitled",
+    "url": ""
+  },
+  "links": [],
+  "masterPitch": 0,
+  "mixer": [
+    {
+      "color": 5264990,
+      "id": 2,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "Master",
+      "pan": 0,
+      "sends": [],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1,
+          "plugin": {
+            "params": [
+              0,
+              -1,
+              0.085500001907348633,
+              0.0020000000949949026,
+              0.0099999997764825821,
+              2,
+              2,
+              0,
+              0,
+              1,
+              0,
+              9.9999997473787516e-05,
+              0.24799999594688416,
+              0.0010000000474974513,
+              0,
+              -80,
+              0,
+              0.05000000074505806,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0.085500001907348633,
+              0.24799999594688416,
+              0.05000000074505806
+            ],
+            "type": "gl.limiter"
+          }
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 14186330,
+      "id": 3,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "Kick",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 13214780,
+      "id": 4,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "Clap",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5224624,
+      "id": 5,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "Hat",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5935064,
+      "id": 6,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "Snare",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 10841304,
+      "id": 7,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "Synth",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 8,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 9,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 10,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 11,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 12,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 13,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 14,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 15,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 16,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 17,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    },
+    {
+      "color": 5264990,
+      "id": 18,
+      "invertPolarity": false,
+      "muted": false,
+      "name": "",
+      "pan": 0,
+      "sends": [
+        {
+          "level": 1,
+          "to": 2
+        }
+      ],
+      "slots": [
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        },
+        {
+          "enabled": true,
+          "mix": 1
+        }
+      ],
+      "solo": false,
+      "stereoSep": 0,
+      "swapLR": false,
+      "volume": 0.80000001192092896
+    }
+  ],
+  "modLinks": [],
+  "nextId": 51,
+  "panLaw": 2,
+  "patterns": [
+    {
+      "bars": 1,
+      "color": 7249739,
+      "id": 19,
+      "name": "Pattern 1",
+      "notes": {},
+      "steps": {},
+      "stepsPerBar": 16
+    }
+  ],
+  "playlist": [
+    {
+      "id": 30,
+      "kind": "audio",
+      "length": 3932,
+      "pattern": 0,
+      "source": 29,
+      "start": 0,
+      "track": 2
+    },
+    {
+      "id": 37,
+      "kind": "audio",
+      "length": 3932,
+      "pattern": 0,
+      "source": 36,
+      "start": 0,
+      "track": 1
+    },
+    {
+      "id": 39,
+      "kind": "audio",
+      "length": 459,
+      "pattern": 0,
+      "source": 38,
+      "start": 0,
+      "track": 3
+    },
+    {
+      "id": 41,
+      "kind": "audio",
+      "length": 666,
+      "pattern": 0,
+      "source": 40,
+      "start": 0,
+      "track": 4
+    },
+    {
+      "id": 44,
+      "kind": "audio",
+      "length": 52,
+      "pattern": 0,
+      "source": 43,
+      "start": 0,
+      "track": 5
+    },
+    {
+      "id": 46,
+      "kind": "audio",
+      "length": 1437,
+      "pattern": 0,
+      "source": 45,
+      "start": 0,
+      "track": 6
+    },
+    {
+      "id": 48,
+      "kind": "audio",
+      "length": 67349,
+      "pattern": 0,
+      "source": 47,
+      "start": 0,
+      "track": 7
+    },
+    {
+      "id": 50,
+      "kind": "audio",
+      "length": 2033,
+      "pattern": 0,
+      "source": 49,
+      "start": 0,
+      "track": 0
+    }
+  ],
+  "ppq": 96,
+  "slidesByColour": true,
+  "swing": 0,
+  "tempo": 160,
+  "timeSigDen": 4,
+  "timeSigNum": 4,
+  "tracks": [
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "piano sample"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "rythmed hats"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "rythmed kick"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "808 sample"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "808 sample 2"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "voice meme"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "voice meme 2"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": "rapper t-pain voice"
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    },
+    {
+      "color": 5264990,
+      "muted": false,
+      "name": ""
+    }
+  ],
+  "version": 8
+}
+

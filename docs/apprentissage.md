@@ -236,8 +236,23 @@ En complément de la boucle de base, tout agent autonome doit appliquer les vér
   - Un pattern peut apparaître visuellement sur la Playlist tout en étant silencieux (`analyze_loudness(scope="pattern")` -> `silent: true`) si son **insert Mixer** est muté (`mixer 5 Snare`, `mixer 9 Perc`, `mixer 12 Dream Synth` avaient `muted = true`).
   - Toujours vérifier conjointement `list_channels` (`notes == 0` sur `(SXJ) Kick (7)` et `808 [ OZ ]`) et `get_mixer` (`muted == true`) pour distinguer les mutes volontaires des canaux non utilisés.
 
+### 8.4 Adaptation Hard Trap + Planant (`master_hard_trap_final.wav`) & règles manquantes
+Conformément à [sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md](sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md) :
+- **Mode Phrygien & coupure pré-drop** : Utilisation de la progression `Dm -> Eb -> Bb -> A` (`i -> bII -> VI -> v/i`) pour la tension sombre de demi-ton, avec coupure de la 808 sur les 2 derniers temps avant transition (`M2` mesure 8) et clap sec (`0%` réverbe).
+- **Piège 808 sous `40 Hz` + `gl.clipper` Master** : Jouer `01. 808 - infinite` à `D1/Eb1` (`36–39 Hz`) devant un `gl.clipper` agressif (`Threshold -3.0`, `Mix 0.70`) sature la bande `20–60 Hz` (`61.94%`) et étouffe les hauts-médiums (`1.06%`). Placer la fondamentale Phrygienne dans la plage **`55–78 Hz`** (`D2=38`, `Eb2=39`, `Bb1=34`, `A1=33`), avec `gl.clipper` dosé (`Threshold -1.5 dB`, `Mix 0.45`, `4x`) suivi de `gl.limiter` (`Gain +5.4 dB`, `Ceiling -2.0 dB`), donne **`-11.58 LUFS`**, **`-1.03 dBTP`**, `0` sample clippé et `sharpness = 1.68 acum`.
+- **Hi-Hats Hard Trap & coupe boxy `160 Hz`** : Alternance de vélocité `108/70` + rolls `1/32` pitch-down (`60 -> 58 -> 57 -> 55`) vers la 808 ; coupe `-3.5 dB @ 160 Hz` (`Q = 2.8`) sur `Ambient Pad` (`mixer 11`) pour éliminer la résonance boxy `160 Hz` (`+5.26 dB` -> résolue).
 
 
 
 
 
+
+
+
+## 9. Production *Stoicville Nights* (`projects/active5`) — Protocole Multi-Échelles & Samples Dérivés
+- **Architecture Trap 180 BPM Half-Time & Protocole Multi-Échelles** :
+  - Calage exact de l'acapella `90 BPM - T-Pain - Stoicville.mp3` (grille 90 BPM -> 180 BPM half-time, phase `t0 = 0.2067 s`, `bar90 = 2.6667 s`) en segments dédiés (`Intro`, `Hook`, `Verse 1`, `Verse 2`, `Outro`) dans `projects/active5/samples/`.
+  - Dérivation des boucles fournies (`Techno Batch Chords E 125.wav`, `Techno Batch Hats 125.wav`) via time-stretch `rate = 0.72`, découpe rythmique staccato (`techno_chords_e_chop.wav` pour Couplet 2), riser inversé (`techno_chords_e_rev.wav` pour les transitions M7/M39/M71) et filtrage HPF `4000 Hz` sur les hats (`techno_hats_180bpm.wav`).
+  - **Règle des 3 couches & pivots de fin de phrase** : Snare/Clap verrouillés sur le 3e temps, coupure basse/drums sur le 4e temps des mesures pivots (M8, M32, M40, M56, M72), et alternance `MZ 808 [Apollo]` (couplets) / `MZ 808 [Blxckout]` (refrains) avec sidechain Kick -> `BUS 808` (`gl.comp` `Detector input = "Sidechain"`).
+  - **Paramètres Gridline 0.7.7 vérifiés via `set_parameters`** : Les paramètres d'un canal s'adressent via `channel/N/<Param>` (et non `channel/N/plugin/<Param>`), les slots d'effets via `mixer/M/slot/S/<Param>` (index 1-based), `set_send` prend `mixer`, `to`, `level`, et `gl.hall` utilise `Wet level` / `Dry level`.
+  - **Contrôle True Peak ISP avec Air Shelf** : Un `High shelf` sur le `Master` après compression génère des crêtes inter-échantillons ; déplacer le shelf `10 kHz (+1.8 dB)` sur `BUS Drums` avant le limiteur Master (`Gain +5.4 dB`, `Ceiling -3.0 dB`, `0.2 dB safety = true`) a permis d'atteindre **`-11.45 LUFS`**, **`-1.18 dBTP`**, `0` sample clippé et `3.16%` d'air (`6–20 kHz`).

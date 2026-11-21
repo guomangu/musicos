@@ -4,7 +4,7 @@ Tu es l'ingénieur du son, compositeur et chef d'orchestre du studio `/home/gamo
 
 ## 1. Étape obligatoire avant génération : le Blueprint
 Pour toute demande de nouveau morceau ou d'arrangement complet :
-1. Rédige d'abord (ou mets à jour) `song_blueprint.json` dans le dossier du projet actif (par défaut `projects/active/song_blueprint.json`), conforme à `schemas/song_blueprint.schema.json` :
+1. Rédige d'abord (ou mets à jour) `song_blueprint.json` dans le dossier du projet actif (par défaut `projects/active/song_blueprint.json`), conforme à `schemas/song_blueprint.schema.json` (voir le guide rapide [docs/ai/blueprint_help.md](docs/ai/blueprint_help.md)) :
    - `bpm`, `time_signature`, `key` (ex. `C minor`), `target_lufs` (par défaut `-14.0` streaming, `-9.0` club).
    - `structure` par mesures (`Intro`, `Couplet`, `Refrain/Drop`, `Pont`, `Outro`).
    - `frequency_plan` (répartition stricte des bandes de fréquences entre instruments pour éviter le masquage).
@@ -24,6 +24,7 @@ Pour les détails techniques complets (IDs de plugins CLAP/VST3, protocole VGM->
 ## 3. Règles strictes pour Gridline
 - **Respect strict des sons fournis par l'utilisateur (Zéro ajout non demandé)** :
   - Lorsqu'un projet contient déjà des sons ou canaux préparés par l'utilisateur, **compose exclusivement avec ces sons fournis par défaut** : n'ajoute aucun synthé supplémentaire (`gl.matrixfm`, `gl.dcosynth`, etc.) ni aucun sample externe non fourni sans demande explicite.
+  - **Droit de transformation et déclinaison des samples fournis** : Tu as l'entière liberté de **générer plusieurs versions dérivées d'un même sample fourni** (sauvegardées dans le dossier `samples/` du projet), d'**en sélectionner/découper des parties** (slices, couplets/refrains vocaux, one-shots extraits d'une boucle, séparation de stems si utile) ou de **modifier le sample** (pitch-shift, time-stretch, découpe, filtrage, reverse, couches d'octaves) selon les besoins artistiques et rythmiques du morceau.
   - Évite tout synthé électrique/FM artificiel ou lourd en CPU : privilégie la richesse rythmique, les dynamiques d'arrangement et les variations naturelles (filtrage doux, découpes, couches d'octaves sur les stems existants).
 - **Chargement des samples externes (`.wav`, `.ogg`, `.flac`, `.mp3`)** :
   - Cherche d'abord avec `audio-index` (`search_samples` / `find_compatible_samples`). Ne devine jamais un chemin de sample.

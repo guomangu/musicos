@@ -27,3 +27,4 @@ Champs fortement recommandés : `target_lufs`, `frequency_plan`, `vocals` (si ch
 
 ## 4. Organisation de la Playlist (Lisibilité humaine)
 - Placer **chaque instrument et chaque variation sur sa propre piste Playlist dédiée** (ne jamais empiler tout le morceau sur `Track 1`), avec des patterns nommés par instrument et par section (ex. `808 Infinite - M1`, `808 Infinite - Climax`, `Pad High +12`).
+- Pour les règles d'harmonie modale (Phrygien, Éolien, Dorien), de voicing ouvert, de rolls de hi-hats (pitch-down) et de sous-genres Trap (Cloud, Dark/Hard, Rage, Drill), consulter [docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md](../sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md).

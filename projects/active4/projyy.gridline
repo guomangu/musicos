@@ -1403,27 +1403,27 @@
       "sends": [],
       "slots": [
         {
-          "enabled": true,
-          "mix": 0.69999998807907104,
+          "enabled": false,
+          "mix": 0.44999998807907104,
           "plugin": {
             "params": [
-              -3,
+              -1.5,
               0,
               1,
               2,
-              1.5,
+              0.5,
               1
             ],
             "type": "gl.clipper"
           }
         },
         {
-          "enabled": true,
+          "enabled": false,
           "mix": 1,
           "plugin": {
             "params": [
-              3.7999999523162842,
-              -1.7999999523162842,
+              5.4000000953674316,
+              -2,
               0.085500001907348633,
               0.0020000000949949026,
               0.0099999997764825821,
@@ -1516,23 +1516,23 @@
           "plugin": {
             "params": [
               1,
-              35,
+              36.649497985839844,
               0,
               0.7070000171661377,
               0,
               6,
-              136.25840759277344,
-              0,
+              76.623703002929688,
+              3.845304012298584,
               1,
               0,
               6,
-              293.55984497070312,
-              0,
+              252.7532958984375,
+              8.2209968566894531,
               1,
               0,
               6,
-              632.45550537109375,
-              0,
+              685.5355224609375,
+              7.9558014869689941,
               1,
               0,
               6,
@@ -1606,8 +1606,51 @@
           }
         },
         {
-          "enabled": true,
-          "mix": 1
+          "enabled": false,
+          "mix": 1,
+          "plugin": {
+            "params": [
+              29.364706039428711,
+              1,
+              0.60000002384185791,
+              0,
+              20,
+              22100,
+              1,
+              1,
+              1,
+              0.47403335571289062,
+              1.5,
+              1,
+              1,
+              500,
+              0,
+              0.4025801420211792,
+              0,
+              0,
+              0,
+              0,
+              22100,
+              0,
+              75,
+              40,
+              0,
+              50,
+              100,
+              15,
+              40,
+              100,
+              500,
+              0,
+              128,
+              128,
+              128,
+              684,
+              0,
+              1
+            ],
+            "type": "gl.reverb"
+          }
         },
         {
           "enabled": true,
@@ -1645,7 +1688,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.92000001668930054
+      "volume": 1.1674917936325073
     },
     {
       "color": 13214780,
@@ -1804,7 +1847,7 @@
           }
         },
         {
-          "enabled": true,
+          "enabled": false,
           "mix": 0.45500001311302185,
           "plugin": {
             "params": [
@@ -1851,7 +1894,7 @@
           }
         },
         {
-          "enabled": true,
+          "enabled": false,
           "mix": 1,
           "plugin": {
             "params": [
@@ -1897,7 +1940,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.99009901285171509
+      "volume": 1.25
     },
     {
       "color": 5224624,
@@ -2139,7 +2182,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 1.0433993339538574
+      "volume": 0.8453795313835144
     },
     {
       "color": 5935064,
@@ -2199,7 +2242,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.80000001192092896
+      "volume": 0.89488452672958374
     },
     {
       "color": 10841304,
@@ -2476,7 +2519,7 @@
       "color": 5264990,
       "id": 10,
       "invertPolarity": false,
-      "muted": false,
+      "muted": true,
       "name": "Open Hat",
       "pan": 0,
       "sends": [
@@ -2488,15 +2531,108 @@
       "slots": [
         {
           "enabled": true,
-          "mix": 1
+          "mix": 1,
+          "plugin": {
+            "params": [
+              0,
+              1,
+              0.60000002384185791,
+              0,
+              75,
+              4000,
+              1,
+              1,
+              1,
+              0.54000002145767212,
+              2.8962152004241943,
+              1,
+              1,
+              500,
+              0,
+              0.60000002384185791,
+              0,
+              0,
+              0,
+              0,
+              22100,
+              0,
+              75,
+              40,
+              0,
+              50,
+              100,
+              15,
+              40,
+              100,
+              500,
+              0,
+              128,
+              128,
+              128,
+              684,
+              0,
+              1
+            ],
+            "type": "gl.reverb"
+          }
         },
         {
-          "enabled": true,
-          "mix": 1
+          "enabled": false,
+          "mix": 1,
+          "plugin": {
+            "params": [
+              0,
+              0,
+              0.085500001907348633,
+              0.0020000000949949026,
+              0.0099999997764825821,
+              2,
+              2,
+              0,
+              0,
+              1,
+              0,
+              9.9999997473787516e-05,
+              0.24799999594688416,
+              0.0010000000474974513,
+              0,
+              -30,
+              0,
+              0.05000000074505806,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0.085500001907348633,
+              0.24799999594688416,
+              0.05000000074505806
+            ],
+            "type": "gl.limiter"
+          }
         },
         {
-          "enabled": true,
-          "mix": 1
+          "enabled": false,
+          "mix": 1,
+          "plugin": {
+            "params": [
+              0,
+              1117.0916748046875,
+              0.10000000149011612,
+              1,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0.20000000298023224
+            ],
+            "type": "gl.filter"
+          }
         },
         {
           "enabled": true,
@@ -2530,7 +2666,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.80000001192092896
+      "volume": 0.94884473085403442
     },
     {
       "color": 5264990,
@@ -2690,9 +2826,9 @@
               1.2000000476837158,
               0,
               6,
-              293.55984497070312,
-              0,
-              1,
+              160,
+              -3.5,
+              2.7999999523162842,
               0,
               6,
               632.45550537109375,
@@ -2807,15 +2943,15 @@
         }
       ],
       "solo": false,
-      "stereoSep": 0,
+      "stereoSep": -0.070000000298023224,
       "swapLR": false,
-      "volume": 1.2293729782104492
+      "volume": 1.25
     },
     {
       "color": 5264990,
       "id": 14,
       "invertPolarity": false,
-      "muted": true,
+      "muted": false,
       "name": "Dream Synth",
       "pan": 0,
       "sends": [
@@ -2834,8 +2970,8 @@
           "mix": 1,
           "plugin": {
             "params": [
-              1,
-              220,
+              5,
+              63.245552062988281,
               0,
               0.7070000171661377,
               0,
@@ -2900,16 +3036,16 @@
               3,
               0.61224365234375,
               3,
-              0,
               1,
               1,
-              2,
               1,
               2,
+              1,
+              2,
               2,
               0,
               1,
-              0,
+              3,
               0,
               0,
               1,
@@ -3056,12 +3192,12 @@
           }
         },
         {
-          "enabled": false,
+          "enabled": true,
           "mix": 1,
           "plugin": {
             "params": [
-              2,
-              9.4117650985717773,
+              3,
+              11.29411792755127,
               8000,
               1,
               -6,
@@ -3093,31 +3229,31 @@
           }
         },
         {
-          "enabled": false,
+          "enabled": true,
           "mix": 1,
           "plugin": {
             "params": [
-              384,
-              0,
+              45.176471710205078,
+              0.24705883860588074,
               0.60000002384185791,
               0,
               20,
-              1219.3494873046875,
+              500,
               1,
               1,
               1,
-              0.54000002145767212,
+              1,
               1.5,
-              1,
+              0,
               1,
               500,
-              0,
-              5,
-              0,
-              0,
+              0.21176470816135406,
+              0.05000000074505806,
               0,
               0,
-              4000,
+              0,
+              0,
+              22100,
               0,
               75,
               40,
@@ -3140,12 +3276,51 @@
           }
         },
         {
-          "enabled": true,
-          "mix": 1
+          "enabled": false,
+          "mix": 1,
+          "plugin": {
+            "params": [
+              20000,
+              0,
+              1,
+              0.24705882370471954,
+              0.68235296010971069
+            ],
+            "type": "gl.fastlp"
+          }
         },
         {
           "enabled": true,
-          "mix": 1
+          "mix": 1,
+          "plugin": {
+            "params": [
+              1,
+              -12,
+              4.2632564145606011e-14,
+              6.2002367973327637,
+              1,
+              85,
+              0,
+              0,
+              0,
+              0,
+              1,
+              3,
+              1,
+              85,
+              2,
+              0,
+              0,
+              0,
+              0,
+              16,
+              0,
+              0,
+              1,
+              1
+            ],
+            "type": "gl.pitch"
+          }
         },
         {
           "enabled": true,
@@ -3155,7 +3330,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.6886138916015625
+      "volume": 1.1592409610748291
     },
     {
       "color": 5264990,
@@ -3411,9 +3586,9 @@
         }
       ],
       "solo": false,
-      "stereoSep": 0,
+      "stereoSep": 0.10999999940395355,
       "swapLR": false,
-      "volume": 0.85000002384185791
+      "volume": 1.25
     },
     {
       "color": 5264990,
@@ -3537,7 +3712,7 @@
     }
   ],
   "modLinks": [],
-  "nextId": 175,
+  "nextId": 181,
   "panLaw": 2,
   "patterns": [
     {
@@ -3701,13 +3876,13 @@
         "28": [
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 0,
             "velocity": 112
           },
           {
             "length": 355,
-            "pitch": 27,
+            "pitch": 39,
             "start": 384,
             "velocity": 112
           },
@@ -3725,13 +3900,13 @@
           },
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 1536,
             "velocity": 112
           },
           {
             "length": 355,
-            "pitch": 27,
+            "pitch": 39,
             "start": 1920,
             "velocity": 112
           },
@@ -3761,13 +3936,13 @@
         "28": [
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 0,
             "velocity": 112
           },
           {
             "length": 355,
-            "pitch": 27,
+            "pitch": 39,
             "start": 384,
             "velocity": 112
           },
@@ -3792,13 +3967,13 @@
           },
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 1536,
             "velocity": 112
           },
           {
             "length": 355,
-            "pitch": 27,
+            "pitch": 39,
             "start": 1920,
             "velocity": 112
           },
@@ -3828,19 +4003,19 @@
         "28": [
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 0,
             "velocity": 114
           },
           {
             "length": 307,
-            "pitch": 27,
+            "pitch": 39,
             "start": 384,
             "velocity": 114
           },
           {
             "length": 43,
-            "pitch": 39,
+            "pitch": 51,
             "porta": true,
             "start": 720,
             "velocity": 104
@@ -3866,19 +4041,19 @@
           },
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 1536,
             "velocity": 114
           },
           {
             "length": 307,
-            "pitch": 27,
+            "pitch": 39,
             "start": 1920,
             "velocity": 114
           },
           {
             "length": 43,
-            "pitch": 39,
+            "pitch": 51,
             "porta": true,
             "start": 2256,
             "velocity": 104
@@ -3904,19 +4079,19 @@
           },
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 3072,
             "velocity": 114
           },
           {
             "length": 307,
-            "pitch": 27,
+            "pitch": 39,
             "start": 3456,
             "velocity": 114
           },
           {
             "length": 43,
-            "pitch": 39,
+            "pitch": 51,
             "porta": true,
             "start": 3792,
             "velocity": 104
@@ -3942,19 +4117,19 @@
           },
           {
             "length": 355,
-            "pitch": 26,
+            "pitch": 38,
             "start": 4608,
             "velocity": 114
           },
           {
             "length": 307,
-            "pitch": 27,
+            "pitch": 39,
             "start": 4992,
             "velocity": 114
           },
           {
             "length": 43,
-            "pitch": 39,
+            "pitch": 51,
             "porta": true,
             "start": 5328,
             "velocity": 104
@@ -3992,13 +4167,13 @@
         "30": [
           {
             "length": 346,
-            "pitch": 26,
+            "pitch": 38,
             "start": 0,
             "velocity": 100
           },
           {
             "length": 346,
-            "pitch": 27,
+            "pitch": 39,
             "start": 384,
             "velocity": 100
           },
@@ -7571,21 +7746,20 @@
           {
             "length": 192,
             "pan": 10,
-            "pitch": 62,
+            "pitch": 72,
             "start": 0,
             "velocity": 72
           },
           {
             "length": 192,
             "pan": 10,
-            "pitch": 69,
+            "pitch": 75,
             "start": 768,
             "velocity": 64
           },
           {
             "length": 240,
-            "pan": 10,
-            "pitch": 65,
+            "pitch": 78,
             "start": 1536,
             "velocity": 56
           }
@@ -7898,13 +8072,6 @@
       "track": 6
     },
     {
-      "id": 130,
-      "length": 0,
-      "pattern": 79,
-      "start": 13824,
-      "track": 6
-    },
-    {
       "id": 131,
       "length": 0,
       "pattern": 77,
@@ -7916,13 +8083,6 @@
       "length": 0,
       "pattern": 77,
       "start": 18432,
-      "track": 6
-    },
-    {
-      "id": 133,
-      "length": 0,
-      "pattern": 79,
-      "start": 19968,
       "track": 6
     },
     {
@@ -8136,24 +8296,10 @@
       "track": 10
     },
     {
-      "id": 166,
-      "length": 0,
-      "pattern": 83,
-      "start": 4608,
-      "track": 11
-    },
-    {
       "id": 167,
       "length": 0,
       "pattern": 84,
-      "start": 7680,
-      "track": 11
-    },
-    {
-      "id": 168,
-      "length": 0,
-      "pattern": 83,
-      "start": 9216,
+      "start": 6144,
       "track": 11
     },
     {
@@ -8171,24 +8317,10 @@
       "track": 11
     },
     {
-      "id": 171,
-      "length": 0,
-      "pattern": 84,
-      "start": 18432,
-      "track": 11
-    },
-    {
       "id": 172,
       "length": 0,
       "pattern": 85,
       "start": 19968,
-      "track": 11
-    },
-    {
-      "id": 173,
-      "length": 0,
-      "pattern": 85,
-      "start": 23040,
       "track": 11
     },
     {
@@ -8197,12 +8329,47 @@
       "pattern": 86,
       "start": 26112,
       "track": 11
+    },
+    {
+      "id": 175,
+      "length": 0,
+      "pattern": 84,
+      "start": 9216,
+      "track": 11
+    },
+    {
+      "id": 177,
+      "length": 0,
+      "pattern": 84,
+      "start": 23040,
+      "track": 11
+    },
+    {
+      "id": 178,
+      "length": 0,
+      "pattern": 78,
+      "start": 13824,
+      "track": 6
+    },
+    {
+      "id": 179,
+      "length": 0,
+      "pattern": 78,
+      "start": 19968,
+      "track": 6
+    },
+    {
+      "id": 180,
+      "length": 0,
+      "pattern": 84,
+      "start": 10752,
+      "track": 11
     }
   ],
   "ppq": 96,
   "slidesByColour": true,
   "swing": 0.059999998658895493,
-  "tempo": 150,
+  "tempo": 160,
   "timeSigDen": 4,
   "timeSigNum": 4,
   "tracks": [
