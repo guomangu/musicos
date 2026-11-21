@@ -215,5 +215,29 @@ En complément de la boucle de base, tout agent autonome doit appliquer les vér
 - **Zéro faux positif harmonique sur stems `gl.sampler`** : Définir `Root note = 63` (`D#4`) et déclencher les stems (`2 - Guitar`, `2 - Piano`), le triangle et les ad-libs sur `pitch = 63` conserve exactement le pitch d'origine tout en garantissant `0` note hors gamme dans `audit_midi_harmony`.
 - **Équilibre spectral de `2 - Piano.wav` & `MZ Vox [Grrrrraahhh!]`** : `2 - Piano.wav` concentrait `75,3 %` de son énergie entre `250–500 Hz` (corrélation `+0,495`), et `MZ Vox [Grrrrraahhh!]` avait une corrélation de `-0,035`. Correction vérifiée : HPF `185 Hz` + coupe `-4,5 dB @ 320 Hz` + `stereo = -0,22` sur `2 - Piano`, et `stereo = -0,45` sur `MZ Vox [Grrrrraahhh!]`.
 
+---
+
+## 8. Projet `projects/active4/projyy.gridline` (*Hyper Ambient Zone*, 76 mesures @ 150 BPM = 122,4 s, `D minor`)
+
+### 8.1 Détails techniques MCP & paramètres Gridline 0.7.7
+- **Choix `gl.eq` & `gl.limiter`** : Dans `gl.eq`, le type passe-haut s'appelle `"Low cut"` (et non `"High pass"`), et le facteur Q se nomme `"Band N Q (legacy)"`. Dans `gl.limiter`, le preset `"Brickwall -1 dB"` peut laisser des crêtes inter-échantillons (`+0.2 dBTP` en `v1`) ; régler explicitement `Ceiling = -1.6 dB` avec `0.2 dB safety = 1.0` et `Gain = +3.5..+4.0 dB` garantit `true_peak_dbtp = -1.01 dBTP` (`sample_peak_dbfs = -1.81 dBFS`, `0` sample clippé) tout en portant le loudness à `-11.21 LUFS`.
+- **Nappe ambiante continue & évolution harmonique (`oddlogic` Base + `oddlogic High (+12)`)** : Pour un sample d'ambiance de 32,58 s (`oddlogic - total hyper ambient zone vibe.wav`, accord naturel `D3-F3-A3-D4`) sur un morceau de 2 minutes, activer `Loop = true`, `Loop mode = "Ping-pong"`, `Loop start = 0.08`, `Loop end = 0.92`, `Loop crossfade = 0.18`, `Attack = 0.35 s`, `Release = 1.2 s`. Pour faire évoluer la 2e minute sans ajouter de sample externe, dupliquer le canal en `oddlogic High (+12)` (joué à l'octave `MIDI 72`, `Cutoff = 4800 Hz`, HPF `420 Hz`, `-3 dB @ 3000 Hz`).
+- **Hi-hat Trap brillant (`11. hh - game got told.wav`)** : Son pic naturel vers `6.3–8 kHz` (`+11.87 dB` en `v1`, `sharpness = 2.201 acum`) est ramené dans la zone saine (`sharpness = 1.708 acum`, `air = 5.02%`) par une coupe `-2.5 dB @ 7200 Hz` (`Q = 1.1`) + un léger `High shelf +2.0 dB @ 10.5 kHz`.
+- **Rate-limit MCP en script Python stdio** : Lors d'enchaînements rapides de `set_parameters` / `set_send` / `set_notes` sur `gridline mcp <proj>`, espacer les appels de `~50 ms` (ou regrouper via `batch`) et prévoir un retry sur `"Rate limit"`.
+
+### 8.2 Organisation Playlist & Hygiène du Master (retour utilisateur)
+- **Une piste Playlist dédiée par instrument / version** : Ne jamais empiler tout l'arrangement sur une seule piste Playlist (`Track 1`). Séparer chaque instrument et chaque variation (`Vox Chant`, `808 Infinite`, `808 Dream`, `Kick`, `Clap`, `Perc`, `HH Main`, `HH Accent`, `Open Hat`, `oddlogic Base`, `oddlogic High (+12)`, `Dream Synth`) sur des pistes dédiées (`Tracks 1..12`) avec des patterns nommés par section pour faciliter la relecture humaine.
+- **Respect des mutes/suppressions utilisateur & hygiène `Master`** : Toujours inspecter `list_channels` et `get_mixer` avant d'itérer (ici `Snare` `mixer 5` mutée par l'utilisateur et `tempo = 150 BPM` conservés). Vérifier également qu'aucune `gl.reverb` ou `gl.limiter` en doublon ne reste sur le bus `Master` (`mixer 0`) : la suppression d'une réverbe accidentelle sur le Master a fait remonter `low_mid_200_800hz_correlation` de `0.701` à `0.812` et restauré la clarté du kick/808.
+
+### 8.3 Cadence 808 à 150 BPM & diagnostic des pistes inactives (`master_2min_v3.wav`)
+- **Piège de densité 808 à 150 BPM** : Écrire `6` à `7` frappes de `01. 808 - infinite` par mesure (`1/16` ou `1/8` en rafale) à `150 BPM` rend la basse trop rapide et étouffe le groove Trap.
+  - **Solution vérifiée** : Limiter la 808 à **3–4 frappes espacées par mesure** (`0.0`, `1.5`, `2.75`, avec glissando `porta` d'octave `+12` ou turnaround sur `3.5` une mesure sur deux) en synchronisant `Kick - M2` sur les mêmes appuis (`master_2min_v3.wav` : `-11.56 LUFS`, `-1.07 dBTP`, `0` clic).
+- **Diagnostic des sons inactifs (`silent: true` vs canaux inutilisés)** :
+  - Un pattern peut apparaître visuellement sur la Playlist tout en étant silencieux (`analyze_loudness(scope="pattern")` -> `silent: true`) si son **insert Mixer** est muté (`mixer 5 Snare`, `mixer 9 Perc`, `mixer 12 Dream Synth` avaient `muted = true`).
+  - Toujours vérifier conjointement `list_channels` (`notes == 0` sur `(SXJ) Kick (7)` et `808 [ OZ ]`) et `get_mixer` (`muted == true`) pour distinguer les mutes volontaires des canaux non utilisés.
+
+
+
+
 
 

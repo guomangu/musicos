@@ -1,0 +1,226 @@
+{
+  "title": "Hyper Ambient Zone (Trap - 2min Progressive)",
+  "genre": "Trap / Cloud Rap",
+  "mood": "Rythmé, planant, évolutif, atmosphérique",
+  "bpm": 150,
+  "time_signature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "key": "D minor",
+  "swing": 0.08,
+  "target_lufs": -10.5,
+  "structure": [
+    {
+      "section": "Intro",
+      "start_bar": 1,
+      "bars": 4,
+      "energy": 0.35,
+      "active_roles": ["Ambient Base", "Vox Chant", "HH Main", "Open Hat"],
+      "notes": "Installation de la nappe oddlogic originale (Ré mineur), chant et hats légers."
+    },
+    {
+      "section": "Couplet 1",
+      "start_bar": 5,
+      "bars": 8,
+      "energy": 0.65,
+      "active_roles": ["Ambient Base", "808 Infinite", "Kick", "Clap", "HH Main", "HH Accent", "Perc", "Dream Synth"],
+      "notes": "Groove trap half-time posé, Snare mutée selon choix utilisateur."
+    },
+    {
+      "section": "Refrain 1",
+      "start_bar": 13,
+      "bars": 8,
+      "energy": 0.85,
+      "active_roles": ["Ambient Base", "808 Infinite", "Kick", "Clap", "HH Main", "HH Accent", "Open Hat", "Perc", "Vox Chant", "Dream Synth"],
+      "notes": "Premier drop complet."
+    },
+    {
+      "section": "Pont 1",
+      "start_bar": 21,
+      "bars": 4,
+      "energy": 0.45,
+      "active_roles": ["Ambient Base", "808 Dream", "Clap", "HH Main", "Dream Synth"],
+      "notes": "Respiration aérienne avec 808 dream counting."
+    },
+    {
+      "section": "Refrain 2",
+      "start_bar": 25,
+      "bars": 8,
+      "energy": 0.88,
+      "active_roles": ["Ambient Base", "808 Infinite", "Kick", "Clap", "HH Main", "HH Accent", "Open Hat", "Perc", "Vox Chant", "Dream Synth"],
+      "notes": "Deuxième drop de la première minute."
+    },
+    {
+      "section": "Transition",
+      "start_bar": 33,
+      "bars": 4,
+      "energy": 0.5,
+      "active_roles": ["Ambient Base", "Ambient High (+12)", "Vox Chant", "Open Hat", "Perc"],
+      "notes": "Ouverture vers la deuxième minute : entrée de la 2e version d'oddlogic (+12 demi-tons)."
+    },
+    {
+      "section": "Couplet 2 (Rythmique)",
+      "start_bar": 37,
+      "bars": 8,
+      "energy": 0.8,
+      "active_roles": ["Ambient Base", "Ambient High (+12)", "808 Infinite", "Kick", "Clap", "HH Main", "HH Accent", "Perc", "Dream Synth"],
+      "notes": "Complexification rythmique : doubles frappes et sauts d'octave sur 808 infinite, roulements 1/32."
+    },
+    {
+      "section": "Pont 2 (Planant)",
+      "start_bar": 45,
+      "bars": 8,
+      "energy": 0.55,
+      "active_roles": ["Ambient Base", "Ambient High (+12)", "808 Dream", "Clap", "HH Main", "Dream Synth"],
+      "notes": "Montée planante progressive sur 8 mesures avant le climax."
+    },
+    {
+      "section": "Refrain 3 (Climax)",
+      "start_bar": 53,
+      "bars": 16,
+      "energy": 1.0,
+      "active_roles": ["Ambient Base", "Ambient High (+12)", "808 Infinite", "Kick", "Clap", "HH Main", "HH Accent", "Open Hat", "Perc", "Vox Chant", "Dream Synth"],
+      "notes": "Climax 16 mesures : 808 infinite très rythmée (syncopes, glides, octaves) + double couche oddlogic."
+    },
+    {
+      "section": "Outro",
+      "start_bar": 69,
+      "bars": 8,
+      "energy": 0.25,
+      "active_roles": ["Ambient Base", "Ambient High (+12)", "808 Dream", "Clap", "Open Hat", "Dream Synth"],
+      "notes": "Extinction progressive jusqu'à ~2 minutes (121.6 s)."
+    }
+  ],
+  "frequency_plan": {
+    "sub_20_60": "808 - infinite & 808 - dream counting (mono strict < 120 Hz, HPF 28 Hz, Root=24 C1, -15ct)",
+    "bass_60_250": "10 Kick -hot (HPF 35 Hz) + sidechain Kick -> 808",
+    "low_mids_250_500": "Ambient Base oddlogic (HPF 145 Hz, -2.5 dB @ 320 Hz)",
+    "mids_500_4000": "Ambient Base, Ambient High (+12, HPF 420 Hz, LPF 5500 Hz), Dream Synth, Perc, Vox Chant",
+    "highs_4000_20000": "Hi-hats (coupe -4 dB @ 7.2 kHz), Open Hat, brillance clap"
+  },
+  "tracks": [
+    {
+      "name": "(SXJ) Chants (6)",
+      "role": "Vox Chant",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/JMizzy The Best Drum Kits/JUGG DRUM KIT/Chants (Voxs)/(SXJ) Chants (6).wav",
+      "mixer_track": 10,
+      "freq_lane": "500 Hz - 8 kHz",
+      "pan": -0.1
+    },
+    {
+      "name": "01. 808 - infinite",
+      "role": "808 principale rythmée",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/03. 808s_Bass/01. 808 - infinite.wav",
+      "mixer_track": 2,
+      "freq_lane": "28-200 Hz",
+      "pan": 0.0
+    },
+    {
+      "name": "02. 808 - dream counting",
+      "role": "808 pont",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/03. 808s_Bass/02. 808 - dream counting.wav",
+      "mixer_track": 3,
+      "freq_lane": "28-200 Hz",
+      "pan": 0.0
+    },
+    {
+      "name": "10 Kick -hot",
+      "role": "Kick principal",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/JMizzy The Best Drum Kits/Wheezy (Shows the Screen)  Drumkit/Kicks/10 Kick -hot.wav",
+      "mixer_track": 1,
+      "freq_lane": "50-120 Hz + clic",
+      "pan": 0.0
+    },
+    {
+      "name": "(SXJ) Clap (7)",
+      "role": "Clap principal",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/JMizzy The Best Drum Kits/JUGG DRUM KIT/Claps/(SXJ) Clap (7).wav",
+      "mixer_track": 4,
+      "freq_lane": "200 Hz - 14 kHz",
+      "pan": 0.0
+    },
+    {
+      "name": "[perc] 4 wheezy",
+      "role": "Percussion",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/JMizzy The Best Drum Kits/Wheezy (Shows the Screen)  Drumkit/Percs/[perc] 4 wheezy.wav",
+      "mixer_track": 9,
+      "freq_lane": "400 Hz - 10 kHz",
+      "pan": 0.25
+    },
+    {
+      "name": "11. hh - game got told",
+      "role": "Closed Hi-Hat",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/CHRISSA SJE & NIKOS - INFINITE (SOUND PACK)/05. Drum Kit ∞/02. Hi-hats/11. hh - game got told.wav",
+      "mixer_track": 6,
+      "freq_lane": "3 kHz - 20 kHz",
+      "pan": 0.12
+    },
+    {
+      "name": "21 HiHat",
+      "role": "Hi-Hat accent",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/JMizzy The Best Drum Kits/Wheezy (Shows the Screen)  Drumkit/Closed Hats/21 HiHat.wav",
+      "mixer_track": 7,
+      "freq_lane": "4 kHz - 20 kHz",
+      "pan": -0.18
+    },
+    {
+      "name": "2015 Open Hat",
+      "role": "Open Hat",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/JMizzy The Best Drum Kits/Pi'erre (Shows the Screen) Drumkit/Open Hats/2015 Open Hat.wav",
+      "mixer_track": 8,
+      "freq_lane": "3 kHz - 20 kHz",
+      "pan": -0.2
+    },
+    {
+      "name": "oddlogic - total hyper ambient zone vibe",
+      "role": "Nappe atmosphérique base",
+      "source_type": "loop",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/Glitch With Friends/Glitch With Friends+/Synth & Melodic/oddlogic - total hyper ambient zone vibe.wav",
+      "mixer_track": 11,
+      "freq_lane": "145 Hz - 12 kHz",
+      "pan": 0.0
+    },
+    {
+      "name": "oddlogic High (+12)",
+      "role": "Nappe atmosphérique octave haute (minute 2)",
+      "source_type": "loop",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/pack/Glitch With Friends/Glitch With Friends+/Synth & Melodic/oddlogic - total hyper ambient zone vibe.wav",
+      "mixer_track": 14,
+      "freq_lane": "420 Hz - 5.5 kHz",
+      "pan": -0.12
+    },
+    {
+      "name": "Synth",
+      "role": "Contre-mélodie planante",
+      "source_type": "gridline_native",
+      "plugin": "gl.synth",
+      "mixer_track": 12,
+      "freq_lane": "300 Hz - 6 kHz",
+      "pan": 0.15
+    }
+  ],
+  "vocals": {
+    "enabled": false
+  }
+}

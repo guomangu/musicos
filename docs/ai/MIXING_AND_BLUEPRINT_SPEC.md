@@ -24,3 +24,6 @@ Doit toujours valider `schemas/song_blueprint.schema.json` :
 ```
 Champs obligatoires : `title`, `genre`, `bpm`, `time_signature`, `key`, `structure`, `tracks`.
 Champs fortement recommandés : `target_lufs`, `frequency_plan`, `vocals` (si chant).
+
+## 4. Organisation de la Playlist (Lisibilité humaine)
+- Placer **chaque instrument et chaque variation sur sa propre piste Playlist dédiée** (ne jamais empiler tout le morceau sur `Track 1`), avec des patterns nommés par instrument et par section (ex. `808 Infinite - M1`, `808 Infinite - Climax`, `Pad High +12`).
