@@ -125,8 +125,8 @@ L'enchaînement réel observé lors du mixage d'« Obsidian Midnight » illustre
 
 ## 4. Protocole Standard d'Itération (Checklist pour Tout Agent)
 
-1. **Blueprint d'abord** : Rédiger `song_blueprint.json` dans le dossier projet cible et valider contre `schemas/song_blueprint.schema.json`.
-2. **Audit des samples** : Chercher via `audio-index`, puis mesurer en Python `f0`, durée et DC offset des kicks et 808 avant programmation.
+1. **Blueprint & Architecture Multi-Échelles d'abord** : Rédiger `song_blueprint.json` dans le dossier projet cible et valider contre `schemas/song_blueprint.schema.json`, en respectant le [protocole universel multi-échelles](protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) (max 3 couches hors batterie, règle Staccato/Legato, dimensionnement temporel `T_noire = 60000 / BPM`, renouvellement 4/8 mesures).
+2. **Audit des samples & Enveloppes** : Chercher via `audio-index`, puis mesurer en Python `f0`, durée et DC offset des kicks et 808 avant programmation ; dimensionner les enveloppes ADSR (`Voices = 1` *cut itself* sur 808, ticks courts `20–90 ms`, queues reverb/delay multiples de `T_noire` coupées aux transitions).
 3. **Construction modulaire** :
    - Routing strict : chaque canal sur son insert (`>= 1`), groupé vers `BUS Drums (10)`, `BUS Music (11)`, `FX Hall (12)` → `Master (0)`.
    - Vérifier `"silent": false` dès le premier pattern via `analyze_loudness(scope="pattern")`.
@@ -257,3 +257,17 @@ Conformément à [sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sou
   - **Paramètres Gridline 0.7.7 vérifiés via `set_parameters`** : Les paramètres d'un canal s'adressent via `channel/N/<Param>` (et non `channel/N/plugin/<Param>`), les slots d'effets via `mixer/M/slot/S/<Param>` (index 1-based), `set_send` prend `mixer`, `to`, `level`, et `gl.hall` utilise `Wet level` / `Dry level`.
   - **Contrôle True Peak ISP avec Air Shelf** : Un `High shelf` sur le `Master` après compression génère des crêtes inter-échantillons ; déplacer le shelf `10 kHz (+1.8 dB)` sur `BUS Drums` avant le limiteur Master (`Gain +5.4 dB`, `Ceiling -3.0 dB`, `0.2 dB safety = true`) a permis d'atteindre **`-11.45 LUFS`**, **`-1.18 dBTP`**, `0` sample clippé et `3.16%` d'air (`6–20 kHz`).
   - **Piège `project.playlist.addAudioClip` (`length: 384` par défaut)** : En Lua, `addAudioClip(ch, track, start, offset)` crée le clip avec une longueur par défaut de `384` ticks (`1` mesure), tronquant les voix/boucles longues. Toujours mettre à jour `clip["length"]` en ticks (`bars * 384`) ou déclencher via un pattern dédié sur une piste Playlist séparée (`1` piste Playlist nommée par instrument/son).
+
+---
+
+## 10. Production *Stoicville Ignition* (`projects/active5/projet.gridline`) — Application du Protocole Section 2 (Durées Acoustiques & Enveloppes, 2026-11-21)
+- **Synchronisation des enveloppes à `180 BPM` ($T_{\text{noire}} = 333.3\text{ ms}$, $1/16 = 83.3\text{ ms}$, $1/32 = 41.7\text{ ms}$)** :
+  - Extraction de one-shots calibrés depuis les boucles de `Untitled.gridline` dans `projects/active5/samples/` : `techno_kick_oneshot.wav` (`125 ms`, HPF `32 Hz`), `techno_clap_oneshot.wav` (`190 ms`, HPF `220 Hz`), `techno_hat_oneshot.wav` (`65 ms`, HPF `3.5 kHz`), `techno_openhat_oneshot.wav` (`180 ms`), ainsi que `techno_key_hats_180bpm.wav`, `techno_perc_180bpm.wav` et `techno_chords_e_high12.wav` (`+12 st`, HPF `650 Hz`).
+  - `gl.kick` réglé à `Decay = 0.13 s`, `gl.hat` à `Decay = 0.045 s`, `gl.snare` (`Body 0.11 s / Noise 0.16 s`), `gl.clap` (`0.18 s`), et `Voices = 1` + `One shot = 0` + `Release = 0.045 s` + `Glide = 0.055 s` sur `MZ 808 [Apollo]` (`Fine -14 ct`) et `MZ 808 [Blxckout]` (`Fine +6 ct`).
+  - `FX Room` (`gl.reverb`, `Model = 1 Plate`, `Decay time = 0.333 s` = `1 × T_noire`, `Dry = 0`, `Dry (full) = 0`) couplé à une piste d'automation (`add_automation` sur `mixer/20/volume`) qui coupe la queue de réverbe à `0` sur le 4e temps des mesures pivots (`M8, M32, M40, M56, M72`).
+- **Dynamique inter-sections écrasée par `Master Comp / Limiter` (`v1 -> final`)** :
+  - En `v1`, un seuil `Master Comp` à `-14 dB` et un gain limiteur à `+4.5 dB` écrasaient `Intro` (`-11.73 LUFS`) presque au niveau de `Refrain 1` (`-10.85 LUFS`).
+  - En relevant `Master Comp Threshold` à `-10 dB` (`Ratio = 1.8`) et en baissant les gains des couches d'Intro/Pont/Outro (`Chords E Filtered = 0.44`, `Stoicville Intro = 0.62`, vélocités réduites), la dynamique entre sections s'est rouverte (`Intro -14.11 LUFS` / `Pont -14.45 LUFS` -> `Refrains -11.02 à -10.96 LUFS`), tout en supprimant la résonance à `63 Hz` (`-5.6 dB` sur `BUS 808` + `-2.5 dB` sur `BUS Drums` -> `0` résonance 1/3 octave).
+- **Zéro faux clash `audit_midi_harmony` sur samplers de boucles** :
+  - Régler `Root note = 64` (`E4`) et déclencher les boucles/voix sur `pitch = 64` (au lieu de `C4 = 60` face à `B3` de `Upright Pizz`) supprime tous les faux positifs `minor_2nd_cluster` (`0` clash, `0` note hors gamme `E minor`).
+- **Résultat final vérifié (`Stoicville_Ignition_final.wav`, `128.51 s` = `96 mesures @ 180 BPM`)** : **`-11.48 LUFS`**, **`-1.09 dBTP`**, `0` sample clippé, `0` résonance 1/3 octave, `correlation_low_end_150hz = 1.000`, `low_mid_200_800hz_correlation = 0.942`, `sharpness = 1.776 acum`, `air = 6.25%`, `PQ = 7.945`, `CU = 7.585`, `detected_key = "E minor"`.

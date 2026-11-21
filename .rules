@@ -47,7 +47,9 @@ Pour les détails techniques complets (IDs de plugins CLAP/VST3, protocole VGM->
   - Attention aux unités : dans `set_notes`, les temps sont en **beats** ; dans Lua (`project.patterns.setNotes`), les temps et durées (`time`, `length`) sont en **ticks** (`project.song.ppq()`, 96 ticks/beat par défaut), et `project.patterns.setBars(p, bars)` règle la longueur.
   - Pour placer un fichier audio long (ex. `vocals.wav` ou boucle) en clip audio sur la playlist, charge-le dans un `gl.sampler` puis utilise `run_script` avec `function apply() project.playlist.addAudioClip(ch, track, 0, 0) end`.
 
-## 4. Discipline musicale et fréquentielle
+## 4. Discipline musicale, temporelle et fréquentielle
+- Applique le [protocole multi-échelles](docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) : max **3 couches fonctionnelles** hors batterie, renouvellement toutes les **4 et 8 mesures** (pivots/mutes de transition), cycle prédictif en 4 étapes et checklist de validation en 5 points avant rendu.
+- **Physique des durées & enveloppes (`T_noire = 60000 / BPM ms`)** : `808` **strictement monophonique (*cut itself*, `Release 30–60 ms`)**, ticks/hats courts (`20–90 ms`, `Sustain 0%`), kick court (`80–160 ms`), contraste vertical **Staccato / Legato** (808 longue vs percussions/mélodies courtes, ou inversement), et `RT60`/delay synchronisés sur un multiple/sous-multiple de `T_noire` et coupés lors des silences de transition.
 - Respecte strictement la tonalité (`key`) et les altérations de la gamme définie dans `song_blueprint.json`.
 - Sépare les plages de fréquences :
   - **Sub (20–60 Hz)** : mono, réservé à la 808 ou sub-bass.

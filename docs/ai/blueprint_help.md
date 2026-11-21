@@ -60,13 +60,20 @@ Idéal pour un morceau Rap / Trap complet suivant le protocole multi-échelles (
 
 ---
 
-## 4. Règles Universelles d'Arrangement & de Spectre à inscrire dans le Blueprint
+## 4. Règles Universelles d'Arrangement, de Durées & de Spectre à inscrire dans le Blueprint
 
 - **Règle des 3 Couches (hors batterie)** : ne jamais dépasser **3 rôles mélodiques/harmoniques simultanés** dans `active_roles` :
   1. *Fondation* (`808 / Sub`)
   2. *Harmonie / Texture* (`Pad / Chords / Guitare`)
   3. *Motif / Voix* (`Lead Rap / Vocal / Contre-chant aigu`)
+- **Dimensionnement temporel & Enveloppes ADSR (`T_noire = 60000 / BPM ms`)** (voir [protocole_universel...md](../protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md)) :
+  - Calculer la grille en ms (ex. à `180 BPM` : `1 mesure = 1333.3 ms`, `1 noire = 333.3 ms`, `1 croche = 166.7 ms`, `1 double-croche = 83.3 ms`, `1 triple-croche = 41.7 ms`).
+  - **Ticks / Hi-Hats** : `20–90 ms` (`Attack 0`, `Decay 30–70 ms`, `Sustain 0%`), extinction avant la subdivision suivante.
+  - **Kick / Snare** : Kick court (`80–160 ms`), Snare/Clap (`120–250 ms`, réverbe `< T_noire`).
+  - **808 Monophonique (*Cut Itself*) OBLIGATOIRE** : `Voices = 1`, `Release = 30–60 ms` ; longue (`1–4` temps) si mélodie staccato, ou courte/bounce (`1/8–1/4` temps) si pads/voix denses (**Règle d'or Staccato / Legato**).
+  - **Queues Reverb / Delay** : `RT60` et delay synchronisés à un multiple/sous-multiple de `T_noire`, et coupés proprement sur les mutes de transition (M4 / M8).
 - **Renouvellement 4 / 8 mesures** : noter dans `structure[].notes` les micro-variations toutes les 4 mesures et les **pivots de transition** (coupure beat 4, fill snare, riser inversé, vocal FX) toutes les 8 mesures.
+- **Checklist avant rendu** : Soustraction (mélodie+808 sans drums) · Densité (`<= 3` couches) · Durées et Silences (`808` mono + ticks secs) · Marqueurs des 8 mesures · Espace Vocal (`800 Hz – 2.5 kHz` dégagé en couplet).
 - **Allocation fréquentielle standard (`frequency_plan`)** :
   - `sub_20_60` : `808 / Sub` uniquement (**mono strict** `gl.stereo Width = 0`, `HPF 28–30 Hz`).
   - `bass_60_250` : `Kick (55–120 Hz)` en sidechain sur `BUS 808` (`15–40 ms`) ; `HPF >= 130–160 Hz` sur tout le reste.

@@ -28,3 +28,15 @@ Champs fortement recommandés : `target_lufs`, `frequency_plan`, `vocals` (si ch
 ## 4. Organisation de la Playlist (Lisibilité humaine)
 - Placer **chaque instrument et chaque variation sur sa propre piste Playlist dédiée** (ne jamais empiler tout le morceau sur `Track 1`), avec des patterns nommés par instrument et par section (ex. `808 Infinite - M1`, `808 Infinite - Climax`, `Pad High +12`).
 - Pour les règles d'harmonie modale (Phrygien, Éolien, Dorien), de voicing ouvert, de rolls de hi-hats (pitch-down) et de sous-genres Trap (Cloud, Dark/Hard, Rage, Drill), consulter [docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md](../sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md).
+
+## 5. Architecture Multi-Échelles, Enveloppes Temporelles & Validation (Protocole Universel)
+Consulter [docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md](../protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) pour le cadre complet :
+- **Double axe** : cohérence verticale (spectre/harmonie, max **3 couches fonctionnelles** hors batterie : Fondation, Harmonie/Texture, Motif/Voix) et horizontale (modèle prédictif en 4 étapes : Encodage -> Validation -> Surprise contrôlée 70/30 -> Résolution, avec renouvellement toutes les 4 et 8 mesures et ancrage *half-time* du Clap/Snare sur le 3e temps).
+- **Physique des durées & dimensionnement ADSR** ($T_{\text{noire}} = \frac{60\,000}{\text{BPM}}\text{ ms}$, ex. `333.3 ms` à `180 BPM`) :
+  - *Ticks / Hi-Hats / Rimshots* : **`20–90 ms`** (`Attack 0 ms`, `Decay 30–70 ms`, `Sustain 0%`), extinction avant la subdivision suivante pour créer un silence intercalaire.
+  - *Snare / Clap* : **`120–250 ms`**, queue de réverbe éteinte avant le temps suivant.
+  - *Kick* : **`80–160 ms`** (`Sustain 0%`) pour laisser la place à la 808 qui le prolonge.
+  - *Basse 808* : **Mode Monophonique (*Cut Itself*) OBLIGATOIRE** (`Voices = 1`, `Release = 30–60 ms`), longue (`1–4` temps) ou bounce (`1/8–1/4` temps en couplet rapide).
+  - *Contraste Staccato / Legato* : opposer une 808 longue (`Legato`) à des percussions/mélodies courtes (`Staccato`), ou inversement des pads tenus à une 808 rebondissante (`Bounce`).
+  - *Queues d'effets (Reverb / Delay)* : `RT60` et échos calés sur un multiple/sous-multiple exact de $T_{\text{noire}}$ et **coupés automatiquement** lors des silences/mutes de transition (fins de 4e/8e mesures).
+- **Checklist de validation en 5 points avant rendu** : Test de la Soustraction, Test de la Densité (`<= 3` couches), Test des Durées et Silences (*cut itself* 808 + decay court des ticks), Test des 8 Mesures (marqueur distinctif par bloc), Test d'Espace Vocal (`800 Hz – 2.5 kHz` dégagé en couplets).

@@ -76,7 +76,51 @@ L'agent doit traiter la musique non comme une piste linéaire, mais comme une im
 
 ---
 
-## 2. MATRICE DE COHÉRENCE VERTICALE (ALLOCATION SPECTRALE ET HARMONIQUE)
+## 2. CALCUL DE LA LONGUEUR DES SONS (PHYSIQUE ACOUSTIQUE & ENVELOPPES TEMPORELLES)
+
+La durée d'un événement sonore n'est pas arbitraire : elle est dictée par la physique des fréquences (temps nécessaire à l'oreille pour décoder une hauteur) et par l'espace rythmique disponible entre deux notes.
+
+### 2.1. La Loi Physique Fréquence / Durée (Pourquoi les basses sont longues et les ticks courts)
+Pour que le système auditif humain identifie la hauteur tonale (*pitch*) d'une onde, il a besoin de percevoir au moins **3 à 5 cycles complets** de cette onde :
+$$T_{\text{cycle}} = \frac{1}{f}$$
+* **Exemple sur un Tick / Hi-Hat ($f \approx 8\,000\text{ Hz}$) :** Un cycle dure $0.125\text{ ms}$. En moins de $2\text{ ms}$, le cerveau a déjà décodé l'information. Un son court ($20\text{ ms}$ à $80\text{ ms}$) crée une ponctuation nette sans masquer ce qui suit.
+* **Exemple sur une Basse 808 ($f \approx 40\text{ Hz}$) :** Un seul cycle dure $25\text{ ms}$. Il faut donc au minimum $100\text{ ms}$ à $150\text{ ms}$ rien que pour que l'oreille perçoive la note. Une basse courte sonne comme un simple clic ; elle exige une tenue longue pour installer l'assise harmonique.
+
+### 2.2. Formules de Conversion Rythmique (Synchronisation au Tempo)
+L'agent doit calculer la durée exacte de chaque note et queue d'effet en millisecondes ($\text{ms}$) en fonction du tempo ($\text{BPM}$) :
+
+$$T_{\text{noire (1 temps)}} = \frac{60\,000}{\text{BPM}} \quad (\text{en ms})$$
+
+*Exemple pour une prod Trap à $\mathbf{140\text{ BPM}}$ :*
+* **1 Mesure (4 temps) :** $1714\text{ ms}$
+* **1 Blanche (2 temps) :** $857\text{ ms}$
+* **1 Noire (1 temps / $1/4$) :** $428.5\text{ ms}$
+* **1 Croche ($1/8$) :** $214.2\text{ ms}$
+* **1 Double-croche ($1/16$) :** $107.1\text{ ms}$
+* **1 Triple-croche ($1/32$ - rolls de hi-hats) :** $53.5\text{ ms}$
+
+### 2.3. Dimensionnement par Famille d'Instruments (Enveloppe ADSR & Gate)
+Pour garantir la clarté du mix, la durée totale d'un son ($\text{Durée de note MIDI} + \text{Release}$) doit être calée sur la grille rythmique :
+
+| Élément Sonore | Durée Cible (en fractions de temps ou ms) | Paramètres ADSR & Règles de Coupure |
+| :--- | :--- | :--- |
+| **Ticks / Closed Hi-Hats / Rimshots** | **$20\text{ ms}$ à $90\text{ ms}$** (inférieur à $1/16$ de temps) | **Attack :** $0\text{ ms}$ \| **Decay :** $30-70\text{ ms}$ \| **Sustain :** $0\%$. Doit s'éteindre *avant* la subdivision suivante pour créer un silence intercalaire (*groove* percussif). |
+| **Snare / Clap** | **$120\text{ ms}$ à $250\text{ ms}$** ($\approx 1/8$ de temps) | **Attack :** $0-5\text{ ms}$ \| **Decay :** $150-220\text{ ms}$. La queue de réverbération du clap doit s'arrêter avant le temps suivant (soit $< 428\text{ ms}$ à $140\text{ BPM}$). |
+| **Kick (Grosse Caisse)** | **$80\text{ ms}$ à $160\text{ ms}$** | **Attack :** $0\text{ ms}$ \| **Decay :** $100-150\text{ ms}$ \| **Sustain :** $0\%$. Un kick trap doit être court et percutant pour laisser la place à la 808 qui le prolonge. |
+| **Basse 808 (Longue / Sustain)** | **$1$ à $4$ temps** ($428\text{ ms}$ à $1714\text{ ms}$ à $140\text{ BPM}$) | **Mode Monophonique (Cut Itself) OBLIGATOIRE :** Dès qu'une nouvelle note de 808 démarre, elle coupe instantanément la précédente (Release court : $30-60\text{ ms}$) pour éviter tout chevauchement de fréquences graves. |
+| **Basse 808 (Courte / Bounce)** | **$1/8$ à $1/4$ de temps** ($200\text{ ms}$ à $400\text{ ms}$) | Utilisée dans les couplets rapides pour laisser respirer la voix entre deux impacts de basse. |
+| **Mélodie Principale (Plucks / Bells)** | **$1/4$ à $1/2$ temps** + queue de Delay/Reverb | Si le motif est rapide ($1/8$), réduire le *Decay* ($150-300\text{ ms}$). Si le motif est lent (notes espacées), allonger le *Decay* ou le *Release* pour combler le vide. |
+| **Pads / Nappes Harmoniques** | **$2$ à $8$ temps** (liaison continue) | **Attack :** $80-300\text{ ms}$ \| **Release :** $300-600\text{ ms}$ (synchronisé à la noire ou à la blanche pour un fondu enchaîné naturel entre les accords). |
+
+### 2.4. La Règle d'Or du Contraste de Durée (L'Équilibre Staccato / Legato)
+Pour qu'un morceau soit agréable et lisible, l'agent doit toujours opposer des durées courtes et longues sur l'axe vertical :
+* **Si la 808 est longue (Legato)** $\rightarrow$ Les percussions et la mélodie doivent être courtes et rythmiques (**Staccato**).
+* **Si la mélodie est longue (Pads / Violons tenus)** $\rightarrow$ La 808 doit être plus courte et rebondissante (**Bounce**) pour éviter que le morceau ne devienne lourd et statique.
+* **Nettoyage des queues d'effets (Reverb / Delay) :** Le temps de déclin d'une réverbération (*RT60*) ou d'un écho doit toujours être un multiple ou un sous-multiple exact de $T_{\text{noire}}$ (ex: $428\text{ ms}$ ou $857\text{ ms}$ à $140\text{ BPM}$), et doit être **automatiquement coupé** lors des silences de transition (fins de 4e ou 8e mesures) pour préserver l'impact du *mute*.
+
+---
+
+## 3. MATRICE DE COHÉRENCE VERTICALE (ALLOCATION SPECTRALE ET HARMONIQUE)
 
 Pour éviter toute cacophonie lors de l'empilement des couches, l'agent doit appliquer cette cartographie fréquentielle stricte :
 
@@ -95,7 +139,7 @@ Pour éviter toute cacophonie lors de l'empilement des couches, l'agent doit app
 
 ---
 
-## 3. ALGORITHME DE PROGRESSION PAR « ERREUR DE PRÉDICTION »
+## 4. ALGORITHME DE PROGRESSION PAR « ERREUR DE PRÉDICTION »
 
 Pour rendre la musique addictive et divertissante, l'agent doit piloter la courbe d'attention de l'auditeur selon un cycle continu en 4 étapes :
 
@@ -117,10 +161,11 @@ Pour rendre la musique addictive et divertissante, l'agent doit piloter la courb
 
 ---
 
-## 4. CHECKLIST DE VALIDATION AUTONOME (CONTRÔLE QUALITÉ AVANT RENDU)
+## 5. CHECKLIST DE VALIDATION AUTONOME (CONTRÔLE QUALITÉ AVANT RENDU)
 
 Avant de finaliser une génération, l'agent doit exécuter les vérifications suivantes :
 * [ ] **Test de la Soustraction :** Si l'on coupe toutes les percussions, la mélodie et la 808 conservent-elles un groove et une cohérence harmonique ?
 * [ ] **Test de la Densité :** Y a-t-il plus de 3 éléments mélodiques/harmoniques jouant dans la même plage fréquentielle au même moment ? (Si oui : muter, filtrer ou décaler d'une octave).
+* [ ] **Test des Durées et Silences :** La basse 808 est-elle en mode monophonique (*cut itself*) et les *ticks* ont-ils un *decay* suffisamment court pour laisser des micro-silences respirer entre les frappes ?
 * [ ] **Test des 8 Mesures :** Chaque bloc de 8 mesures possède-t-il un marqueur distinctif (entrée, sortie, variation rythmique, effet de transition) le différenciant du bloc précédent ?
 * [ ] **Test d'Espace Vocal :** Durant les sections définies comme *Couplets*, le spectre entre $800\text{ Hz}$ et $2.5\text{ kHz}$ est-il suffisamment dégagé pour accueillir une voix principale ?

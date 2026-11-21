@@ -10,7 +10,8 @@ Studio complet de production musicale assistée par IA sur **Fedora / Ultramarin
   - Architecture, outils MCP & IDs plugins : [`docs/ai/ARCHITECTURE_AGENTS.md`](docs/ai/ARCHITECTURE_AGENTS.md)
   - Reverse Engineering VGM → Instru Rap : [`docs/ai/WORKFLOW_VGM_TO_RAP.md`](docs/ai/WORKFLOW_VGM_TO_RAP.md)
   - Spécifications Blueprint & Mixage : [`docs/ai/MIXING_AND_BLUEPRINT_SPEC.md`](docs/ai/MIXING_AND_BLUEPRINT_SPEC.md)
-- **Architecture source du projet** : [`stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md`](stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md)
+  - Protocole Multi-Échelles, Physique des Durées & Trap : [`docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md`](docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) · [`docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md`](docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md)
+- **Architecture source du projet** : [`docs/stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md`](docs/stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md)
 
 ## Briques installées et actives
 1. **Gridline `0.7.7`** : MCP natif activé (`mcp.enabled: true`, `mcp.allowEdits: true`, port `47390`), modèles de séparation de stems téléchargés (`htdemucs` et `htdemucs_6s`).
