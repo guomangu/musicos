@@ -22,6 +22,9 @@ Pour toute demande de nouveau morceau ou d'arrangement complet :
 Pour les détails techniques complets (IDs de plugins CLAP/VST3, protocole VGM->Rap, spécifications de mixage), lis `docs/ai/ARCHITECTURE_AGENTS.md`, `docs/ai/WORKFLOW_VGM_TO_RAP.md` et `docs/ai/MIXING_AND_BLUEPRINT_SPEC.md`.
 
 ## 3. Règles strictes pour Gridline
+- **Respect strict des sons fournis par l'utilisateur (Zéro ajout non demandé)** :
+  - Lorsqu'un projet contient déjà des sons ou canaux préparés par l'utilisateur, **compose exclusivement avec ces sons fournis par défaut** : n'ajoute aucun synthé supplémentaire (`gl.matrixfm`, `gl.dcosynth`, etc.) ni aucun sample externe non fourni sans demande explicite.
+  - Évite tout synthé électrique/FM artificiel ou lourd en CPU : privilégie la richesse rythmique, les dynamiques d'arrangement et les variations naturelles (filtrage doux, découpes, couches d'octaves sur les stems existants).
 - **Chargement des samples externes (`.wav`, `.ogg`, `.flac`, `.mp3`)** :
   - Cherche d'abord avec `audio-index` (`search_samples` / `find_compatible_samples`). Ne devine jamais un chemin de sample.
   - Crée le canal avec `add_channel(plugin="gl.sampler")` (ou `gl.seltmann` / `gl.slicer` pour les boucles à découper).
@@ -30,9 +33,13 @@ Pour les détails techniques complets (IDs de plugins CLAP/VST3, protocole VGM->
 - **Synthés et effets disponibles (règle stricte selon le mode)** :
   - **En mode headless (`gridline mcp <fichier>`)** : seuls les **179 plugins natifs `gl.*`** sont disponibles (`gl.kick`, `gl.snare`, `gl.hat`, `gl.clap`, `gl.acid`, `gl.analog`, `gl.keys`, `gl.fm`, `gl.matrixfm` Lattice, `gl.wavetable` Isoline, `gl.plasma` Plasma, `gl.string`, `gl.pluck`, `gl.eq`, `gl.comp`, `gl.limiter`, `gl.reverb`, `gl.hall`, `gl.vocoder`, `gl.pitcher`). N'appelle jamais `clap:...` ou `vst3:...` sans vérifier d'abord avec `list_plugin_catalog`.
   - **En mode Live GUI (`--attach`) ou en ajout manuel dans l'interface Gridline** : les plugins tiers Linux natifs vérifiés sont en plus disponibles dans `list-plugins` (`Surge XT`, `ZL Equalizer 2`, `TDR Nova`, `CHOWTapeModel`, `Dragonfly Hall/Room/Plate/ER`, `LSP Spectrum Analyzer` / `Oscilloscope` / `Crossover`).
-- **Mixeur obligatoire** :
+- **Mixeur & sobriété CPU obligatoires** :
   - Route chaque canal vers une piste d'insert dédiée (`mixer >= 1`), jamais tout directement sur le master `0`.
   - Utilise `batch` pour regrouper les éditions cohérentes en une seule étape `undo` (`AI: ...`).
+  - **Budget CPU (laptop Intel hybride / PipeWire)** :
+    - Ne pose `gl.eq` que sur les pistes qui nécessitent réellement une coupe (s'appuyer sur `BUS Drums` / `BUS Music` pour les filtres globaux des percussions propres), et laisse `Quality = 0` (`Normal`) sur les inserts (réserver `Quality = 1` au `Master` uniquement).
+    - Garde une polyphonie modérée (`gl.multisampler <= 24`, synthés `Unison <= 2`, `Polyphony <= 16`) et une seule réverb en send partagé (`FX Room`).
+    - Vérifie que `audio.bufferFrames >= 1024`, `freeze.autoHibernate = true` et le quantum PipeWire `>= 1024` sont actifs avant une session live.
 - **Scripts Lua (`run_script`)** :
   - Utilise Lua pour les progressions d'accords complexes, arpèges, rythmes euclidiens, humanisation ou routage massif.
   - **Encapsule toujours la logique dans `function apply() ... end`** (sans appeler `apply()` au top-level), car Gridline 0.7.7 exécute `apply()` avec le contexte projet complet alors que le code top-level échoue sur les canaux ajoutés précédemment.

@@ -62,3 +62,13 @@ Ce document décrit l'infrastructure exacte de `/home/gamo/Bureau/musicos` (lien
   - Oscilloscopes : `clap:in.lsp-plug.oscilloscope_x1`, `_x2`, `_x4`
   - Crossover / Mid-Side : `clap:in.lsp-plug.crossover_stereo`, `clap:in.lsp-plug.crossover_ms`
   - Compresseurs / Limiteurs : `clap:in.lsp-plug.compressor_stereo`, `clap:in.lsp-plug.gott_compressor_stereo`, `clap:in.lsp-plug.limiter_stereo`
+
+## 4. Performance CPU, PipeWire & Sobriété DSP (Obligatoire)
+- **Strict respect des sons fournis par l'utilisateur** : Lorsqu'un `.gridline` initial contient déjà des canaux préparés, n'ajouter aucun synthé tiers ou natif lourd (`gl.matrixfm`, `gl.dcosynth`, `gl.twinstring`, `gl.multisampler`) ni aucun sample externe non fourni. Travailler uniquement avec les `gl.sampler` et canaux natifs du projet pour garantir zéro pic CPU (`> 100 %`) et une sonorité naturelle fidèle aux choix de l'utilisateur.
+- **PipeWire & Gridline Live** :
+  - Configuration utilisateur persistante à `quantum = 1024` (`~/.config/pipewire/pipewire.conf.d/99-ai-studio-lowcpu.conf` & `pipewire-pulse.conf.d/99-ai-studio-lowcpu.conf`) + `pw-metadata -n settings 0 clock.force-quantum 1024` dans `scripts/launch-gridline.sh`.
+  - Réglages `~/.config/gridline/settings.json` : `audio.bufferFrames = 1024`, `audio.threads = 4` (cœurs P sur Intel hybride), `freeze.autoHibernate = true` (`sleepSeconds = 15`), `live.pluginWindowsSeveral = false`, `ui.animations = false`, `draw.smooth.* = false`.
+- **Budget DSP par projet** :
+  - N'ajouter `gl.eq` que sur les pistes ayant un besoin fréquentiel réel (regrouper les percussions propres sous `BUS Drums` avec un seul EQ global).
+  - Laisser `gl.eq` `Quality = 0` (`Normal`) sur les inserts individuels (`Quality = 1` réservé au `Master` uniquement).
+  - Limiter la polyphonie et l'unison (`gl.multisampler <= 24`, synthés `Unison <= 2`, `Polyphony <= 16`) et mutualiser la réverbe sur 1 bus send (`FX Room`).

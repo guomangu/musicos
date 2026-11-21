@@ -12,6 +12,11 @@ if [ ! -f "$PROJECT" ]; then
   fi
 fi
 
-echo "Ouverture de Gridline sur : $PROJECT"
+# Préserve le CPU et évite les xruns (notamment sous casque Bluetooth)
+if command -v pw-metadata >/dev/null 2>&1; then
+  pw-metadata -n settings 0 clock.force-quantum 1024 >/dev/null 2>&1 || true
+fi
+
+echo "Ouverture de Gridline sur : $PROJECT (PipeWire quantum=1024)"
 echo "MCP HTTP local actif sur : http://127.0.0.1:47390/mcp"
 exec gridline-app "$PROJECT"

@@ -190,4 +190,30 @@ En complément de la boucle de base, tout agent autonome doit appliquer les vér
   - `mixer/N/stereo` (`Stereo separation`) fonctionne à rebours d'une « largeur » positive : les valeurs **négatives (`-0.32` à `-0.46`) fusionnent vers le centre mono**, et positives élargissent (`Grand Piano -0.32` + `BUS Music -0.35` -> `low_mid_200_800hz_correlation` portée de `0.406` à `0.806`).
   - `gridline mcp --attach` ignore `--export-dir` et exporte dans `projects/active/renders/`. Toujours lancer les exports finaux `.wav`/`.mp3`/`.mid` directement depuis le `.gridline` sauvegardé via `gridline mcp <proj> --export-dir ...` et `gridline render <proj> -o <out.mp3> --format mp3`.
 
+---
+
+## 7. Correctifs Globaux CPU, PipeWire & Sobriété DSP (`Souls in Motion`, `projects/active3`, 2026-11-21)
+
+### 7.1 Diagnostic réel de saturation CPU (`gridline-app` à 256 % CPU & freezes `libSDL3`)
+- **Constat mesuré** sur Intel Core `i5-1240P` (12 cœurs hybrides / 16 threads, profil `powersave` à `1700 MHz`) :
+  - `gridline-app` tournait à **`256 %` CPU** avec **`ERR=2850..3207` xruns PipeWire** (`check_pipewire_health`).
+  - Causes identifiées dans `~/.config/gridline/settings.json` et PipeWire :
+    1. `audio.bufferFrames = 256` et `pulse.min.quantum = 256/48000` (172 callbacks audio/seconde en temps réel + resampling 44.1→48 kHz).
+    2. `audio.threads = 0` (auto sur les 16 threads logiques P+E-cores), provoquant contention et throttling thermique.
+    3. `freeze.autoHibernate = false` (les plugins silencieux restaient actifs en permanence).
+    4. `ui.animations = true`, `ui.smoothScroll = true`, `live.pluginWindowsSeveral = true`, `draw.smooth.* = true` (4 freezes enregistrés dans `~/.config/gridline/crash-reports/freeze-*.txt` sur `libSDL3` / `Mesa Intel Iris Xe`).
+- **Correctifs globaux appliqués** :
+  1. **Gridline (`~/.config/gridline/settings.json`)** : `audio.bufferFrames = 1024`, `audio.threads = 4`, `freeze.autoHibernate = true` (`sleepSeconds = 15`), `live.pluginWindowsSeveral = false`, `ui.animations = false`, `ui.smoothScroll/Snap/Zoom = false`, `draw.smooth.* = false`.
+  2. **PipeWire persistant** : `~/.config/pipewire/pipewire.conf.d/99-ai-studio-lowcpu.conf` (`default.clock.quantum = 1024`, `min-quantum = 1024`, `max-quantum = 2048`) et `~/.config/pipewire/pipewire-pulse.conf.d/99-ai-studio-lowcpu.conf` (`pulse.min.req/quantum = 1024/48000`), complétés par `pw-metadata -n settings 0 clock.force-quantum 1024` dans `scripts/launch-gridline.sh`.
+  3. **Règle de sobriété DSP dans les projets IA** : n'instancier `gl.eq` que sur les pistes qui le justifient (économiser les EQs sur percussions propres routées vers `BUS Drums`, passant ici de 22 EQs à 11), garder `Quality = 0` (`Normal`) sur les inserts (`Quality = 1` réservé au `Master`), et limiter `gl.multisampler` à `Polyphony <= 24`.
+  4. **Zéro ajout de sons externes / synthés électriques non fournis** : Lorsqu'un projet contient déjà une sélection utilisateur (`Untitled.gridline`), ne **jamais** ajouter de synthés lourds/électriques (`gl.matrixfm` `"Saw Filter Lead"`, `gl.dcosynth`, `gl.twinstring`, etc.) ni de samples non fournis. Enrichir la musicalité uniquement via les stems, 808s, percussions et voix préparés (filtrage doux, découpes, variations de sections, `gl.snare` natif déjà présent).
+
+### 7.2 Leçons de composition & mixage sur `projects/active3` (*Souls in Motion*, 40 mesures @ 164 BPM, `D# minor`)
+- **Architecture finale 100 % fidèle aux sons fournis (`19` canaux uniquement)** : Suppression de tout synthé ajouté (`Warm Lead` `gl.matrixfm`, `Polar Strings` `gl.dcosynth`, `Nylon Pluck` `gl.twinstring`, `Headroom Piano` `gl.multisampler`) et regroupement des 5 `808` sur un seul `BUS 808 (20)` (`12` effets DSP légers au total). Benchmark vérifié (`gridline bench --threads 4`) : **`7.50x` temps réel** (`1,43 s` pour `10,73 s` audio), et rendu final **`-11.13 LUFS`**, **`-1.30 dBTP`**, `0` sample clippé, `0` résonance 1/3 octave, `PQ = 7.916`.
+- **Tonalité réelle vs nom de fichier du pack** : La boucle du pack `Rossi - SOULS` indique `Db minor - 164 bpm`, mais `2 - Guitar.wav/mid`, `2 - Piano.wav/mid` et `2 - Melo.mid` jouent en réalité en **`D# minor` (`Eb minor`)** (`D#4 = 311 Hz`, `D#5 = 623 Hz`, confirmé par `audit_mix_deep` `detected_key = "Eb minor"`, confiance `0.824`). Toujours mesurer le spectre/MIDI réel avant d'accorder la 808.
+- **Note pan dans `set_notes` vs Lua** : Dans l'outil MCP `set_notes`, `pan` est un **entier `-64..64`** (et non un flottant `-1..1` comme sur `add_channel`). Passer `-0.08` fait échouer silencieusement le `batch` si l'on ne vérifie pas `ok: false` dans la réponse JSON.
+- **Zéro faux positif harmonique sur stems `gl.sampler`** : Définir `Root note = 63` (`D#4`) et déclencher les stems (`2 - Guitar`, `2 - Piano`), le triangle et les ad-libs sur `pitch = 63` conserve exactement le pitch d'origine tout en garantissant `0` note hors gamme dans `audit_midi_harmony`.
+- **Équilibre spectral de `2 - Piano.wav` & `MZ Vox [Grrrrraahhh!]`** : `2 - Piano.wav` concentrait `75,3 %` de son énergie entre `250–500 Hz` (corrélation `+0,495`), et `MZ Vox [Grrrrraahhh!]` avait une corrélation de `-0,035`. Correction vérifiée : HPF `185 Hz` + coupe `-4,5 dB @ 320 Hz` + `stereo = -0,22` sur `2 - Piano`, et `stereo = -0,45` sur `MZ Vox [Grrrrraahhh!]`.
+
+
 
