@@ -280,18 +280,18 @@ def main() -> None:
     chans = gl.call("list_channels")["channels"]
     print("Canaux initiaux :", len(chans))
 
-    # 1. Répare Ch 7 (Polar Strings) et Ch 8 (Grand Piano SFZ) + gain staging Goldilocks Trap Pass 4
+    # 1. Répare Ch 7 (Polar Strings) et Ch 8 (Grand Piano SFZ) + gain staging final Pass 6 (PQ max, corr>=0.7, TP<=-1.1)
     gl.batch_ops(
         "Upgrade Ch 7 Polar Strings & Ch 8 Grand Piano SFZ",
         [
-            {"tool": "edit_channel", "arguments": {"channel": 7, "name": "Polar Strings", "plugin": "gl.dcosynth", "preset": "Polar Strings", "volume": 1.00, "pan": 0.0, "color": "#5C7AD6"}},
-            {"tool": "edit_channel", "arguments": {"channel": 8, "name": "Grand Piano", "plugin": "gl.multisampler", "volume": 0.92, "pan": 0.03, "color": "#D4AE4A"}},
+            {"tool": "edit_channel", "arguments": {"channel": 7, "name": "Polar Strings", "plugin": "gl.dcosynth", "preset": "Polar Strings", "volume": 0.92, "pan": 0.0, "color": "#5C7AD6"}},
+            {"tool": "edit_channel", "arguments": {"channel": 8, "name": "Grand Piano", "plugin": "gl.multisampler", "volume": 0.94, "pan": 0.03, "color": "#D4AE4A"}},
         ],
     )
     gl.call("patch", {"path": "channel/8", "set": {"plugin": {"data": SFZ_PIANO}}})
     set_params(gl, "channel/8", [(4, 48), (8, 0.78), (9, 1), (14, 0.48)])
 
-    # 2. Calibre Mixer 1..12 et 0 : juste équilibre entre Pass 2 et Pass 3 pour -11 LUFS, <= -1.2 dBTP et clarté maximale
+    # 2. Calibre Mixer 1..12 et 0 : clarté maximale sur XM6 + true peak <= -1.1 dBTP + LUFS ~ -11.3
     mx_map = {t["mixer"]: t for t in gl.call("get_mixer")["tracks"]}
     if len(mx_map.get(7, {}).get("effects", [])) >= 2:
         gl.call("remove_plugin", {"mixer": 7, "slot": 2})
@@ -299,68 +299,69 @@ def main() -> None:
         gl.call("remove_plugin", {"mixer": 8, "slot": 2})
 
     gl.call("edit_mixer_track", {"mixer": 1, "volume": 0.98})       # Kick punchy
-    gl.call("edit_mixer_track", {"mixer": 2, "volume": 0.86})       # 808 Bass accordée équilibrée
+    gl.call("edit_mixer_track", {"mixer": 2, "volume": 0.84})       # 808 Bass propre & profonde
     gl.call("edit_mixer_track", {"mixer": 3, "volume": 0.98})       # Trap Clap
     gl.call("edit_mixer_track", {"mixer": 4, "volume": 0.88})       # Bounce Snare
-    gl.call("edit_mixer_track", {"mixer": 5, "volume": 1.14})       # Hi-Hat Closed brillants
+    gl.call("edit_mixer_track", {"mixer": 5, "volume": 1.12})       # Hi-Hat Closed brillants
     gl.call("edit_mixer_track", {"mixer": 6, "volume": 0.82})       # Open Hat
-    gl.call("edit_mixer_track", {"mixer": 7, "name": "Polar Strings", "volume": 1.14})
-    gl.call("edit_mixer_track", {"mixer": 8, "name": "Grand Piano", "volume": 0.98, "pan": 0.03})
-    gl.call("edit_mixer_track", {"mixer": 10, "volume": 0.84})      # BUS Drums
-    gl.call("edit_mixer_track", {"mixer": 11, "volume": 1.12})      # BUS Music
-    gl.call("patch", {"path": "mixer/7", "set": {"stereoSep": 0.35}})  # Resserre la phase bas-médiums des Polar Strings
-    gl.call("set_send", {"mixer": 1, "to": 11, "level": 0.25, "sidechain": True})  # Sidechain discret sur Music
-    gl.call("set_send", {"mixer": 7, "to": 12, "level": 0.04})
-    gl.call("set_send", {"mixer": 8, "to": 12, "level": 0.05})
+    gl.call("edit_mixer_track", {"mixer": 7, "name": "Polar Strings", "volume": 1.01})
+    gl.call("edit_mixer_track", {"mixer": 8, "name": "Grand Piano", "volume": 1.04, "pan": 0.03})
+    gl.call("edit_mixer_track", {"mixer": 10, "volume": 0.85})      # BUS Drums
+    gl.call("edit_mixer_track", {"mixer": 11, "volume": 1.17})      # BUS Music
+    gl.call("patch", {"path": "mixer/7", "set": {"stereoSep": 0.55}})  # Resserre la phase bas-médiums des Polar Strings (>0.7 corr)
+    gl.call("set_send", {"mixer": 1, "to": 11, "level": 0.22, "sidechain": True})
+    gl.call("set_send", {"mixer": 7, "to": 12, "level": 0.03})
+    gl.call("set_send", {"mixer": 8, "to": 12, "level": 0.04})
 
     # EQ Hi-Hat Closed (Mixer 5) pour de l'air propre (4-6% cible)
-    set_eq_params(gl, 5, 1, {1: (1, 500.0, 0.0, 0.65), 6: (7, 8200.0, 4.2, 0.60)})
-    # EQ Polar Strings (Mixer 7) : coupe-bas 230 Hz + nettoyage 250/620 Hz
+    set_eq_params(gl, 5, 1, {1: (1, 500.0, 0.0, 0.65), 6: (7, 8200.0, 4.0, 0.60)})
+    # EQ Polar Strings (Mixer 7) : coupe-bas 240 Hz + nettoyage 480/620 Hz
     set_eq_params(gl, 7, 1, {
-        1: (1, 230.0, 0.0, 0.65),
+        1: (1, 240.0, 0.0, 0.65),
         2: (6, 250.0, -3.5, 0.42),
-        3: (6, 400.0, -1.5, 0.40),
-        4: (6, 620.0, -5.5, 0.42),
+        3: (6, 480.0, -3.5, 0.42),
+        4: (6, 620.0, -6.0, 0.44),
         5: (6, 1500.0, 1.0, 0.42),
-        6: (7, 7200.0, 2.2, 0.60),
+        6: (7, 7200.0, 2.0, 0.60),
         7: (3, 13000.0, 0.0, 0.65),
     })
-    # EQ Grand Piano (Mixer 8) : nettoie 200 Hz, 630 Hz et 2 kHz (XM6) pour son studio droit et clair
+    # EQ Grand Piano (Mixer 8) : nettoie 200 Hz, 500/630 Hz et 2 kHz (XM6) pour son studio droit et clair
     set_eq_params(gl, 8, 1, {
         1: (1, 175.0, 0.0, 0.65),
         2: (6, 210.0, -4.2, 0.42),
-        3: (6, 480.0, -2.5, 0.40),
-        4: (6, 630.0, -5.5, 0.45),
+        3: (6, 500.0, -3.2, 0.42),
+        4: (6, 630.0, -6.5, 0.45),
         5: (6, 2050.0, -3.2, 0.42),
         6: (6, 4800.0, 1.5, 0.45),
         7: (7, 9000.0, 1.8, 0.60),
     })
-    # EQ BUS Music (Mixer 11) : passe-haut 155 Hz + coupe-cloche doux 620 Hz + clarté
+    # EQ BUS Music (Mixer 11) : passe-haut 155 Hz + coupe-cloche doux 550/630 Hz + léger air
     set_eq_params(gl, 11, 1, {
         1: (1, 155.0, 0.0, 0.65),
-        4: (6, 620.0, -2.5, 0.42),
-        7: (7, 8500.0, 2.0, 0.60),
+        3: (6, 500.0, -2.0, 0.40),
+        4: (6, 630.0, -3.0, 0.42),
+        7: (7, 8500.0, 1.8, 0.60),
     })
-    # Reverb FX Intimate Room (Mixer 12) : ultra sèche/courte (0.35s, Dry=0, HPF 550 Hz)
-    gl.call("edit_mixer_track", {"mixer": 12, "name": "FX Intimate Room", "volume": 0.25})
+    # Reverb FX Intimate Room (Mixer 12) : ultra sèche/courte (0.30s, Dry=0, HPF 550 Hz)
+    gl.call("edit_mixer_track", {"mixer": 12, "name": "FX Intimate Room", "volume": 0.22})
     set_params(gl, "mixer/12/slot/1", [
-        (1, 18.0), (2, 0.16), (5, 550.0), (6, 4200.0), (8, 0.10), (9, 0.0),
-        (10, 1.0), (11, 0.35),
-        (23, 550), (24, 42), (25, 18), (26, 16), (28, 3), (29, 42),
-        (32, 10), (33, 0), (34, 12), (35, 128), (38, 1),
+        (1, 16.0), (2, 0.14), (5, 550.0), (6, 4200.0), (8, 0.08), (9, 0.0),
+        (10, 1.0), (11, 0.30),
+        (23, 550), (24, 42), (25, 16), (26, 14), (28, 3), (29, 42),
+        (32, 8), (33, 0), (34, 10), (35, 128), (38, 1),
     ])
 
-    # Master EQ & Limiter (Mixer 0) : cible -11 LUFS, TP <= -1.2 dBTP, translation XM6 propre
+    # Master EQ & Limiter (Mixer 0) : TP garanti <= -1.1 dBTP (Ceiling -3.0 dB), LUFS ~ -11.4
     set_eq_params(gl, 0, 1, {
         1: (1, 30.0, 0.0, 0.65),
         2: (6, 215.0, -1.5, 0.40),
-        3: (6, 500.0, -1.5, 0.38),
-        4: (6, 630.0, -3.5, 0.40),
+        3: (6, 500.0, -2.0, 0.40),
+        4: (6, 630.0, -4.0, 0.42),
         5: (6, 2000.0, -1.5, 0.38),
-        6: (7, 8800.0, 2.8, 0.60),
+        6: (7, 8800.0, 2.5, 0.60),
         7: (3, 18000.0, 0.0, 0.65),
     })
-    set_params(gl, "mixer/0/slot/3", [(1, 3.2), (2, -2.6), (4, 0.001), (19, 1), (24, 0.085)])
+    set_params(gl, "mixer/0/slot/3", [(1, 10.2), (2, -2.75), (4, 0.001), (19, 1), (24, 0.085)])
 
     # 3. Ajoute les nouvelles pistes & canaux enrichis (Ch 9..14) avec balance harmonieuse
     mx = gl.call("get_mixer")["tracks"]
@@ -369,12 +370,12 @@ def main() -> None:
 
     new_channels = [
         # (ch_idx, name, plugin, preset, sample_key, mixer, pan, vol, color, bus_to, reverb_send, mix_vol)
-        (9, "Nylon Pluck", "gl.twinstring", "Nylon pluck", None, 9, -0.22, 0.98, "#46A89D", 11, 0.05, 1.08),
-        (10, "Classic Tine", "gl.keys", "Classic tine", None, 13, 0.22, 0.96, "#9C75D9", 11, 0.05, 1.06),
+        (9, "Nylon Pluck", "gl.twinstring", "Nylon pluck", None, 9, -0.22, 0.96, "#46A89D", 11, 0.04, 1.02),
+        (10, "Classic Tine", "gl.keys", "Classic tine", None, 13, 0.22, 0.92, "#9C75D9", 11, 0.04, 1.00),
         (11, "Rimshot Perk", "gl.sampler", "One shot", "rimshot", 14, 0.18, 0.88, "#E68A3E", 10, 0.03, 0.96),
-        (12, "Dream Riser", "gl.sampler", "One shot", "riser", 15, -0.08, 1.08, "#4FB0E8", 11, 0.04, 1.14),
-        (13, "Drop Crash", "gl.sampler", "One shot", "crash", 16, 0.12, 0.84, "#D96690", 0, 0.05, 0.90),
-        (14, "Trap Chant", "gl.sampler", "One shot", "chant", 17, -0.16, 0.90, "#B86BD9", 0, 0.04, 1.04),
+        (12, "Dream Riser", "gl.sampler", "One shot", "riser", 15, -0.08, 1.10, "#4FB0E8", 11, 0.04, 1.14),
+        (13, "Drop Crash", "gl.sampler", "One shot", "crash", 16, 0.12, 0.86, "#D96690", 0, 0.04, 0.92),
+        (14, "Trap Chant", "gl.sampler", "One shot", "chant", 17, -0.16, 0.92, "#B86BD9", 0, 0.04, 1.06),
     ]
     for idx_ch, name, plug, preset, skey, m_tr, pan, vol, col, bus_to, rev_s, m_vol in new_channels:
         if len(gl.call("list_channels")["channels"]) < idx_ch:

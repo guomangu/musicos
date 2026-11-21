@@ -140,6 +140,7 @@ L'enchaînement réel observé lors du mixage d'« Obsidian Midnight » illustre
      - `correlation_low_end_150hz >= 0.5` (viser `>= 0.75`) et `mono_compatible == true`
      - `air (6–20 kHz) >= 3%` (sauf esthétique lo-fi volontairement filtrée) et `low_mids <= 24%`.
 5. **Livraison vérifiée** : Sauvegarder `.gridline`, `.mid` (optionnel) et `.wav` final dans le dossier cible, puis confirmer avec `gridline info` + `analyze_mix` sur le fichier final.
+6. **Mise à jour obligatoire de ce journal** : À la fin de **chaque itération** (composition, mixage, débogage ou ajout d'outillage), ajouter ci-dessous les nouveaux problèmes rencontrés, mesures chiffrées et solutions vérifiées afin que l'agent suivant ne répète jamais une erreur déjà résolue.
 
 ---
 
@@ -150,3 +151,34 @@ En complément de la boucle de base, tout agent autonome doit appliquer les vér
 - **En cas d'impression de « grande pièce vide / résonance studio »** : lancer `audio-analyzer:render_project_stems(project_path)` et `audio-analyzer:audit_mix_deep(audio_path, headphone_target="sony_xm6")` pour isoler la piste fautive (`boxy_200_500hz_ratio`), contrôler `low_mid_200_800hz_correlation >= 0.55` et `estimated_rt60_ms < 650`.
 - **En cas de grésillements (live ou rendu)** : lancer `audio-analyzer:check_pipewire_health()` (recommande `pw-metadata -n settings 0 clock.force-quantum 1024` si Bluetooth XM6 actif) et surveiller `micro_glitch_or_crackle_events` dans `audit_mix_deep`.
 - **Pour caler l'équilibre fréquentiel sur une référence pro** : appeler `audio-analyzer:match_reference_audio(mix_path, reference_path)`.
+
+---
+
+## 6. Leçons Vérifiées — Extension d'Autonomie & Refonte *Obsidian Midnight* (2026-11-21)
+
+### 6.1 Bug critique des moteurs "Reference / Full" dans `gl.reverb` et `gl.delay`
+- **Problème réel constaté** : Lors du premier audit sur `projects/active2`, malgré des paramètres `gl.reverb` (`Dry = 0`, `Low cut = 320 Hz`, `Decay = 0.9 s`) et `gl.delay` (`Wet = 10%`, `Feedback = 22%`) apparemment propres, `audit_mix_deep` mesurait toujours `low_mid_200_800hz_correlation = 0.085` et des pics à `500/630/800 Hz`, produisant un écho de grande pièce vide.
+- **Cause racine** :
+  - `gl.reverb` active par défaut **`param 38 (Full model version) = 1 ("2")`** et lit alors les paramètres `(full)` (`params 23..35`) au lieu des index legacy (`1..14`). Ces index cachés étaient restés à **`Dry (full) = 128 (100%)`** sur un bus send (!), `Early reflections (full) = 128`, `Low cut (full) = 75 Hz`, `Decay (full) = 15 (1.5 s)`.
+  - `gl.delay` (« Tracer ») active par défaut **`param 31 (Delay model) = 1 ("Reference")`** et lit `params 50..75` (`73 Wet (stereo ref.) = 80%`, `64 Feedback = 50%`), ignorant complètement `Wet = 10%`.
+- **Solution vérifiée** : Toujours inspecter la liste complète avec `gridline plugin-params <plugin>` ou `get_parameters(mixer=M, slot=S)`. Sur `gl.reverb`, fixer impérativement `param 33 = 0` (`Dry full`), `param 23 >= 450 Hz`, `param 26 <= 24`, `param 28 = 3..6` (`0.3–0.6 s`) et `param 34 = 10..20`.
+
+### 6.2 API MCP Gridline : schémas exacts, rate limit & routage
+- **`batch`** : Utilise `{"calls": [{"tool": "...", "arguments": {...}}]}` (et **non** `"args"` ni `"label"`).
+- **`set_parameters`** : Utilise `{"changes": [{"path": "mixer/M/slot/S/P", "value": V}]}` (jusqu'à 500 changements en un appel).
+- **Rate limit (`-32000`)** : Enchaîner plus d'une trentaine d'appels unitaires déclenche `Rate limit: too many tool calls`. Regrouper les EQs dans un unique `set_parameters` et les notes/patterns/clips dans des appels `batch` (avec retry + backoff `0.75 s` dans les scripts Python).
+- **Pistes playlist & MP3** : Le renommage de piste playlist passe par `patch(path="track/N", set={"name": "..."})` (pas `playlist/tracks/N`). L'outil MCP `export_project` ne supporte que `midi`, `flp` et `flp_zip` ; l'export MP3 passe par `gridline render <proj> -o <out.mp3> --format mp3 --bitrate 320`.
+- **Double routage avec `add_mixer_track`** : Une nouvelle piste insert route par défaut vers `Master (0)`. Toujours passer `routeTo=10` ou `routeTo=11` via `edit_mixer_track` lorsqu'elle passe par un bus (`BUS Drums` / `BUS Music`).
+
+### 6.3 Audition objective, SFZ natif dans `gl.multisampler` & choix de sonorités
+- **Vrai piano acoustique headless & GUI** : `gl.multisampler` charge nativement les `.sfz` via `patch(path="channel/N", set={"plugin": {"data": "/.../Headroom Piano (NoFX).sfz"}})` (mesuré justesse `262.1 Hz` sur `C4`, `conf = 0.97`, Audiobox `CE = 5.03`). Toujours ranger les banques SFZ dans `soundbanks/sfz/` et **jamais** dans `samples/` (pour ne pas polluer `search_samples` avec des centaines de notes individuelles).
+- **Audition préalable contre les pièges stéréo/timbre** : Un pré-test de candidats a montré que `gl.plucker / Soft harp` avait une corrélation stéréo de **`-0.000`** (totalement déphasé), alors que **`gl.twinstring / Nylon pluck`** atteignait `PQ = 7.40`, `corr = +0.865`, `sharp = 1.04`, et **`gl.dcosynth / Polar Strings`** `CE = 4.74`, `corr = +0.777`, `sharp = 0.69`.
+- **`gl.dcosynth` & `gl.twinstring` gain staging** : `gl.twinstring` démarre avec `param 1 (Level) = 0.5`, et `gl.dcosynth` sort nettement plus bas que `gl.sampler` (`-12.9 dB` vs `-3 dB`). De plus, `Polar Strings` a une corrélation `200–800 Hz` de `0.395` seul : régler `stereoSep = 0.55` sur son insert + passe-haut `240 Hz` préserve une corrélation globale `>= 0.65`.
+
+### 6.4 Notes d'interprétation sur `audit_mix_deep`, `audit_midi_harmony`, `PipeWire` et `audiobox_aesthetics`
+- **Harmonie multi-pistes** : Sur une basse `Ab -> Eb/G` en fin de mesure 3 (`Ab` vers `G2`), ou `Fm -> Gm` en mesure 4, ne pas laisser traîner un `Ab` sur `G2` ni un `Eb` contre un `D` dans les accords tenus (`Polar Strings` + `Classic Tine` raccourcis avant `beat 11.0`, piano sans `C3` sur les drops avec 808). Résultat vérifié sur `obsidian_midnight.mid` : `0` note hors gamme, `0` clash de 2nde/9ème mineure, `max_pitch = 80` (`Ab5`).
+- **`estimated_rt60_ms` sur mix complet avec 808** : `pyroomacoustics.rt60` mesure `~1,3 s` même sur un mix sec dès lors que la 808 tient ses notes sub sur 3–4 temps. Toujours croiser avec `low_mid_200_800hz_correlation` (`0.665`), `slapback_echo_score` (`0.199`) et la sonde CLAP `reverb_vs_dry` (`healthy +0.113` vs `defect -0.103`).
+- **Grésillements live sous Sony XM6 vs rendu WAV** : `check_pipewire_health()` a capturé en direct `active_quantum = 256` et `gridline-app ERR=431` sur `bluez_output` alors que `master_final.wav` affichait `clipped_samples = 0`, `micro_glitch_or_crackle_events = 0` et `true_peak_dbtp = -1.25 dBTP`. Solution live : `pw-metadata -n settings 0 clock.force-quantum 1024`.
+- **Intersample True Peak (`ISP`) de `gl.limiter`** : Avec des attaques très rapides et un `air shelf` actif, `true_peak_dbtp` dépasse `sample_peak_dbfs` d'environ `+1.5 à +2.0 dB` (un `Ceiling = -2.1 dB` peut laisser passer `-0.55 dBTP`). Viser `Ceiling = -2.75..-3.0 dB` avec `Attack = 1 ms` et `0.2 dB safety = On` pour garantir `true_peak_dbtp <= -1.0 dBTP`.
+- **`audiobox_aesthetics` sous `torchaudio >= 2.11` / Python 3.14** : Passer un chemin fichier déclenche `ModuleNotFoundError: torchcodec`. Précharger le tenseur via `soundfile` (`[channels, samples]`) évite complètement `torchcodec`.
+
