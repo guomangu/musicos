@@ -3,14 +3,14 @@
     {
       "color": 8029846,
       "flCurves": true,
-      "id": 185,
+      "id": 186,
       "index": 0,
       "name": "FX Room Transition Cuts",
       "owner": 23,
       "points": [
         [
           0,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ],
@@ -22,7 +22,7 @@
         ],
         [
           3072,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ],
@@ -34,7 +34,7 @@
         ],
         [
           12288,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ],
@@ -46,7 +46,7 @@
         ],
         [
           15360,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ],
@@ -58,7 +58,7 @@
         ],
         [
           21504,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ],
@@ -70,13 +70,13 @@
         ],
         [
           27648,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ],
         [
           36864,
-          0.51999998092651367,
+          0.41999998688697815,
           0,
           2
         ]
@@ -1481,7 +1481,7 @@
               0,
               6,
               63,
-              -4,
+              -3.9000000953674316,
               2.2000000476837158,
               0,
               6,
@@ -1594,7 +1594,7 @@
           "plugin": {
             "params": [
               7.8000001907348633,
-              -2.8499999046325684,
+              -2.5,
               0.085500001907348633,
               0.0060000000521540642,
               0.0099999997764825821,
@@ -1867,7 +1867,98 @@
       "slots": [
         {
           "enabled": true,
-          "mix": 1
+          "mix": 1,
+          "plugin": {
+            "params": [
+              1,
+              130,
+              0,
+              0.7070000171661377,
+              0,
+              6,
+              136.25840759277344,
+              0,
+              1,
+              0,
+              6,
+              293.55984497070312,
+              0,
+              1,
+              0,
+              6,
+              632.45550537109375,
+              0,
+              1,
+              0,
+              6,
+              1362.5841064453125,
+              0,
+              1,
+              0,
+              6,
+              2935.5986328125,
+              0,
+              1,
+              0,
+              3,
+              11500,
+              0,
+              0.7070000171661377,
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              1,
+              0.61224365234375,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.61224365234375,
+              3,
+              0,
+              1,
+              1,
+              2,
+              1,
+              2,
+              2,
+              0,
+              1,
+              0,
+              0,
+              0,
+              1,
+              20,
+              20,
+              20,
+              20,
+              20,
+              20,
+              20
+            ],
+            "type": "gl.eq"
+          }
         },
         {
           "enabled": true,
@@ -1931,7 +2022,98 @@
       "slots": [
         {
           "enabled": true,
-          "mix": 1
+          "mix": 1,
+          "plugin": {
+            "params": [
+              1,
+              160,
+              0,
+              0.7070000171661377,
+              0,
+              6,
+              136.25840759277344,
+              0,
+              1,
+              0,
+              6,
+              293.55984497070312,
+              0,
+              1,
+              0,
+              6,
+              632.45550537109375,
+              0,
+              1,
+              0,
+              6,
+              1362.5841064453125,
+              0,
+              1,
+              0,
+              6,
+              2935.5986328125,
+              0,
+              1,
+              0,
+              3,
+              11500,
+              0,
+              0.7070000171661377,
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              1,
+              0.61224365234375,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.61224365234375,
+              3,
+              0,
+              1,
+              1,
+              2,
+              1,
+              2,
+              2,
+              0,
+              1,
+              0,
+              0,
+              0,
+              1,
+              20,
+              20,
+              20,
+              20,
+              20,
+              20,
+              20
+            ],
+            "type": "gl.eq"
+          }
         },
         {
           "enabled": true,
@@ -3323,12 +3505,12 @@
           "mix": 1,
           "plugin": {
             "params": [
-              -15.5,
-              2.5999999046325684,
-              0.0080000003799796104,
+              -16.5,
+              2.7000000476837158,
+              0.012000000104308128,
               0.085000000894069672,
               0,
-              2.4000000953674316,
+              3.2999999523162842,
               0,
               0,
               0,
@@ -3378,7 +3560,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.92000001668930054
+      "volume": 0.93999999761581421
     },
     {
       "color": 5264990,
@@ -3572,7 +3754,7 @@
       "solo": false,
       "stereoSep": -1,
       "swapLR": false,
-      "volume": 0.72000002861022949
+      "volume": 0.81000000238418579
     },
     {
       "color": 5264990,
@@ -3710,12 +3892,12 @@
           "mix": 1,
           "plugin": {
             "params": [
-              -18,
-              2.5,
+              -20.5,
+              2.5999999046325684,
               0.017999999225139618,
               0.10999999940395355,
               0,
-              3.5,
+              5,
               0,
               0,
               0,
@@ -3812,7 +3994,7 @@
               1,
               0,
               0.57999998331069946,
-              0.25,
+              0.20999999344348907,
               1,
               1,
               500,
@@ -3884,7 +4066,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.51999998092651367
+      "volume": 0.41999998688697815
     },
     {
       "color": 5264990,
@@ -4848,7 +5030,7 @@
     }
   ],
   "modLinks": [],
-  "nextId": 187,
+  "nextId": 188,
   "patterns": [
     {
       "bars": 8,
@@ -5369,49 +5551,49 @@
             "length": 274,
             "pitch": 64,
             "start": 0,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 274,
             "pitch": 60,
             "start": 384,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 274,
             "pitch": 57,
             "start": 768,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 274,
             "pitch": 59,
             "start": 1152,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 274,
             "pitch": 64,
             "start": 1536,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 274,
             "pitch": 60,
             "start": 1920,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 274,
             "pitch": 57,
             "start": 2304,
-            "velocity": 34
+            "velocity": 16
           },
           {
             "length": 254,
             "pitch": 59,
             "start": 2688,
-            "velocity": 34
+            "velocity": 16
           }
         ],
         "53": [
@@ -5419,193 +5601,193 @@
             "length": 274,
             "pitch": 52,
             "start": 0,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 59,
             "start": 0,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 62,
             "start": 0,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 67,
             "start": 0,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 52,
             "start": 384,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 60,
             "start": 384,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 62,
             "start": 384,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 67,
             "start": 384,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 52,
             "start": 768,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 57,
             "start": 768,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 60,
             "start": 768,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 67,
             "start": 768,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 57,
             "start": 1152,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 59,
             "start": 1152,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 62,
             "start": 1152,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 66,
             "start": 1152,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 52,
             "start": 1536,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 59,
             "start": 1536,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 62,
             "start": 1536,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 67,
             "start": 1536,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 52,
             "start": 1920,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 60,
             "start": 1920,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 62,
             "start": 1920,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 67,
             "start": 1920,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 52,
             "start": 2304,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 57,
             "start": 2304,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 60,
             "start": 2304,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 274,
             "pitch": 67,
             "start": 2304,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 254,
             "pitch": 57,
             "start": 2688,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 254,
             "pitch": 59,
             "start": 2688,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 254,
             "pitch": 62,
             "start": 2688,
-            "velocity": 36
+            "velocity": 18
           },
           {
             "length": 254,
             "pitch": 66,
             "start": 2688,
-            "velocity": 36
+            "velocity": 18
           }
         ]
       },
@@ -6571,7 +6753,25 @@
             "length": 379,
             "pitch": 64,
             "start": 0,
-            "velocity": 98
+            "velocity": 86
+          }
+        ]
+      },
+      "steps": {},
+      "stepsPerBar": 16
+    },
+    {
+      "bars": 1,
+      "color": 7257962,
+      "id": 83,
+      "name": "Chords Riser - Pont 4 beats",
+      "notes": {
+        "58": [
+          {
+            "length": 379,
+            "pitch": 64,
+            "start": 0,
+            "velocity": 56
           }
         ]
       },
@@ -6580,8 +6780,8 @@
     },
     {
       "bars": 8,
-      "color": 7257962,
-      "id": 84,
+      "color": 13214780,
+      "id": 85,
       "name": "Lead Piano - Intro Skeleton",
       "notes": {
         "55": [
@@ -6688,8 +6888,8 @@
     },
     {
       "bars": 8,
-      "color": 13214780,
-      "id": 86,
+      "color": 10841304,
+      "id": 87,
       "name": "Lead Piano - Drop Full",
       "notes": {
         "55": [
@@ -6892,8 +7092,8 @@
     },
     {
       "bars": 8,
-      "color": 10841304,
-      "id": 92,
+      "color": 5224624,
+      "id": 93,
       "name": "Lead Piano - Couplet 1",
       "notes": {
         "55": [
@@ -7000,8 +7200,8 @@
     },
     {
       "bars": 8,
-      "color": 5224624,
-      "id": 95,
+      "color": 14178959,
+      "id": 96,
       "name": "Lead Piano - Pont",
       "notes": {
         "55": [
@@ -7204,8 +7404,8 @@
     },
     {
       "bars": 8,
-      "color": 14178959,
-      "id": 97,
+      "color": 9412789,
+      "id": 98,
       "name": "Lead Piano - Couplet 2",
       "notes": {
         "55": [
@@ -7408,8 +7608,8 @@
     },
     {
       "bars": 8,
-      "color": 9412789,
-      "id": 100,
+      "color": 5935064,
+      "id": 101,
       "name": "Lead Piano - Outro",
       "notes": {
         "55": [
@@ -7450,8 +7650,8 @@
     },
     {
       "bars": 8,
-      "color": 5935064,
-      "id": 102,
+      "color": 14186330,
+      "id": 103,
       "name": "Counter Pizz - Echoes 8m",
       "notes": {
         "56": [
@@ -7546,8 +7746,8 @@
     },
     {
       "bars": 8,
-      "color": 14186330,
-      "id": 111,
+      "color": 7257962,
+      "id": 112,
       "name": "808 Blxckout - Refrain 1/2a",
       "notes": {
         "43": [
@@ -7703,8 +7903,8 @@
     },
     {
       "bars": 8,
-      "color": 7257962,
-      "id": 114,
+      "color": 13214780,
+      "id": 115,
       "name": "808 Blxckout - Climax",
       "notes": {
         "43": [
@@ -7860,8 +8060,8 @@
     },
     {
       "bars": 8,
-      "color": 13214780,
-      "id": 118,
+      "color": 10841304,
+      "id": 119,
       "name": "808 Apollo - Couplet 1",
       "notes": {
         "42": [
@@ -8010,8 +8210,8 @@
     },
     {
       "bars": 8,
-      "color": 10841304,
-      "id": 121,
+      "color": 5224624,
+      "id": 122,
       "name": "808 Apollo - Couplet 2",
       "notes": {
         "42": [
@@ -8167,8 +8367,8 @@
     },
     {
       "bars": 8,
-      "color": 5224624,
-      "id": 124,
+      "color": 14178959,
+      "id": 125,
       "name": "Kick - Refrain 8m",
       "notes": {
         "40": [
@@ -8493,8 +8693,8 @@
     },
     {
       "bars": 8,
-      "color": 14178959,
-      "id": 130,
+      "color": 9412789,
+      "id": 131,
       "name": "Kick - Couplet 8m",
       "notes": {
         "40": [
@@ -8783,8 +8983,8 @@
     },
     {
       "bars": 8,
-      "color": 9412789,
-      "id": 135,
+      "color": 5935064,
+      "id": 136,
       "name": "Snare/Clap - Drop Fill",
       "notes": {
         "44": [
@@ -8792,13 +8992,13 @@
             "length": 40,
             "pitch": 60,
             "start": 192,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 576,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -8810,13 +9010,13 @@
             "length": 40,
             "pitch": 60,
             "start": 960,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 1344,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -8828,13 +9028,13 @@
             "length": 40,
             "pitch": 60,
             "start": 1728,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 2112,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -8846,13 +9046,13 @@
             "length": 40,
             "pitch": 60,
             "start": 2496,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 2880,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 17,
@@ -8883,100 +9083,100 @@
           {
             "length": 40,
             "pitch": 60,
-            "start": 192,
-            "velocity": 108
+            "start": 193,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 576,
-            "velocity": 108
+            "start": 577,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 960,
-            "velocity": 108
+            "start": 961,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1344,
-            "velocity": 108
+            "start": 1345,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1728,
-            "velocity": 108
+            "start": 1729,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2112,
-            "velocity": 108
+            "start": 2113,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2496,
-            "velocity": 108
+            "start": 2497,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2880,
-            "velocity": 108
+            "start": 2881,
+            "velocity": 100
           }
         ],
         "46": [
           {
             "length": 40,
             "pitch": 60,
-            "start": 192,
-            "velocity": 108
+            "start": 191,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 576,
-            "velocity": 108
+            "start": 575,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 960,
-            "velocity": 108
+            "start": 959,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1344,
-            "velocity": 108
+            "start": 1343,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1728,
-            "velocity": 108
+            "start": 1727,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2112,
-            "velocity": 108
+            "start": 2111,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2496,
-            "velocity": 108
+            "start": 2495,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2880,
-            "velocity": 108
+            "start": 2879,
+            "velocity": 98
           }
         ]
       },
@@ -8985,8 +9185,8 @@
     },
     {
       "bars": 8,
-      "color": 5935064,
-      "id": 141,
+      "color": 14186330,
+      "id": 142,
       "name": "Snare/Clap - Couplet Mute",
       "notes": {
         "44": [
@@ -8994,13 +9194,13 @@
             "length": 40,
             "pitch": 60,
             "start": 192,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 576,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -9012,13 +9212,13 @@
             "length": 40,
             "pitch": 60,
             "start": 960,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 1344,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -9030,13 +9230,13 @@
             "length": 40,
             "pitch": 60,
             "start": 1728,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 2112,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -9048,113 +9248,113 @@
             "length": 40,
             "pitch": 60,
             "start": 2496,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 2880,
-            "velocity": 112
+            "velocity": 108
           }
         ],
         "45": [
           {
             "length": 40,
             "pitch": 60,
-            "start": 192,
-            "velocity": 108
+            "start": 193,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 576,
-            "velocity": 108
+            "start": 577,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 960,
-            "velocity": 108
+            "start": 961,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1344,
-            "velocity": 108
+            "start": 1345,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1728,
-            "velocity": 108
+            "start": 1729,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2112,
-            "velocity": 108
+            "start": 2113,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2496,
-            "velocity": 108
+            "start": 2497,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2880,
-            "velocity": 108
+            "start": 2881,
+            "velocity": 100
           }
         ],
         "46": [
           {
             "length": 40,
             "pitch": 60,
-            "start": 192,
-            "velocity": 108
+            "start": 191,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 576,
-            "velocity": 108
+            "start": 575,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 960,
-            "velocity": 108
+            "start": 959,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1344,
-            "velocity": 108
+            "start": 1343,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1728,
-            "velocity": 108
+            "start": 1727,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2112,
-            "velocity": 108
+            "start": 2111,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2496,
-            "velocity": 108
+            "start": 2495,
+            "velocity": 98
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 2880,
-            "velocity": 108
+            "start": 2879,
+            "velocity": 98
           }
         ]
       },
@@ -9163,8 +9363,8 @@
     },
     {
       "bars": 8,
-      "color": 14186330,
-      "id": 146,
+      "color": 7257962,
+      "id": 147,
       "name": "Snare - Pont Buildup",
       "notes": {
         "44": [
@@ -9172,67 +9372,67 @@
             "length": 34,
             "pitch": 60,
             "start": 1728,
-            "velocity": 54
+            "velocity": 26
           },
           {
             "length": 34,
             "pitch": 60,
             "start": 2112,
-            "velocity": 59
+            "velocity": 30
           },
           {
             "length": 34,
             "pitch": 60,
             "start": 2496,
-            "velocity": 64
+            "velocity": 34
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2688,
-            "velocity": 46
+            "velocity": 24
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2736,
-            "velocity": 51
+            "velocity": 27
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2784,
-            "velocity": 56
+            "velocity": 30
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2832,
-            "velocity": 61
+            "velocity": 33
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2880,
-            "velocity": 66
+            "velocity": 36
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2928,
-            "velocity": 71
+            "velocity": 39
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 2976,
-            "velocity": 76
+            "velocity": 42
           },
           {
             "length": 17,
             "pitch": 60,
             "start": 3024,
-            "velocity": 81
+            "velocity": 45
           }
         ]
       },
@@ -9241,8 +9441,8 @@
     },
     {
       "bars": 4,
-      "color": 7257962,
-      "id": 148,
+      "color": 13214780,
+      "id": 149,
       "name": "Snare/Clap - Outro 4m",
       "notes": {
         "44": [
@@ -9250,13 +9450,13 @@
             "length": 40,
             "pitch": 60,
             "start": 192,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 576,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -9268,13 +9468,13 @@
             "length": 40,
             "pitch": 60,
             "start": 960,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 40,
             "pitch": 60,
             "start": 1344,
-            "velocity": 112
+            "velocity": 108
           },
           {
             "length": 21,
@@ -9287,26 +9487,26 @@
           {
             "length": 40,
             "pitch": 60,
-            "start": 192,
-            "velocity": 108
+            "start": 193,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 576,
-            "velocity": 108
+            "start": 577,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 960,
-            "velocity": 108
+            "start": 961,
+            "velocity": 100
           },
           {
             "length": 40,
             "pitch": 60,
-            "start": 1344,
-            "velocity": 108
+            "start": 1345,
+            "velocity": 100
           }
         ]
       },
@@ -9315,8 +9515,8 @@
     },
     {
       "bars": 8,
-      "color": 13214780,
-      "id": 150,
+      "color": 10841304,
+      "id": 151,
       "name": "Hats - Couplet 1a",
       "notes": {
         "47": [
@@ -9747,8 +9947,8 @@
     },
     {
       "bars": 8,
-      "color": 10841304,
-      "id": 152,
+      "color": 5224624,
+      "id": 153,
       "name": "Hats - Medium 8m",
       "notes": {
         "47": [
@@ -10319,8 +10519,8 @@
     },
     {
       "bars": 8,
-      "color": 5224624,
-      "id": 156,
+      "color": 14178959,
+      "id": 157,
       "name": "Hats - Drop High 8m",
       "notes": {
         "47": [
@@ -10921,8 +11121,8 @@
     },
     {
       "bars": 4,
-      "color": 14178959,
-      "id": 162,
+      "color": 9412789,
+      "id": 163,
       "name": "Hats - Outro 4m",
       "notes": {
         "47": [
@@ -11137,8 +11337,8 @@
     },
     {
       "bars": 4,
-      "color": 9412789,
-      "id": 164,
+      "color": 5935064,
+      "id": 165,
       "name": "Rim & Shaker - Intro M5-8",
       "notes": {
         "50": [
@@ -11146,37 +11346,37 @@
             "length": 19,
             "pitch": 60,
             "start": 144,
-            "velocity": 56
+            "velocity": 46
           },
           {
             "length": 19,
             "pitch": 60,
             "start": 336,
-            "velocity": 56
+            "velocity": 46
           },
           {
             "length": 19,
             "pitch": 60,
             "start": 528,
-            "velocity": 56
+            "velocity": 46
           },
           {
             "length": 19,
             "pitch": 60,
             "start": 720,
-            "velocity": 56
+            "velocity": 46
           },
           {
             "length": 19,
             "pitch": 60,
             "start": 912,
-            "velocity": 56
+            "velocity": 46
           },
           {
             "length": 19,
             "pitch": 60,
             "start": 1104,
-            "velocity": 56
+            "velocity": 46
           }
         ],
         "51": [
@@ -11184,145 +11384,145 @@
             "length": 14,
             "pitch": 60,
             "start": 0,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 48,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 96,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 144,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 192,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 240,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 288,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 336,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 384,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 432,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 480,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 528,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 576,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 624,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 672,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 720,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 768,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 816,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 864,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 912,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 960,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 1008,
-            "velocity": 32
+            "velocity": 24
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 1056,
-            "velocity": 46
+            "velocity": 36
           },
           {
             "length": 14,
             "pitch": 60,
             "start": 1104,
-            "velocity": 32
+            "velocity": 24
           }
         ]
       },
@@ -11331,8 +11531,8 @@
     },
     {
       "bars": 8,
-      "color": 5935064,
-      "id": 167,
+      "color": 14186330,
+      "id": 168,
       "name": "Rim - Couplet 1a",
       "notes": {
         "50": [
@@ -11427,8 +11627,8 @@
     },
     {
       "bars": 8,
-      "color": 14186330,
-      "id": 169,
+      "color": 7257962,
+      "id": 170,
       "name": "Rim & Shaker - Couplet Full",
       "notes": {
         "50": [
@@ -11861,8 +12061,8 @@
     },
     {
       "bars": 8,
-      "color": 7257962,
-      "id": 173,
+      "color": 13214780,
+      "id": 174,
       "name": "OpenHat & Shaker - Drop 8m",
       "notes": {
         "49": [
@@ -12235,8 +12435,8 @@
     },
     {
       "bars": 8,
-      "color": 13214780,
-      "id": 176,
+      "color": 10841304,
+      "id": 177,
       "name": "OpenHat, Rim & Shaker - Climax",
       "notes": {
         "49": [
@@ -12695,8 +12895,8 @@
     },
     {
       "bars": 8,
-      "color": 10841304,
-      "id": 179,
+      "color": 5224624,
+      "id": 180,
       "name": "Chants - Sparse Accent 8m",
       "notes": {
         "59": [
@@ -12828,540 +13028,540 @@
       "id": 82,
       "length": 0,
       "pattern": 80,
-      "start": 14976,
-      "track": 9
-    },
-    {
-      "id": 83,
-      "length": 0,
-      "pattern": 80,
       "start": 27264,
       "track": 9
     },
     {
-      "id": 85,
+      "id": 84,
       "length": 0,
-      "pattern": 84,
-      "start": 0,
-      "track": 10
+      "pattern": 83,
+      "start": 14976,
+      "track": 9
     },
     {
-      "id": 87,
+      "id": 86,
       "length": 0,
-      "pattern": 86,
-      "start": 3072,
+      "pattern": 85,
+      "start": 0,
       "track": 10
     },
     {
       "id": 88,
       "length": 0,
-      "pattern": 86,
-      "start": 15360,
+      "pattern": 87,
+      "start": 3072,
       "track": 10
     },
     {
       "id": 89,
       "length": 0,
-      "pattern": 86,
-      "start": 18432,
+      "pattern": 87,
+      "start": 15360,
       "track": 10
     },
     {
       "id": 90,
       "length": 0,
-      "pattern": 86,
-      "start": 27648,
+      "pattern": 87,
+      "start": 18432,
       "track": 10
     },
     {
       "id": 91,
       "length": 0,
-      "pattern": 86,
-      "start": 30720,
+      "pattern": 87,
+      "start": 27648,
       "track": 10
     },
     {
-      "id": 93,
+      "id": 92,
       "length": 0,
-      "pattern": 92,
-      "start": 6144,
+      "pattern": 87,
+      "start": 30720,
       "track": 10
     },
     {
       "id": 94,
       "length": 0,
-      "pattern": 92,
+      "pattern": 93,
+      "start": 6144,
+      "track": 10
+    },
+    {
+      "id": 95,
+      "length": 0,
+      "pattern": 93,
       "start": 9216,
       "track": 10
     },
     {
-      "id": 96,
+      "id": 97,
       "length": 0,
-      "pattern": 95,
+      "pattern": 96,
       "start": 12288,
-      "track": 10
-    },
-    {
-      "id": 98,
-      "length": 0,
-      "pattern": 97,
-      "start": 21504,
       "track": 10
     },
     {
       "id": 99,
       "length": 0,
-      "pattern": 97,
+      "pattern": 98,
+      "start": 21504,
+      "track": 10
+    },
+    {
+      "id": 100,
+      "length": 0,
+      "pattern": 98,
       "start": 24576,
       "track": 10
     },
     {
-      "id": 101,
+      "id": 102,
       "length": 0,
-      "pattern": 100,
+      "pattern": 101,
       "start": 33792,
       "track": 10
     },
     {
-      "id": 103,
-      "length": 0,
-      "pattern": 102,
-      "start": 3072,
-      "track": 11
-    },
-    {
       "id": 104,
       "length": 0,
-      "pattern": 102,
-      "start": 9216,
+      "pattern": 103,
+      "start": 3072,
       "track": 11
     },
     {
       "id": 105,
       "length": 0,
-      "pattern": 102,
-      "start": 15360,
+      "pattern": 103,
+      "start": 9216,
       "track": 11
     },
     {
       "id": 106,
       "length": 0,
-      "pattern": 102,
-      "start": 18432,
+      "pattern": 103,
+      "start": 15360,
       "track": 11
     },
     {
       "id": 107,
       "length": 0,
-      "pattern": 102,
-      "start": 21504,
+      "pattern": 103,
+      "start": 18432,
       "track": 11
     },
     {
       "id": 108,
       "length": 0,
-      "pattern": 102,
-      "start": 24576,
+      "pattern": 103,
+      "start": 21504,
       "track": 11
     },
     {
       "id": 109,
       "length": 0,
-      "pattern": 102,
-      "start": 27648,
+      "pattern": 103,
+      "start": 24576,
       "track": 11
     },
     {
       "id": 110,
       "length": 0,
-      "pattern": 102,
+      "pattern": 103,
+      "start": 27648,
+      "track": 11
+    },
+    {
+      "id": 111,
+      "length": 0,
+      "pattern": 103,
       "start": 30720,
       "track": 11
     },
     {
-      "id": 112,
+      "id": 113,
       "length": 0,
-      "pattern": 111,
+      "pattern": 112,
       "start": 3072,
       "track": 1
     },
     {
-      "id": 113,
+      "id": 114,
       "length": 0,
-      "pattern": 111,
+      "pattern": 112,
       "start": 15360,
-      "track": 1
-    },
-    {
-      "id": 115,
-      "length": 0,
-      "pattern": 114,
-      "start": 18432,
       "track": 1
     },
     {
       "id": 116,
       "length": 0,
-      "pattern": 114,
-      "start": 27648,
+      "pattern": 115,
+      "start": 18432,
       "track": 1
     },
     {
       "id": 117,
       "length": 0,
-      "pattern": 114,
+      "pattern": 115,
+      "start": 27648,
+      "track": 1
+    },
+    {
+      "id": 118,
+      "length": 0,
+      "pattern": 115,
       "start": 30720,
       "track": 1
     },
     {
-      "id": 119,
+      "id": 120,
       "length": 0,
-      "pattern": 118,
+      "pattern": 119,
       "start": 6144,
       "track": 0
     },
     {
-      "id": 120,
+      "id": 121,
       "length": 0,
-      "pattern": 118,
+      "pattern": 119,
       "start": 9216,
-      "track": 0
-    },
-    {
-      "id": 122,
-      "length": 0,
-      "pattern": 121,
-      "start": 21504,
       "track": 0
     },
     {
       "id": 123,
       "length": 0,
-      "pattern": 121,
+      "pattern": 122,
+      "start": 21504,
+      "track": 0
+    },
+    {
+      "id": 124,
+      "length": 0,
+      "pattern": 122,
       "start": 24576,
       "track": 0
     },
     {
-      "id": 125,
-      "length": 0,
-      "pattern": 124,
-      "start": 3072,
-      "track": 2
-    },
-    {
       "id": 126,
       "length": 0,
-      "pattern": 124,
-      "start": 15360,
+      "pattern": 125,
+      "start": 3072,
       "track": 2
     },
     {
       "id": 127,
       "length": 0,
-      "pattern": 124,
-      "start": 18432,
+      "pattern": 125,
+      "start": 15360,
       "track": 2
     },
     {
       "id": 128,
       "length": 0,
-      "pattern": 124,
-      "start": 27648,
+      "pattern": 125,
+      "start": 18432,
       "track": 2
     },
     {
       "id": 129,
       "length": 0,
-      "pattern": 124,
-      "start": 30720,
+      "pattern": 125,
+      "start": 27648,
       "track": 2
     },
     {
-      "id": 131,
+      "id": 130,
       "length": 0,
-      "pattern": 130,
-      "start": 6144,
+      "pattern": 125,
+      "start": 30720,
       "track": 2
     },
     {
       "id": 132,
       "length": 0,
-      "pattern": 130,
-      "start": 9216,
+      "pattern": 131,
+      "start": 6144,
       "track": 2
     },
     {
       "id": 133,
       "length": 0,
-      "pattern": 130,
-      "start": 21504,
+      "pattern": 131,
+      "start": 9216,
       "track": 2
     },
     {
       "id": 134,
       "length": 0,
-      "pattern": 130,
+      "pattern": 131,
+      "start": 21504,
+      "track": 2
+    },
+    {
+      "id": 135,
+      "length": 0,
+      "pattern": 131,
       "start": 24576,
       "track": 2
     },
     {
-      "id": 136,
-      "length": 0,
-      "pattern": 135,
-      "start": 3072,
-      "track": 3
-    },
-    {
       "id": 137,
       "length": 0,
-      "pattern": 135,
-      "start": 15360,
+      "pattern": 136,
+      "start": 3072,
       "track": 3
     },
     {
       "id": 138,
       "length": 0,
-      "pattern": 135,
-      "start": 18432,
+      "pattern": 136,
+      "start": 15360,
       "track": 3
     },
     {
       "id": 139,
       "length": 0,
-      "pattern": 135,
-      "start": 27648,
+      "pattern": 136,
+      "start": 18432,
       "track": 3
     },
     {
       "id": 140,
       "length": 0,
-      "pattern": 135,
-      "start": 30720,
+      "pattern": 136,
+      "start": 27648,
       "track": 3
     },
     {
-      "id": 142,
+      "id": 141,
       "length": 0,
-      "pattern": 141,
-      "start": 6144,
+      "pattern": 136,
+      "start": 30720,
       "track": 3
     },
     {
       "id": 143,
       "length": 0,
-      "pattern": 141,
-      "start": 9216,
+      "pattern": 142,
+      "start": 6144,
       "track": 3
     },
     {
       "id": 144,
       "length": 0,
-      "pattern": 141,
-      "start": 21504,
+      "pattern": 142,
+      "start": 9216,
       "track": 3
     },
     {
       "id": 145,
       "length": 0,
-      "pattern": 141,
+      "pattern": 142,
+      "start": 21504,
+      "track": 3
+    },
+    {
+      "id": 146,
+      "length": 0,
+      "pattern": 142,
       "start": 24576,
       "track": 3
     },
     {
-      "id": 147,
+      "id": 148,
       "length": 0,
-      "pattern": 146,
+      "pattern": 147,
       "start": 12288,
       "track": 3
     },
     {
-      "id": 149,
+      "id": 150,
       "length": 0,
-      "pattern": 148,
+      "pattern": 149,
       "start": 33792,
       "track": 3
     },
     {
-      "id": 151,
+      "id": 152,
       "length": 0,
-      "pattern": 150,
+      "pattern": 151,
       "start": 6144,
-      "track": 4
-    },
-    {
-      "id": 153,
-      "length": 0,
-      "pattern": 152,
-      "start": 9216,
       "track": 4
     },
     {
       "id": 154,
       "length": 0,
-      "pattern": 152,
-      "start": 21504,
+      "pattern": 153,
+      "start": 9216,
       "track": 4
     },
     {
       "id": 155,
       "length": 0,
-      "pattern": 152,
-      "start": 24576,
+      "pattern": 153,
+      "start": 21504,
       "track": 4
     },
     {
-      "id": 157,
+      "id": 156,
       "length": 0,
-      "pattern": 156,
-      "start": 3072,
+      "pattern": 153,
+      "start": 24576,
       "track": 4
     },
     {
       "id": 158,
       "length": 0,
-      "pattern": 156,
-      "start": 15360,
+      "pattern": 157,
+      "start": 3072,
       "track": 4
     },
     {
       "id": 159,
       "length": 0,
-      "pattern": 156,
-      "start": 18432,
+      "pattern": 157,
+      "start": 15360,
       "track": 4
     },
     {
       "id": 160,
       "length": 0,
-      "pattern": 156,
-      "start": 27648,
+      "pattern": 157,
+      "start": 18432,
       "track": 4
     },
     {
       "id": 161,
       "length": 0,
-      "pattern": 156,
+      "pattern": 157,
+      "start": 27648,
+      "track": 4
+    },
+    {
+      "id": 162,
+      "length": 0,
+      "pattern": 157,
       "start": 30720,
       "track": 4
     },
     {
-      "id": 163,
+      "id": 164,
       "length": 0,
-      "pattern": 162,
+      "pattern": 163,
       "start": 33792,
       "track": 4
     },
     {
-      "id": 165,
+      "id": 166,
       "length": 0,
-      "pattern": 164,
+      "pattern": 165,
       "start": 1536,
       "track": 5
     },
     {
-      "id": 166,
+      "id": 167,
       "length": 0,
-      "pattern": 164,
+      "pattern": 165,
       "start": 12288,
       "track": 5
     },
     {
-      "id": 168,
+      "id": 169,
       "length": 0,
-      "pattern": 167,
+      "pattern": 168,
       "start": 6144,
-      "track": 5
-    },
-    {
-      "id": 170,
-      "length": 0,
-      "pattern": 169,
-      "start": 9216,
       "track": 5
     },
     {
       "id": 171,
       "length": 0,
-      "pattern": 169,
-      "start": 21504,
+      "pattern": 170,
+      "start": 9216,
       "track": 5
     },
     {
       "id": 172,
       "length": 0,
-      "pattern": 169,
-      "start": 24576,
+      "pattern": 170,
+      "start": 21504,
       "track": 5
     },
     {
-      "id": 174,
+      "id": 173,
       "length": 0,
-      "pattern": 173,
-      "start": 15360,
+      "pattern": 170,
+      "start": 24576,
       "track": 5
     },
     {
       "id": 175,
       "length": 0,
-      "pattern": 173,
-      "start": 18432,
+      "pattern": 174,
+      "start": 15360,
       "track": 5
     },
     {
-      "id": 177,
+      "id": 176,
       "length": 0,
-      "pattern": 176,
-      "start": 27648,
+      "pattern": 174,
+      "start": 18432,
       "track": 5
     },
     {
       "id": 178,
       "length": 0,
-      "pattern": 176,
+      "pattern": 177,
+      "start": 27648,
+      "track": 5
+    },
+    {
+      "id": 179,
+      "length": 0,
+      "pattern": 177,
       "start": 30720,
       "track": 5
     },
     {
-      "id": 180,
-      "length": 0,
-      "pattern": 179,
-      "start": 3072,
-      "track": 12
-    },
-    {
       "id": 181,
       "length": 0,
-      "pattern": 179,
-      "start": 15360,
+      "pattern": 180,
+      "start": 3072,
       "track": 12
     },
     {
       "id": 182,
       "length": 0,
-      "pattern": 179,
-      "start": 18432,
+      "pattern": 180,
+      "start": 15360,
       "track": 12
     },
     {
       "id": 183,
       "length": 0,
-      "pattern": 179,
-      "start": 27648,
+      "pattern": 180,
+      "start": 18432,
       "track": 12
     },
     {
       "id": 184,
       "length": 0,
-      "pattern": 179,
+      "pattern": 180,
+      "start": 27648,
+      "track": 12
+    },
+    {
+      "id": 185,
+      "length": 0,
+      "pattern": 180,
       "start": 30720,
       "track": 12
     },
     {
-      "id": 186,
+      "id": 187,
       "kind": "automation",
       "length": 36864,
       "pattern": 0,
-      "source": 185,
+      "source": 186,
       "start": 0,
       "track": 12
     }

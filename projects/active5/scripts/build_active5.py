@@ -217,10 +217,10 @@ def build():
             (11, "Lead Piano", 19, 0.96, 0.06, -0.10),
             (12, "Counter Pizz E", 19, 0.84, -0.14, 0.0),
             (13, "Chords High +12 & Chants", 19, 0.74, 0.0, -0.15),
-            (17, "BUS Drums", 0, 0.92, 0.0, 0.0),
-            (18, "BUS 808", 0, 0.72, 0.0, -1.0),
+            (17, "BUS Drums", 0, 0.94, 0.0, 0.0),
+            (18, "BUS 808", 0, 0.81, 0.0, -1.0),
             (19, "BUS Music", 0, 1.00, 0.0, -0.18),
-            (20, "FX Room", 0, 0.52, 0.0, 0.0),
+            (20, "FX Room", 0, 0.42, 0.0, 0.0),
         ]
         calls = []
         stereo_changes = []
@@ -368,7 +368,9 @@ def build():
             {"tool": "add_plugin", "arguments": {"mixer": 19, "plugin": "gl.comp"}},
             # FX Room (20): gl.reverb (1)
             {"tool": "add_plugin", "arguments": {"mixer": 20, "plugin": "gl.reverb"}},
-            # Mirror EQs on harmonic accompaniment vs Lead:
+            # Transient/Nyquist LPF smoothing on Snare (4) & Clap (5) + Mirror EQs on harmonic layers:
+            {"tool": "add_plugin", "arguments": {"mixer": 4, "plugin": "gl.eq"}},   # Snare LPF 11.5k
+            {"tool": "add_plugin", "arguments": {"mixer": 5, "plugin": "gl.eq"}},   # Clap LPF 11.5k
             {"tool": "add_plugin", "arguments": {"mixer": 8, "plugin": "gl.eq"}},   # Chords Pad
             {"tool": "add_plugin", "arguments": {"mixer": 9, "plugin": "gl.eq"}},   # Chords Piano VoiceLed
             {"tool": "add_plugin", "arguments": {"mixer": 10, "plugin": "gl.eq"}},  # Chords Stab
@@ -382,20 +384,20 @@ def build():
             # Master (0)
             ("mixer/0/slot/1/Quality", 1),
             ("mixer/0/slot/1/Band 1 type", 1), ("mixer/0/slot/1/Band 1 freq", 28),
-            ("mixer/0/slot/1/Band 2 type", 6), ("mixer/0/slot/1/Band 2 freq", 63), ("mixer/0/slot/1/Band 2 gain", -4.0), ("mixer/0/slot/1/Band 2 Q (legacy)", 2.2),
+            ("mixer/0/slot/1/Band 2 type", 6), ("mixer/0/slot/1/Band 2 freq", 63), ("mixer/0/slot/1/Band 2 gain", -3.9), ("mixer/0/slot/1/Band 2 Q (legacy)", 2.2),
             ("mixer/0/slot/1/Band 7 type", 3), ("mixer/0/slot/1/Band 7 freq", 17500),
             ("mixer/0/slot/2/Threshold", -12.5), ("mixer/0/slot/2/Ratio", 1.8),
             ("mixer/0/slot/2/Attack", 0.020), ("mixer/0/slot/2/Release", 0.11),
             ("mixer/0/slot/2/Makeup", 1.8), ("mixer/0/slot/2/Detector high-pass", 95),
-            ("mixer/0/slot/3/Gain", 7.8), ("mixer/0/slot/3/Ceiling", -2.85),
+            ("mixer/0/slot/3/Gain", 7.8), ("mixer/0/slot/3/Ceiling", -2.50),
             ("mixer/0/slot/3/Attack (look-ahead)", 0.006), ("mixer/0/slot/3/0.2 dB safety", 1),
 
-            # BUS Drums (17): Attack 8ms (>5ms) prevents transient micro-clicks while keeping punch
+            # BUS Drums (17): Attack 12ms preserves snare/clap transients without Nyquist micro-clicks
             ("mixer/17/slot/1/Band 1 type", 1), ("mixer/17/slot/1/Band 1 freq", 32),
             ("mixer/17/slot/1/Band 2 type", 6), ("mixer/17/slot/1/Band 2 freq", 63), ("mixer/17/slot/1/Band 2 gain", -3.2), ("mixer/17/slot/1/Band 2 Q (legacy)", 1.8),
             ("mixer/17/slot/1/Band 7 type", 7), ("mixer/17/slot/1/Band 7 freq", 10500), ("mixer/17/slot/1/Band 7 gain", 1.8),
-            ("mixer/17/slot/2/Threshold", -15.5), ("mixer/17/slot/2/Ratio", 2.6),
-            ("mixer/17/slot/2/Attack", 0.008), ("mixer/17/slot/2/Release", 0.085), ("mixer/17/slot/2/Makeup", 2.4),
+            ("mixer/17/slot/2/Threshold", -16.5), ("mixer/17/slot/2/Ratio", 2.7),
+            ("mixer/17/slot/2/Attack", 0.012), ("mixer/17/slot/2/Release", 0.085), ("mixer/17/slot/2/Makeup", 3.3),
 
             # BUS 808 (18)
             ("mixer/18/slot/1/Width", 0.0),
@@ -416,8 +418,8 @@ def build():
             ("mixer/19/slot/2/Tone", 12000), ("mixer/19/slot/2/Mix", 0.10),
             ("mixer/19/slot/2/Output", 0.0), ("mixer/19/slot/2/Oversampling", 2), ("mixer/19/slot/2/Remove DC", 1),
             # Slot 3: gl.comp Bus Glue (fills K-weighted melodic density cleanly without ISP clipping)
-            ("mixer/19/slot/3/Threshold", -18.0), ("mixer/19/slot/3/Ratio", 2.5),
-            ("mixer/19/slot/3/Attack", 0.018), ("mixer/19/slot/3/Release", 0.110), ("mixer/19/slot/3/Makeup", 3.5),
+            ("mixer/19/slot/3/Threshold", -20.5), ("mixer/19/slot/3/Ratio", 2.6),
+            ("mixer/19/slot/3/Attack", 0.018), ("mixer/19/slot/3/Release", 0.110), ("mixer/19/slot/3/Makeup", 5.0),
             # Slot 4: gl.comp Micro-Ducking Sidechain from Kick (Attack 5ms, Release 80ms)
             ("mixer/19/slot/4/Detector input", 1),
             ("mixer/19/slot/4/Threshold", -24.0), ("mixer/19/slot/4/Ratio", 3.0),
@@ -426,12 +428,18 @@ def build():
             # FX Room (20): shared short acoustic space (Decay 0.250 s <= 1*T_noire, Dry=0, Dry full=0)
             ("mixer/20/slot/1/Model", 1),
             ("mixer/20/slot/1/Pre-delay", 10), ("mixer/20/slot/1/Room size", 0.24),
-            ("mixer/20/slot/1/Decay time", 0.250),
+            ("mixer/20/slot/1/Decay time", 0.210),
             ("mixer/20/slot/1/Low cut", 480), ("mixer/20/slot/1/High cut", 6400), ("mixer/20/slot/1/High damping", 4000),
             ("mixer/20/slot/1/Dry", 0), ("mixer/20/slot/1/Wet", 0.58), ("mixer/20/slot/1/Width", 0.80),
             ("mixer/20/slot/1/Low cut (full)", 480), ("mixer/20/slot/1/Decay (full)", 2),
             ("mixer/20/slot/1/Dry (full)", 0), ("mixer/20/slot/1/Early reflections (full)", 10),
             ("mixer/20/slot/1/Wet (full)", 58),
+
+            # Snare (4) & Clap (5): LPF 11.5 kHz removes raw sample-0 Nyquist transient ringing / ISP spikes
+            ("mixer/4/slot/1/Band 1 type", 1), ("mixer/4/slot/1/Band 1 freq", 130),
+            ("mixer/4/slot/1/Band 7 type", 3), ("mixer/4/slot/1/Band 7 freq", 11500),
+            ("mixer/5/slot/1/Band 1 type", 1), ("mixer/5/slot/1/Band 1 freq", 160),
+            ("mixer/5/slot/1/Band 7 type", 3), ("mixer/5/slot/1/Band 7 freq", 11500),
 
             # Mirror EQs on harmonic layers vs Lead:
             # Pad E (8): HPF 180 Hz, carve -2.5dB @ 320 Hz, carve -2.8dB @ 1.5 kHz for Lead Piano
@@ -518,8 +526,8 @@ def build():
         place(p_chords_c1b, 8, 25)
 
         p_chords_pont = new_pattern("Chords VoiceLed - Pont", 8)
-        add_notes(p_chords_pont, 14, make_voiceled_chords(8, vel=36, mute_last_beat=True))
-        add_notes(p_chords_pont, 13, make_pad_roots(8, vel=34, mute_last_beat=True))
+        add_notes(p_chords_pont, 14, make_voiceled_chords(8, vel=18, mute_last_beat=True))
+        add_notes(p_chords_pont, 13, make_pad_roots(8, vel=16, mute_last_beat=True))
         place(p_chords_pont, 8, 33)
 
         p_chords_outro = new_pattern("Chords VoiceLed - Outro", 8)
@@ -562,10 +570,13 @@ def build():
         place(p_stab_hi, 10, 81)
 
         p_riser = new_pattern("Chords Riser - 4 beats", 1)
-        add_notes(p_riser, 19, [{"start": 0.0, "length": 3.95, "pitch": 64, "velocity": 98}])
+        add_notes(p_riser, 19, [{"start": 0.0, "length": 3.95, "pitch": 64, "velocity": 86}])
         place(p_riser, 10, 8)
-        place(p_riser, 10, 40)
         place(p_riser, 10, 72)
+
+        p_riser_pont = new_pattern("Chords Riser - Pont 4 beats", 1)
+        add_notes(p_riser_pont, 19, [{"start": 0.0, "length": 3.95, "pitch": 64, "velocity": 56}])
+        place(p_riser_pont, 10, 40)
 
         # ---- LEAD PIANO (Track 11, Ch 16) — Exact Top-Line A-A'-A''-B from master_sketch.mid! ----
         def make_lead_from_sketch(bars=8, vel_base=96, mode="full", oct_shift=0, mute_last_beat=True):
@@ -598,7 +609,7 @@ def build():
         place(p_lead_c1, 11, 25)
 
         p_lead_pont = new_pattern("Lead Piano - Pont", 8)
-        add_notes(p_lead_pont, 16, make_lead_from_sketch(8, vel_base=44, mode="full", mute_last_beat=True))
+        add_notes(p_lead_pont, 16, make_lead_from_sketch(8, vel_base=24, mode="full", mute_last_beat=True))
         place(p_lead_pont, 11, 33)
 
         p_lead_c2 = new_pattern("Lead Piano - Couplet 2", 8)
@@ -732,42 +743,43 @@ def build():
 
         # ---- SNARE & CLAP (Track 4, Ch 5, 6, 7) ----
         def make_sc(bars=8, fill_end=True, mute_last_beat=False):
-            sn, cl = [], []
+            sn, cl, tcl = [], [], []
             for b in range(bars):
-                sn.append({"start": b * 4.0 + 2.0, "length": 0.42, "pitch": 60, "velocity": 112})
-                cl.append({"start": b * 4.0 + 2.0, "length": 0.42, "pitch": 60, "velocity": 108})
+                sn.append({"start": b * 4.0 + 2.0, "length": 0.42, "pitch": 60, "velocity": 108})
+                cl.append({"start": b * 4.0 + 2.012, "length": 0.42, "pitch": 60, "velocity": 100})
+                tcl.append({"start": b * 4.0 + 1.994, "length": 0.42, "pitch": 60, "velocity": 98})
                 if b in (1, 3, 5):
                     sn.append({"start": b * 4.0 + 3.75, "length": 0.22, "pitch": 60, "velocity": 60})
                 if b == bars - 1 and fill_end and not mute_last_beat:
                     for sub, vel in [(3.0, 74), (3.25, 82), (3.5, 94), (3.75, 106)]:
                         sn.append({"start": b * 4.0 + sub, "length": 0.18, "pitch": 60, "velocity": vel})
-            return sn, cl
+            return sn, cl, tcl
 
         p_sc_fill = new_pattern("Snare/Clap - Drop Fill", 8)
-        sn, cl = make_sc(8, fill_end=True, mute_last_beat=False)
+        sn, cl, tcl = make_sc(8, fill_end=True, mute_last_beat=False)
         add_notes(p_sc_fill, 5, sn)
         add_notes(p_sc_fill, 6, cl)
-        add_notes(p_sc_fill, 7, cl)
+        add_notes(p_sc_fill, 7, tcl)
         for sb in [9, 41, 49, 73, 81]:
             place(p_sc_fill, 4, sb)
 
         p_sc_mute = new_pattern("Snare/Clap - Couplet Mute", 8)
-        snm, clm = make_sc(8, fill_end=False, mute_last_beat=True)
+        snm, clm, tclm = make_sc(8, fill_end=False, mute_last_beat=True)
         add_notes(p_sc_mute, 5, snm)
         add_notes(p_sc_mute, 6, clm)
-        add_notes(p_sc_mute, 7, clm)
+        add_notes(p_sc_mute, 7, tclm)
         for sb in [17, 25, 57, 65]:
             place(p_sc_mute, 4, sb)
 
         p_sc_pont = new_pattern("Snare - Pont Buildup", 8)
-        psn = [{"start": b * 4.0 + 2.0, "length": 0.35, "pitch": 60, "velocity": 54 + (b - 4) * 5} for b in range(4, 7)]
+        psn = [{"start": b * 4.0 + 2.0, "length": 0.35, "pitch": 60, "velocity": 26 + (b - 4) * 4} for b in range(4, 7)]
         for step in range(8):
-            psn.append({"start": 7 * 4.0 + step * 0.5, "length": 0.18, "pitch": 60, "velocity": 46 + step * 5})
+            psn.append({"start": 7 * 4.0 + step * 0.5, "length": 0.18, "pitch": 60, "velocity": 24 + step * 3})
         add_notes(p_sc_pont, 5, psn)
         place(p_sc_pont, 4, 33)
 
         p_sc_outro = new_pattern("Snare/Clap - Outro 4m", 4)
-        sno, clo = make_sc(4, fill_end=False, mute_last_beat=True)
+        sno, clo, _ = make_sc(4, fill_end=False, mute_last_beat=True)
         add_notes(p_sc_outro, 5, sno)
         add_notes(p_sc_outro, 6, clo)
         place(p_sc_outro, 4, 89)
@@ -822,8 +834,8 @@ def build():
 
         # ---- RIM, SHAKER & OPENHAT (Track 6, Ch 10, 11, 12) ----
         p_rim_intro = new_pattern("Rim & Shaker - Intro M5-8", 4)
-        add_notes(p_rim_intro, 11, [{"start": b * 4.0 + t, "length": 0.2, "pitch": 60, "velocity": 56} for b in range(3) for t in (1.5, 3.5)])
-        add_notes(p_rim_intro, 12, [{"start": b * 4.0 + s * 0.5, "length": 0.15, "pitch": 60, "velocity": 46 if s % 2 == 0 else 32} for b in range(3) for s in range(8)])
+        add_notes(p_rim_intro, 11, [{"start": b * 4.0 + t, "length": 0.2, "pitch": 60, "velocity": 46} for b in range(3) for t in (1.5, 3.5)])
+        add_notes(p_rim_intro, 12, [{"start": b * 4.0 + s * 0.5, "length": 0.15, "pitch": 60, "velocity": 36 if s % 2 == 0 else 24} for b in range(3) for s in range(8)])
         place(p_rim_intro, 6, 5)
         place(p_rim_intro, 6, 33)
 
@@ -860,13 +872,13 @@ def build():
             place(p_chants, 13, sb)
 
         # ---- FX ROOM TRANSITION CUTS (Track 13, Mixer 20 volume automation) ----
-        pts = [{"position": 0.0, "value": 0.52, "shape": "hold"}]
+        pts = [{"position": 0.0, "value": 0.42, "shape": "hold"}]
         for pivot_bar in [8, 32, 40, 56, 72]:
             cut_start = (pivot_bar - 1) * 4.0 + 3.0
             cut_end = pivot_bar * 4.0
             pts.append({"position": cut_start, "value": 0.0, "shape": "hold"})
-            pts.append({"position": cut_end, "value": 0.52, "shape": "hold"})
-        pts.append({"position": 96 * 4.0, "value": 0.52, "shape": "hold"})
+            pts.append({"position": cut_end, "value": 0.42, "shape": "hold"})
+        pts.append({"position": 96 * 4.0, "value": 0.42, "shape": "hold"})
         queued.append({"tool": "add_automation", "arguments": {
             "mixer": 20, "param": "volume", "name": "FX Room Transition Cuts",
             "points": pts, "track": 13, "start": 0.0, "length": 96 * 4.0,
