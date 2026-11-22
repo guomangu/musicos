@@ -41,7 +41,12 @@ Cocher quels rôles jouent dans chaque section afin de garantir un **arc dynamiq
 | **Batterie (`Drums`)** | ❌ (ou hats doux) | ✅ (sans open-hat) | ❌ (ou rim/tom seul) | ✅ (complet) | ✅ (+shaker/rolls) | ❌ (ou kick seul 2 mes.) |
 | **Lead / Voix** | Motif filtré ou ❌ | Squelette / Couplet | Contre-chant / ❌ | ✅ (thème complet) | ✅ (+octave/contre-chant) | Écho final sur tonique |
 
-### 1.4 Boîte à Outils Transitions & Fin Propre
+### 1.4 Architecture Temporelle (Grille Puissances de 2 : Paliers 4 / 8 / 16–32) & Transitions
+La macro- et micro-structure reposent sur une grille binaire en multiples de 4 (`4, 8, 16, 32` mesures) afin d'allier prédictibilité et prévention de l'ennui :
+1. **Palier Micro (toutes les 4 mesures)** : variation rythmique mineure sans ajout de piste (roulement de hi-hat au temps 4, note de passage basse, coupure/*mute* du Kick sur le dernier demi-temps).
+2. **Palier Méso (toutes les 8 mesures)** : modification obligatoire de la densité instrumentale (ajout ou retrait d'une piste de catégorie Rythmique, Harmonie ou Habillage — **aucune boucle de 8 mesures répétée à l'identique**).
+3. **Palier Macro (toutes les 16 ou 32 mesures)** : changement de section structurelle (Couplet → Pré-Refrain → Refrain → Pont) avec événement de transition et saut net de dynamique.
+
 * **Entre deux sections** (mesures 4, 8, 12, 16...) : appliquer au moins **1 levier** parmi :
   1. *Beat-4 Drop-Out* : couper batterie + basse sur le dernier temps (`beat 3.0..4.0`) + automatiser `FX Room` volume à `0` → impact massif sur le temps 1 suivant !
   2. *Drum Fill* : 3–4 frappes de snare/toms croissantes (`vel 70 → 110`) sur les 2 derniers temps.
@@ -50,16 +55,26 @@ Cocher quels rôles jouent dans chaque section afin de garantir un **arc dynamiq
 
 ---
 
-## Chapitre 2 — Cohérence Multi-Échelles, Règle des 3 Couches & Physique (`T_noire`)
+## Chapitre 2 — Cohérence Multi-Échelles, Plafond Cognitif (5–8 Pistes) & Physique (`T_noire`)
 
 1. **Échantillon (`< 5 ms`)** : zéro clic/DC/clipping, accordage **`A4 = 440.0 Hz ± 5 ct`**.
 2. **Transitoire (`5–50 ms`)** : attaques concurrentes `<= 15 %` dans `400 Hz–3 kHz` ; séparation Kick/Basse.
 3. **Motif (`1–2 temps`)** : 1 cellule rythmico-mélodique mémorable.
 4. **Phrase (`4 mesures`)** : `A - A' - A'' (Apex unique) - B (Silence)`.
-5. **Section (`8–16 mesures`)** : renouvellement toutes les **4–8 mesures** + transition.
+5. **Section (`8–16 mesures`)** : évolution obligatoire aux paliers **4 / 8 / 16 mesures** + transition.
 6. **Macro** : contraste réel `section_lufs` selon le profil (Facette 5 §1).
 
-* **Règle des 3 Couches (hors batterie)** : (1) **Basse** (mono `< 150 Hz`), (2) **Lit Harmonique** (`Chords/Pad`, attaque douce ou dynamique feutrée), (3) **Leader Unique** (`Lead` **OU** `Voix`, contre-chant uniquement dans ses silences).
+### Plafond Cognitif & Matrice des 5 Rôles Fonctionnels (Quotas Simultanés)
+Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention** distincts (analyse de scène auditive). Ne jamais activer simultanément plus de **5 à 8 pistes** (entre `1` en Intro/Break et `8` max au Refrain/Climax) :
+
+| Catégorie Fonctionnelle | Quota Max Simultané | Bande Prioritaire | Règle d'Exclusion & de Priorité |
+| :--- | :---: | :---: | :--- |
+| **1. Fondation (Low-End)** | **1 à 2** | `20–200 Hz` | **Exclusivité** : Kick & Basse ne frappent pas à pleine puissance au même instant $t$ (Sidechain ou décalage rythmique). |
+| **2. Rythmique (Groove)** | **2 à 4** | `150 Hz–16 kHz` | **Imbrication** : cases temporelles complémentaires (Kick `1/3`, Snare `2/4`, Hats contretemps). |
+| **3. Harmonie (Tapis)** | **1 à 2** | `200 Hz–3 kHz` | **Discrétion** : mouvements lents, creux EQ obligatoire `1–3 kHz` pour laisser passer le Lead. |
+| **4. Élément Principal (Lead)** | **1** (max 2) | `500 Hz–5 kHz` | **Suprématie** : domine l'harmonie de **`>= +3 dB`**. Si 2 Leads coexistent (Lead + Contre-chant), alternance stricte en question-réponse. |
+| **5. Habillage (Ear Candy)** | **1 à 2** | Variable (filtré) | **Intermittence** : présence **< 15 %** de la durée totale du morceau (transitions/surprises uniquement). |
+
 * **Calibrage sur `T_noire = 60.0 / BPM`** :
   * Release 808 : `35–55 ms` (mono cut-itself `Voices = 1`).
   * Release Sidechain : `80–110 ms` (`~1/4` à `1/2` de `T_noire`).

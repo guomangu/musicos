@@ -141,7 +141,20 @@ Pour qu'une IA textuelle crée une mélodie **chantable, émotive et immédiatem
 
 ---
 
-## Chapitre 6 — Bibliothèque Universelle de 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
+## Chapitre 6 — Loi de l'Inertie Fréquentielle & 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
+
+### 6.1 Loi de l'Inertie Fréquentielle (Relation Hauteur / Durée)
+> **Règle physique absolue** : Plus un son est grave, plus ses notes doivent être longues et espacées ; plus il est aigu, plus ses subdivisions peuvent être courtes. Une onde de $40\text{ Hz}$ a une période de $25\text{ ms}$ et requiert plusieurs cycles pour que sa hauteur soit perçue sans clic ni boue (*mud*). **Interdiction de toute figure $\le 1/16$ sous $100\text{ Hz}$** pour les sons maintenus (exception staccato Funk/Trap : imposer **`Release < 50 ms`** ou Gate complet avant la note suivante).
+
+| Registre | Bande Fréquentielle | Valeurs Rythmiques Recommandées | Enveloppe ADSR Type | Instruments |
+| :--- | :---: | :--- | :--- | :--- |
+| **Sub-Basse** | `20–60 Hz` | Rondes, Blanches (`>= 1/2`) | Attaque lente/moyenne, Sustain élevé, Release contrôlé | Sine Sub, 808 tenue |
+| **Basse** | `60–250 Hz` | Blanches, Noires, Croches pointées | Attaque nette, Decay moyen (`Release < 50 ms` si rapide) | Kick, Basse élec., Synth Bass |
+| **Bas-Médiums** | `250–800 Hz` | Noires, Croches | Sustain moyen (accords) ou court (rythmique) | Pads, Piano MG, Guitare |
+| **Hauts-Médiums** | `800 Hz–4 kHz` | Croches, Double-croches | Attaque précise, articulation dynamique | Voix, Lead synthé, Snare, Cuivres |
+| **Aigus / Air** | `4–20 kHz` | Double-croches, Triple-croches, Triolets | Attaque instantanée, Decay & Release très courts | Hi-hats, Shakers, Cymbales |
+
+### 6.2 Bibliothèque Universelle de 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
 
 > Chaque mesure 4/4 vaut `4.0` beats (`0.00` à `3.75` par pas de `0.25`). Pour éviter tout groove cassé, partir de la matrice du genre cible puis ajouter des variations mineures en fin de bloc (mes. 4 et 8).
 

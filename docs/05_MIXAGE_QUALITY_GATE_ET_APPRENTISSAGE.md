@@ -28,8 +28,25 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 | **Sub (`20–60 Hz`)** | 808 / Sub / Contrebasse | Mono strict (`Width = 0`), `HPF 28–35 Hz` sur `BUS Bass`. |
 | **Bass (`60–250 Hz`)** | Kick + corps de Basse | `HPF 90–145 Hz` sur `BUS Music` (selon profil) ; sidechain ou poche EQ `-2 à -4 dB @ 80 Hz` sur basse. |
 | **Low-Mids (`250–500 Hz`)** | Chaleur accords / guitares / piano | Creuser `-3 à -5 dB @ 250–350 Hz` si boueux ; stabiliser M/S `< 650 Hz` si `low_mid_corr < 0.65`. |
-| **High-Mids (`500 Hz–4 kHz`)** | Lead, Voix, Snare, Pluck | Relais temporel + EQ miroir `-2 à -4 dB` (`1.2–2.5 kHz`) sur Chords/Pad sous le Lead/Voix. |
+| **High-Mids (`500 Hz–4 kHz`)** | Lead, Voix, Snare, Pluck | Relais temporel + EQ miroir `-2 à -4 dB` (`1–3 kHz`) sur Harmonie ; **Lead domine l'harmonie de `>= +3 dB`**. |
 | **Air (`4–20 kHz`)** | Hats, Cymbales, Shimmer, Souffle | `LPF 9.5–15.5 kHz` sur `BUS Music` (selon profil) pour laisser l'air aux percussions ou adoucir en Lo-Fi. |
+
+### Cartographie Psychoacoustique des Aigus (`2–20 kHz`) & Pente Rose
+* **Pente spectrale naturelle (Bruit Rose)** : l'équilibre global agréable décroît doucement des graves vers les aigus d'environ **`-3 à -4,5 dB/octave`** (si les aigus dépassent cette pente, le mix devient maigre et fatigant).
+* **Zone idéale des aigus (hi-hats / "tics")** : concentrer l'énergie utile entre **`7 kHz et 14 kHz`** et éviter tout pic étroit entre **`2,5 kHz et 5 kHz`** :
+
+| Sous-zone Aigus | Fréquences | Perception & Effet |
+| :--- | :---: | :--- |
+| **1. Présence / Attaque** | `2–5 kHz` | **Sensibilité maximale** (Fletcher-Munson, conduit auditif). Bon dosage = précis ; excès = métallique, fatigant. |
+| **2. Brillance / Détail** | `5–10 kHz` | Consonnes sifflantes et éclat des cymbales. Bon dosage = *crisp* ; excès = sibilance, son plastique. |
+| **3. Air / Soie** | `10–20 kHz` | Espace et ouverture sans agressivité. Bon dosage = léger/soyeux ; excès = souffle (*hiss*) statique. |
+
+### Matrice de Spatialisation 3D (`X` Largeur · `Y` Profondeur · `Z` Hauteur)
+| Axe Spatial | Paramètre Technique | Règle d'Application par Catégorie |
+| :--- | :--- | :--- |
+| **Largeur (`X`)** | Panoramique (`Pan`) & M/S | **Centre strict (`0%`, 100 % Mono `< 120 Hz`)** : Kick, Sub/Basse, Snare, Lead/Voix.<br>**Décalé (`±15–35 %`)** : Hi-hats, Percussions, Arpèges.<br>**Large (`±50–100 %`)** : Pads stéréo, Guitares doublées, Cymbales, Ear Candy. |
+| **Profondeur (`Y`)** | Volume + Réverb + LPF | **1er plan (Sec, fort, brillant)** : Lead, Kick, Snare.<br>**2e plan (Réverb courte, `-3 à -6 dB`)** : Rythmique secondaire, Contre-chants.<br>**Arrière-plan (Réverb longue, aigus atténués)** : Pads, Nappes, Ambiances. |
+| **Hauteur (`Z`)** | Égalisation (EQ) | **Sol** : Sub & Basse · **Milieu** : Corps & Voix · **Plafond** : Air (`> 10 kHz`), Cymbales, brillance. |
 
 ---
 
@@ -50,7 +67,9 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 
 ## Chapitre 3 — Quality Gate Bloquant & Table Symptôme → Action Unique Exacte
 
-### 3.1 Les 12 Critères Vérifiés par `scripts/render_and_audit.py`
+### 3.1 Les 12 Critères `render_and_audit.py` & Checklist Pré-Rendu (5 Vérifications)
+**Checklist Pré-Rendu** : (1) **Spectre** `100 % Mono < 120 Hz` · (2) **Rythme** aucune note `< 100 Hz` de durée `< 1/8` (sauf `Release < 50 ms`) · (3) **Densité** `1 à 8` pistes actives simultanées max · (4) **Hiérarchie** 1 seul Lead actif dominant l'harmonie de `>= +3 dB` · (5) **Structure** aucune boucle de 8 mesures répétée à l'identique.
+
 1. `clipped_samples == 0` · 2. `true_peak_dbtp <= -1.0` · 3. `|lufs - target_lufs| <= 1.2` · 4. `low_end_corr >= 0.50` (optimal `>= 0.75`) · 5. `low_mid_corr >= 0.55` (optimal `>= 0.65`) · 6. `sharpness < profil_max` · 7. `micro_glitches == 0` · 8. `resonances == []` · 9. `low_mids <= profil_max` · 10. `air >= profil_min` · 11. `|tuning_offset| <= 6.5 ct` · 12. `dynamic_arc >= profil_min`.
 
 ### 3.2 Table de Décision Déterministe (Corriger en 1 Passe, Zéro Tâtonnement !)

@@ -62,7 +62,10 @@ Répond en quelques millisecondes à *« Voix ? Chant lent ? Chant continu ? »*
 3. **Adéquation au Rôle & Masquage Bark (24 bandes)** : roles valides = `kick`, `bass_sub`, `snare_clap`, `hihat_perc`, `lead_melody`, `pad_atmosphere`, `chord_keys`.
 4. **Esthétique CLAP** (optionnel CPU) + calcul `Root note` / `Fine tune` vers `440.0 Hz`.
 
-* **Nettoyage obligatoire** :
+* **Nettoyage obligatoire & Lois d'agrément des aigus ("Tics" / Hi-Hats)** :
+  * **Spectre lisse sans pic (`2.5–5 kHz`)** : rejeter ou corriger tout hi-hat/percussion présentant une résonance étroite entre `2.5` et `5 kHz` (préférer un spectre large type bruit rose filtré ciblant **`7–14 kHz`**).
+  * **Enveloppe temporelle** : micro-fondu d'entrée **`1–3 ms`** (évite le clic numérique $0\text{ ms}$) et relâchement (*decay*) sec s'interrompant avant la frappe suivante.
+  * **Règle anti-mitraillette (micro-variation)** : sur toute répétition rapide d'aigus, varier légèrement **vélocité** (accents fort/faible), **hauteur** (micro-désaccordage/pitch) et **filtre** (plus ouvert sur temps forts, plus sourd sur contretemps).
   * **One-shots courts (`< 2.5 s`, percussions)** : `clean_audio_sample(..., max_peak=0.85, fade_in_ms=2.0, fade_out_ms=15.0)` (**peak norm `-1.0 dBFS`**, jamais `loudnorm`).
   * **Boucles / Pads (`>= 2.5 s`)** : `pcm_s24le 44.1 kHz`, `loudnorm` doux (`I=-14:TP=-1.0:LRA=11`), et `stabilize_stereo_low_mid(...)` (`< 650 Hz`) si `low_mid_corr < 0.65`.
   * **Extraction 1 note pure** : `extract_clean_oneshot(in_path, out_path, start_s=0.0, max_dur_s=0.65, fade_in_ms=2.0, fade_out_ms=25.0)`.

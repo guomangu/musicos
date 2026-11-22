@@ -115,6 +115,16 @@ Les serveurs Python utilisent `mcp 2.3.0` (`MCPServer`, transport `stdio`). Tout
 | **`pretty_midi` (`master_sketch.mid`)** | `secondes` (`start`, `end`) | **0-indexed** (`0.0 s...`) | `sec = b * (60.0 / bpm)` |
 | **Grille 16 pas (double-croche 4/4)** | `step` (`0..15`) | **0-indexed** | `b = step * 0.25` (temps 1=`step 0`, 2=`step 4`, 3=`step 8`, 4=`step 12`) |
 
+### Référentiel Mathématique des Durées (`4/4` et BPM)
+* **Noire en ms** : $T_{\text{noire (ms)}} = \frac{60\,000}{\text{BPM}}$ · **Figure de fraction $F$ d'une mesure** : $T_{\text{note (ms)}} = \left(\frac{60\,000}{\text{BPM}} \times 4\right) \times F$.
+* **Modificateurs** : Pointé (`.`) $\times 1{,}5$ · Triolet (`T`) $\times \frac{2}{3}$.
+
+| Figure | Notation | Fraction | Temps | `90 BPM` | `120 BPM` | `140 BPM` |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Ronde / Blanche / Noire** | `1/1`, `1/2`, `1/4` | `1`, `1/2`, `1/4` | `4`, `2`, `1` | `2667 / 1333 / 667 ms` | `2000 / 1000 / 500 ms` | `1714 / 857 / 429 ms` |
+| **Croche / Triolet croche** | `1/8`, `1/8T` | `1/8`, `1/12` | `0.5`, `0.33` | `333 / 222 ms` | `250 / 167 ms` | `214 / 143 ms` |
+| **Double / Triolet double / Triple** | `1/16`, `1/16T`, `1/32` | `1/16`, `1/24`, `1/32` | `0.25`, `0.167`, `0.125` | `167 / 111 / 83 ms` | `125 / 83 / 62.5 ms` | `107 / 71 / 53.5 ms` |
+
 ### Syntaxe Critique MCP & Lua (`run_script`)
 1. **`set_song`** : `numerator` et `denominator` (jamais `timeSigNum`/`timeSigDen`).
 2. **Routage mixeur** : `add_channel(..., mixer=M)` ou `edit_channel(channel=N, mixer=M)` — **jamais** `patch("channel/N/mixerTrack", ...)`.
