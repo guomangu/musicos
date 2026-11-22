@@ -201,152 +201,152 @@
     }
   ],
   "frequency_plan": {
-    "sub_20_60": "Mono strict (gl.stereo Width=0) reserve a BUS 808 (E1 41.2Hz - D2 73.4Hz), HPF 28 Hz.",
-    "bass_60_250": "Kick sidechain -> BUS 808 (attack 2ms, release 70ms) ; HPF >= 145 Hz sur BUS Music.",
-    "low_mids_250_500": "Corps Synth Chords & Snare controles, coupe douce -3 dB @ 280 Hz sur Synth.",
-    "mids_500_4000": "Relais Call-and-Response Pluck Lead vs Vox Choir (overlap <= 15%), creux -2.5 dB @ 1.8 kHz sur Chords.",
-    "highs_4000_20000": "Hi-hats triolets > 4 kHz (LPF 12.5 kHz), Bell shimmer, send unique FX Room (RT60=0.22s, Dry=0)."
+    "sub_20_60": "Mono strict (gl.stereo Width=0) reserve a BUS 808 (E1 41.2Hz - D2 73.4Hz), HPF 28 Hz, low-shelf +2.2 dB @ 52 Hz, coupe -3.2 dB @ 125 Hz.",
+    "bass_60_250": "Kick sidechain -> BUS 808 (attack 2ms, release 70ms) ; HPF >= 165 Hz sur BUS Music et Dark Piano.",
+    "low_mids_250_500": "Corps Dark Piano & Snare controles, coupe douce -2.5 dB @ 280 Hz sur Dark Piano.",
+    "mids_500_4000": "Relais Call-and-Response Lead Guitar vs Vox Choir (overlap <= 15%), creux -2.5 dB @ 1.8 kHz sur Dark Piano et -6 dB @ 635 Hz sur BUS Music.",
+    "highs_4000_20000": "Hi-hats triolets > 4 kHz (notch -5.5 dB @ 6.4 kHz + Air shelf @ 10.5 kHz), Counter Guitar/Bell shimmer, send unique FX Room (RT60=0.22s, Dry=0)."
   },
   "tracks": [
     {
       "name": "Kick",
       "role": "kick",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/kick_roshi_clean.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/kick_tight_roshi.wav",
       "mixer_track": 1,
       "freq_lane": "55-120 Hz + click 2.5 kHz",
       "pan": 0.0,
-      "notes": "Routed to BUS Drums (17), sidechain to BUS 808 (18) and BUS Music (19)."
+      "notes": "Score psychoacoustique 0.859 [excellent]. Routed to BUS Drums (17), sidechain to BUS 808 (18) and BUS Music (19)."
     },
     {
       "name": "Snare",
       "role": "snare",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/snare_roshi_clean.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/snare_crisp_roshi.wav",
       "mixer_track": 2,
       "freq_lane": "180 Hz - 10 kHz",
       "pan": 0.0,
-      "notes": "Half-time beat 3, sec, send leger FX Room (4%)."
+      "notes": "Score psychoacoustique 0.930 [excellent] (r_harsh=0.04). Half-time beat 3, sec, send leger FX Room (5%)."
     },
     {
       "name": "Clap",
       "role": "clap",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/clap_roshi_clean.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/clap_soft_roshi.wav",
       "mixer_track": 3,
       "freq_lane": "400 Hz - 12 kHz",
       "pan": 0.0,
-      "notes": "Layer sur Refrains/accents beat 3, send FX Room (5%)."
+      "notes": "Score psychoacoustique 0.950 [excellent]. Layer sur Refrains/accents beat 3, send FX Room (6%)."
     },
     {
       "name": "Hi-Hat",
       "role": "hat",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/hh_roshi_clean.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/hh_ctd_roshi.wav",
       "mixer_track": 4,
-      "freq_lane": "4 - 12.5 kHz",
+      "freq_lane": "500 Hz - 18 kHz",
       "pan": -0.08,
-      "notes": "Two-step + rolls triolets 1/16T / 1/32 pitch-down."
+      "notes": "Score psychoacoustique 0.923 [excellent]. Two-step + rolls triolets 1/16T / 1/32 pitch-down, EQ -5.5 dB @ 6.4 kHz + Air +4.8 dB."
     },
     {
       "name": "Open Hat",
       "role": "openhat",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/openhat_roshi.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/oh_chrome_roshi.wav",
       "mixer_track": 5,
-      "freq_lane": "4 - 12.5 kHz",
+      "freq_lane": "4 - 16 kHz",
       "pan": 0.14,
-      "notes": "Contretemps et fins de 4 mesures."
+      "notes": "Score psychoacoustique 0.815 [excellent]. Contretemps et fins de 4 mesures."
     },
     {
       "name": "Perc",
       "role": "perc",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/perc_roshi.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/perc_6ix4our_roshi.wav",
       "mixer_track": 6,
       "freq_lane": "600 Hz - 10 kHz",
       "pan": -0.22,
-      "notes": "Syncopes en Couplets/Refrains."
+      "notes": "Score psychoacoustique 0.935 [excellent]. Rimshot syncope en Couplets/Refrains."
     },
     {
       "name": "Crash & Riser FX",
       "role": "fx",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/riser_1bar_136.wav",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/crash_deccer_roshi.wav",
       "mixer_track": 7,
-      "freq_lane": "300 Hz - 12 kHz",
+      "freq_lane": "300 Hz - 15 kHz",
       "pan": 0.0,
-      "notes": "Riser 1 bar avant Drops + Crash sur impacts."
+      "notes": "Crash Deccer (0.809 [excellent]) sur mixer 7 + Glass Riser (0.878 [excellent], /samples/riser_glass_roshi.wav, -3 st -> F Maj Phrygian) sur mixer 8."
     },
     {
       "name": "Chant FX",
       "role": "fx",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/chant_roshi.wav",
-      "mixer_track": 8,
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/chant_sxj5_roshi.wav",
+      "mixer_track": 9,
       "freq_lane": "500 Hz - 8 kHz",
       "pan": 0.18,
-      "notes": "Gimmick pirate/trap ponctuel avec send FX Room + delay."
+      "notes": "Score psychoacoustique 0.843 [excellent]. Gimmick trap ponctuel avec send FX Room + gl.delay."
     },
     {
       "name": "808 Pluggg (Main)",
       "role": "808",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/808_pluggg_440.wav",
-      "mixer_track": 9,
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/808_deep_roshi.wav",
+      "mixer_track": 10,
       "freq_lane": "35 - 180 Hz",
       "pan": 0.0,
-      "notes": "Mono strict (Cut Itself), Couplets bounce + Pont."
+      "notes": "Score psychoacoustique 0.927 [excellent], calibre C1=32.70 Hz. Mono strict (Cut Itself), Couplets bounce + Pont."
     },
     {
       "name": "808 V12 (Grit)",
       "role": "808",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/808_v12_440.wav",
-      "mixer_track": 10,
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/808_v12_roshi.wav",
+      "mixer_track": 11,
       "freq_lane": "38 - 320 Hz",
       "pan": 0.0,
-      "notes": "Mono strict (Cut Itself), Refrains agressifs + slides octave."
+      "notes": "Score psychoacoustique 0.942 [excellent], calibre C1=32.70 Hz. Mono strict (Cut Itself), Refrains agressifs + slides octave."
     },
     {
-      "name": "Synth Chords",
+      "name": "Dark Piano Chords",
       "role": "chords",
-      "source_type": "gridline_native",
-      "plugin": "gl.synth",
-      "mixer_track": 11,
-      "freq_lane": "160 Hz - 4.5 kHz",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/piano_dark_a3_roshi.wav",
+      "mixer_track": 12,
+      "freq_lane": "165 Hz - 5.6 kHz",
       "pan": 0.0,
-      "notes": "Dark anime brass/pad de roshlike.gridline, voicings <= 2.5 st, carve @ 1.8kHz."
+      "notes": "Score psychoacoustique 0.812 [excellent] (one-shot 24-bit extrait de HEADROOM PIANO LEVEL4 CLOSE 57.flac, calibre A4=440.0Hz, Root=57 dans gl.sampler Poly=12 pour compatibilite 100% live GUI + rendu CLI)."
     },
     {
       "name": "Pluck Lead",
       "role": "lead",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/pluck_b3_440.wav",
-      "mixer_track": 12,
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/lead_gtr_roshi.wav",
+      "mixer_track": 13,
       "freq_lane": "250 Hz - 7 kHz",
       "pan": -0.06,
-      "notes": "Motif principal A-A'-A''-B (B4-A5), send FX Room 10%."
+      "notes": "Score psychoacoustique 0.791 [excellent], G4=392.00 Hz calibre A4=440.0 Hz. Motif principal A-A'-A''-B (B4-A5), send FX Room 11%."
     },
     {
       "name": "Vox Choir Counter",
       "role": "counter",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/vox_c5_440.wav",
-      "mixer_track": 13,
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/vox_choir_roshi.wav",
+      "mixer_track": 14,
       "freq_lane": "350 Hz - 6 kHz",
       "pan": 0.16,
-      "notes": "Call-and-Response dans les silences du Lead, send FX Room 12%."
+      "notes": "Score psychoacoustique 0.873 [excellent], G4=392.00 Hz calibre A4=440.0 Hz. Call-and-Response dans les silences du Lead."
     },
     {
       "name": "Bell Shimmer",
       "role": "counter",
       "source_type": "sample",
-      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/bell_bb6_440.wav",
-      "mixer_track": 14,
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/counter_bell_roshi.wav",
+      "mixer_track": 15,
       "freq_lane": "1.2 - 11 kHz",
       "pan": -0.18,
-      "notes": "Accents cristallins sur temps forts/octaves en Intro, Pont et Refrain Climax."
+      "notes": "Score psychoacoustique 0.788 [excellent], D#5=622.25 Hz calibre. Contre-pluck cristallin en Intro, Pont et Refrain Climax."
     }
   ],
   "vocals": {

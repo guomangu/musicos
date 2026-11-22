@@ -20,9 +20,14 @@ Ce document décrit l'infrastructure exacte de `/home/gamo/Bureau/musicos` (lien
      ```json
      {"path": "channel/1", "set": {"plugin": {"data": "/home/gamo/Bureau/musicos/samples/.../kick.wav"}}}
      ```
-   - Après chargement, vérifie systématiquement avec `analyze_loudness(scope="pattern")` que `"silent": false`.
+   - Après chargement, vérifie systématiquement avec `analyze_loudness(scope="pattern")` que `"silent": false` **et** que les motifs d'accords/leads actifs restent audibles (`lufs >= -22.0 LUFS`, dans les `12 dB` sous le Lead/808).
 
-2. **Scripts Lua (`run_script`)** :
+2. **Piège critique `gl.multisampler` (.sfz) en GUI Live vs Headless, et `patch` `mixerTrack` (`id` interne vs index mixeur)** :
+   - **`gl.multisampler` + `.sfz` externe silencieux en GUI `gridline-app`** : Vérifié en direct via `gridline mcp --attach` (`task-784`) : même avec un SFZv1 aplati (`Headroom Piano Clean.sfz`), `gl.multisampler` peut retourner **`-144 LUFS` (`silent: true`) dans `gridline-app` GUI** tout en rendant `-14.99 LUFS` en mode headless CLI `gridline mcp <fichier>`. De plus, sous `vel < 60`, sa couche `LEVEL1` chute à `-45 LUFS`. **Solution fiable 100 % GUI + CLI** : convertir le sample acoustique souhaité en **one-shot WAV 24-bit calibré `A4 = 440.0 Hz`** (ex. `HEADROOM PIANO LEVEL4 CLOSE 57.flac` -> `.wav`) et le charger dans **`gl.sampler`** (`Voices = 12`, `Root note = 57`, `One shot = 0`).
+   - Dans `gridline`, le champ JSON brut `channel.mixerTrack` stocke l'**`id` interne d'objet** du mixeur (ex. `Master = id 2`, `mixer 10 = id 12`, `mixer 12 = id 14`), **et non l'index de piste** (`0..N`). Appeler `patch(path="channel/1", set={"mixerTrack": 12})` route silencieusement le canal vers la mauvaise piste (`mixer 10` / `BUS 808` mono + sidechainé, ou `id` supprimé = silence). Utilise **exclusivement** `edit_channel(channel=N, mixer=M)` ou `add_channel(..., mixer=M)`.
+   - Vérifie toujours `analyze_loudness(scope="pattern")` pour éviter qu'un motif `Synth Chords` / piano ne tombe sous `-22.0 LUFS` (`lufs >= -22.0`).
+
+3. **Scripts Lua (`run_script`)** :
    - **Toujours encapsuler le code dans `function apply() ... end`** et **ne pas appeler `apply()` au top-level**. Sur Gridline 0.7.7, le code top-level échoue avec `no such channel` sur les canaux créés via MCP.
    - **Unités de temps** :
      - Outil MCP `set_notes` : `start` et `length` sont en **beats** (noires).
@@ -36,7 +41,7 @@ Ce document décrit l'infrastructure exacte de `/home/gamo/Bureau/musicos` (lien
        end
        ```
 
-3. **Transport MCP stdio et sécurité** :
+4. **Transport MCP stdio et sécurité** :
    - Les serveurs Python utilisent `mcp 2.3.0` (`MCPServer`). Ne jamais écrire de logs sur `stdout` (`print` vers `stdout` casserait JSON-RPC).
 
 ## 3. Catalogue vérifié des plugins tiers installés (`gridline scan-plugins`)

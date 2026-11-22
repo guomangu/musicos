@@ -3,80 +3,80 @@
     {
       "color": 8029846,
       "flCurves": true,
-      "id": 241,
-      "index": 115,
-      "name": "Synth Cutoff",
-      "owner": 24,
+      "id": 243,
+      "index": 129,
+      "name": "Dark Piano Cutoff",
+      "owner": 25,
       "points": [
         [
           0,
-          0.51429998874664307,
+          0.62970000505447388,
           0,
           0
         ],
         [
           1152,
-          0.56730002164840698,
+          0.68620002269744873,
           0,
           0
         ],
         [
           1536,
-          0.72750002145767212,
+          0.79280000925064087,
           0,
           2
         ],
         [
           4608,
-          0.58539998531341553,
+          0.70819997787475586,
           0,
           2
         ],
         [
           7680,
-          0.61629998683929443,
+          0.72750002145767212,
           0,
           2
         ],
         [
           10752,
-          0.53140002489089966,
+          0.6534000039100647,
           0,
           0
         ],
         [
           12288,
-          0.73629999160766602,
+          0.80419999361038208,
           0,
           2
         ],
         [
           15360,
-          0.59640002250671387,
+          0.71820002794265747,
           0,
           2
         ],
         [
           18432,
-          0.633899986743927,
+          0.74459999799728394,
           0,
           2
         ],
         [
           21504,
-          0.75999999046325684,
+          0.82480001449584961,
           0,
           2
         ],
         [
           24576,
-          0.60159999132156372,
+          0.68620002269744873,
           0,
           0
         ],
         [
           26112,
-          0.43869999051094055,
+          0.5910000205039978,
           0,
           0
         ]
@@ -85,10 +85,10 @@
     {
       "color": 8029846,
       "flCurves": true,
-      "id": 243,
+      "id": 245,
       "index": 0,
       "name": "FX Room Pivot Mute",
-      "owner": 42,
+      "owner": 43,
       "points": [
         [
           0,
@@ -281,51 +281,65 @@
   ],
   "channels": [
     {
-      "color": 10841304,
-      "gain": 0.68000000715255737,
-      "id": 24,
-      "mixerTrack": 12,
+      "color": 5224624,
+      "gain": 0.77999997138977051,
+      "id": 25,
+      "mixerTrack": 14,
       "muted": false,
-      "name": "Synth Chords",
+      "name": "Dark Piano Chords",
       "pan": 0,
       "pitch": 0,
       "plugin": {
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/piano_dark_a3_roshi.wav",
         "params": [
-          2,
-          0.72000002861022949,
-          3,
-          0.36000001430511475,
-          -12,
-          7,
-          2,
-          0.2199999988079071,
-          12,
-          -7,
+          57,
           0,
-          0.032000001519918442,
-          0.60000002384185791,
-          0.62000000476837158,
-          0.31999999284744263,
-          1800,
-          0.15999999642372131,
-          0.2800000011920929,
+          0.0040000001899898052,
+          2.5,
+          0.77999997138977051,
           0.41999998688697815,
+          0,
+          0,
+          0,
+          0,
+          0.80000001192092896,
+          1,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          5600,
+          0.079999998211860657,
+          0,
           0.0010000000474974513,
+          0.30000001192092896,
+          0,
+          0.30000001192092896,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0.44999998807907104,
           12,
-          0.69999998807907104,
+          0.0010000000474974513,
           0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          12,
-          -10,
           0,
           0,
           0,
@@ -333,27 +347,28 @@
           1,
           0,
           0,
+          1041.25,
           0,
           0,
-          4,
-          0.20000000298023224,
+          0,
           1,
+          0,
           0
         ],
-        "type": "gl.synth"
+        "type": "gl.sampler"
       }
     },
     {
       "color": 14186330,
       "gain": 0.77999997138977051,
-      "id": 25,
+      "id": 26,
       "mixerTrack": 3,
       "muted": false,
       "name": "Kick",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/kick_roshi_clean.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/kick_tight_roshi.wav",
         "params": [
           60,
           0,
@@ -424,14 +439,14 @@
     {
       "color": 7257962,
       "gain": 0.77999997138977051,
-      "id": 26,
+      "id": 27,
       "mixerTrack": 4,
       "muted": false,
       "name": "Snare",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/snare_roshi_clean.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/snare_crisp_roshi.wav",
         "params": [
           60,
           0,
@@ -502,14 +517,14 @@
     {
       "color": 13214780,
       "gain": 0.77999997138977051,
-      "id": 27,
+      "id": 28,
       "mixerTrack": 5,
       "muted": false,
       "name": "Clap",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/clap_roshi_clean.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/clap_soft_roshi.wav",
         "params": [
           60,
           0,
@@ -580,19 +595,19 @@
     {
       "color": 10841304,
       "gain": 0.77999997138977051,
-      "id": 28,
+      "id": 29,
       "mixerTrack": 6,
       "muted": false,
       "name": "Hi-Hat",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/hh_roshi_clean.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/hh_ctd_roshi.wav",
         "params": [
           60,
           0,
           0.00050000002374872565,
-          0.068000003695487976,
+          0.071999996900558472,
           0,
           0.02500000037252903,
           0,
@@ -658,14 +673,14 @@
     {
       "color": 5224624,
       "gain": 0.77999997138977051,
-      "id": 29,
+      "id": 30,
       "mixerTrack": 7,
       "muted": false,
       "name": "Open Hat",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/openhat_roshi.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/oh_chrome_roshi.wav",
         "params": [
           60,
           0,
@@ -736,14 +751,14 @@
     {
       "color": 14178959,
       "gain": 0.77999997138977051,
-      "id": 30,
+      "id": 31,
       "mixerTrack": 8,
       "muted": false,
       "name": "Perc",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/perc_roshi.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/perc_6ix4our_roshi.wav",
         "params": [
           60,
           0,
@@ -814,14 +829,14 @@
     {
       "color": 9412789,
       "gain": 0.77999997138977051,
-      "id": 31,
+      "id": 32,
       "mixerTrack": 9,
       "muted": false,
       "name": "Crash FX",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/crash_roshi.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/crash_deccer_roshi.wav",
         "params": [
           60,
           0,
@@ -892,16 +907,16 @@
     {
       "color": 5935064,
       "gain": 0.77999997138977051,
-      "id": 32,
+      "id": 33,
       "mixerTrack": 10,
       "muted": false,
       "name": "Riser FX",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/riser_1bar_136.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/riser_glass_roshi.wav",
         "params": [
-          60,
+          63,
           0,
           0.00050000002374872565,
           10,
@@ -970,14 +985,14 @@
     {
       "color": 14186330,
       "gain": 0.77999997138977051,
-      "id": 33,
+      "id": 34,
       "mixerTrack": 11,
       "muted": false,
       "name": "Chant FX",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/chant_roshi.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/chant_sxj5_roshi.wav",
         "params": [
           60,
           0,
@@ -1048,17 +1063,17 @@
     {
       "color": 7257962,
       "gain": 0.77999997138977051,
-      "id": 34,
+      "id": 35,
       "mixerTrack": 12,
       "muted": false,
       "name": "808 Pluggg Main",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/808_pluggg_440.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/808_deep_roshi.wav",
         "params": [
           24,
-          4,
+          0,
           0.00050000002374872565,
           10,
           1,
@@ -1126,17 +1141,17 @@
     {
       "color": 13214780,
       "gain": 0.77999997138977051,
-      "id": 35,
+      "id": 36,
       "mixerTrack": 13,
       "muted": false,
       "name": "808 V12 Grit",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/808_v12_440.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/808_v12_roshi.wav",
         "params": [
           24,
-          -3,
+          0,
           0.00050000002374872565,
           10,
           1,
@@ -1204,21 +1219,21 @@
     {
       "color": 10841304,
       "gain": 0.77999997138977051,
-      "id": 36,
+      "id": 37,
       "mixerTrack": 15,
       "muted": false,
       "name": "Pluck Lead",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/pluck_b3_440.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/lead_gtr_roshi.wav",
         "params": [
-          59,
-          1,
+          67,
+          0,
           0.00050000002374872565,
           10,
           1,
-          0.14000000059604645,
+          0.15999999642372131,
           0,
           0,
           0,
@@ -1282,21 +1297,21 @@
     {
       "color": 5224624,
       "gain": 0.77999997138977051,
-      "id": 37,
+      "id": 38,
       "mixerTrack": 16,
       "muted": false,
       "name": "Vox Choir",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/vox_c5_440.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/vox_choir_roshi.wav",
         "params": [
-          72,
+          67,
           0,
-          0.02500000037252903,
+          0.029999999329447746,
           10,
           1,
-          0.20000000298023224,
+          0.2199999988079071,
           0,
           0,
           0,
@@ -1360,16 +1375,16 @@
     {
       "color": 14178959,
       "gain": 0.77999997138977051,
-      "id": 38,
+      "id": 39,
       "mixerTrack": 17,
       "muted": false,
       "name": "Bell Shimmer",
       "pan": 0,
       "pitch": 0,
       "plugin": {
-        "data": "/home/gamo/Bureau/morceaux/rosh/samples/bell_bb6_440.wav",
+        "data": "/home/gamo/Bureau/morceaux/rosh/samples/counter_bell_roshi.wav",
         "params": [
-          94,
+          75,
           0,
           0.00050000002374872565,
           10,
@@ -1529,13 +1544,13 @@
               0,
               1,
               0,
-              6,
-              2935.5986328125,
-              0,
+              7,
+              9600,
+              4.8000001907348633,
               1,
               0,
               3,
-              16000,
+              18800,
               0,
               0.7070000171661377,
               0,
@@ -1599,12 +1614,12 @@
           "mix": 1,
           "plugin": {
             "params": [
-              -10,
-              1.7000000476837158,
+              -8,
+              1.5,
               0.019999999552965164,
               0.10999999940395355,
               0,
-              1.7999999523162842,
+              0.69999998807907104,
               0,
               0,
               0,
@@ -1623,10 +1638,10 @@
           "mix": 1,
           "plugin": {
             "params": [
-              6.8000001907348633,
-              -2.4500000476837158,
+              10.399999618530273,
+              -2.6500000953674316,
               0.085500001907348633,
-              0.0020000000949949026,
+              0.004999999888241291,
               0.0099999997764825821,
               2,
               2,
@@ -1728,17 +1743,17 @@
       "sends": [
         {
           "level": 1,
-          "to": 39
-        },
-        {
-          "level": 1,
-          "sidechain": true,
           "to": 40
         },
         {
           "level": 1,
           "sidechain": true,
           "to": 41
+        },
+        {
+          "level": 1,
+          "sidechain": true,
+          "to": 42
         }
       ],
       "slots": [
@@ -1786,7 +1801,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.77999997138977051
+      "volume": 0.8399999737739563
     },
     {
       "color": 13214780,
@@ -1798,11 +1813,11 @@
       "sends": [
         {
           "level": 1,
-          "to": 39
+          "to": 40
         },
         {
           "level": 0.05000000074505806,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -1850,7 +1865,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.98000001907348633
+      "volume": 0.81999999284744263
     },
     {
       "color": 5224624,
@@ -1862,11 +1877,11 @@
       "sends": [
         {
           "level": 1,
-          "to": 39
+          "to": 40
         },
         {
           "level": 0.059999998658895493,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -1914,7 +1929,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.74000000953674316
+      "volume": 0.72000002861022949
     },
     {
       "color": 5935064,
@@ -1926,13 +1941,104 @@
       "sends": [
         {
           "level": 1,
-          "to": 39
+          "to": 40
         }
       ],
       "slots": [
         {
           "enabled": true,
-          "mix": 1
+          "mix": 1,
+          "plugin": {
+            "params": [
+              1,
+              500,
+              0,
+              0.7070000171661377,
+              0,
+              6,
+              136.25840759277344,
+              0,
+              1,
+              0,
+              6,
+              293.55984497070312,
+              0,
+              1,
+              0,
+              6,
+              632.45550537109375,
+              0,
+              1,
+              0,
+              6,
+              6400,
+              -5.5,
+              1,
+              0,
+              7,
+              10500,
+              4.8000001907348633,
+              1,
+              0,
+              7,
+              6324.55517578125,
+              0,
+              0.7070000171661377,
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              1,
+              0.61224365234375,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.38775634765625,
+              3,
+              0.40000000596046448,
+              3,
+              0.38775634765625,
+              3,
+              0.61224365234375,
+              3,
+              0,
+              1,
+              1,
+              2,
+              1,
+              2,
+              2,
+              0,
+              1,
+              0,
+              0,
+              0,
+              1,
+              20,
+              20,
+              20,
+              20,
+              20,
+              20,
+              20
+            ],
+            "type": "gl.eq"
+          }
         },
         {
           "enabled": true,
@@ -1974,7 +2080,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 1.1499999761581421
+      "volume": 0.93999999761581421
     },
     {
       "color": 10841304,
@@ -1986,7 +2092,7 @@
       "sends": [
         {
           "level": 1,
-          "to": 39
+          "to": 40
         }
       ],
       "slots": [
@@ -2034,7 +2140,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.86000001430511475
+      "volume": 0.69999998807907104
     },
     {
       "color": 5264990,
@@ -2046,11 +2152,11 @@
       "sends": [
         {
           "level": 1,
-          "to": 39
+          "to": 40
         },
         {
           "level": 0.059999998658895493,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2114,7 +2220,7 @@
         },
         {
           "level": 0.14000000059604645,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2162,7 +2268,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.6600000262260437
+      "volume": 0.63999998569488525
     },
     {
       "color": 5264990,
@@ -2238,7 +2344,7 @@
         },
         {
           "level": 0.14000000059604645,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2366,7 +2472,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.77999997138977051
+      "volume": 0.72000002861022949
     },
     {
       "color": 5264990,
@@ -2378,7 +2484,7 @@
       "sends": [
         {
           "level": 1,
-          "to": 40
+          "to": 41
         }
       ],
       "slots": [
@@ -2426,7 +2532,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.92000001668930054
+      "volume": 0.93999999761581421
     },
     {
       "color": 5264990,
@@ -2438,7 +2544,7 @@
       "sends": [
         {
           "level": 1,
-          "to": 40
+          "to": 41
         }
       ],
       "slots": [
@@ -2486,23 +2592,23 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.69999998807907104
+      "volume": 0.81999999284744263
     },
     {
       "color": 5264990,
       "id": 14,
       "invertPolarity": false,
       "muted": false,
-      "name": "Synth Chords",
+      "name": "Dark Piano",
       "pan": 0,
       "sends": [
         {
           "level": 1,
-          "to": 41
+          "to": 42
         },
         {
           "level": 0.090000003576278687,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2523,17 +2629,17 @@
               0,
               6,
               280,
-              -3,
+              -2.7999999523162842,
               1,
               0,
               6,
-              632.45550537109375,
-              0,
+              635,
+              -2.7999999523162842,
               1,
               0,
               6,
               1800,
-              -2.7999999523162842,
+              -2.5,
               1,
               0,
               6,
@@ -2569,7 +2675,7 @@
               3,
               0.5,
               3,
-              0.38775634765625,
+              0.44999998807907104,
               3,
               0.5,
               3,
@@ -2641,7 +2747,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.56000000238418579
+      "volume": 0.74000000953674316
     },
     {
       "color": 5264990,
@@ -2653,11 +2759,11 @@
       "sends": [
         {
           "level": 1,
-          "to": 41
+          "to": 42
         },
         {
           "level": 0.10999999940395355,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2785,7 +2891,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.75999999046325684
+      "volume": 0.68000000715255737
     },
     {
       "color": 5264990,
@@ -2797,11 +2903,11 @@
       "sends": [
         {
           "level": 1,
-          "to": 41
+          "to": 42
         },
         {
           "level": 0.14000000059604645,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2849,7 +2955,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.87999999523162842
+      "volume": 0.63999998569488525
     },
     {
       "color": 5264990,
@@ -2861,11 +2967,11 @@
       "sends": [
         {
           "level": 1,
-          "to": 41
+          "to": 42
         },
         {
           "level": 0.14000000059604645,
-          "to": 42
+          "to": 43
         }
       ],
       "slots": [
@@ -2913,7 +3019,7 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.72000002861022949
+      "volume": 0.69999998807907104
     },
     {
       "color": 5264990,
@@ -2977,7 +3083,7 @@
     },
     {
       "color": 5264990,
-      "id": 39,
+      "id": 40,
       "invertPolarity": false,
       "muted": false,
       "name": "BUS Drums",
@@ -3015,17 +3121,17 @@
               1,
               0,
               6,
-              8000,
-              -4.1999998092651367,
+              6400,
+              -6.5,
               1,
               0,
               7,
               10400,
-              4,
+              4.5999999046325684,
               1,
               0,
               3,
-              15400,
+              18500,
               1.5,
               0.7070000171661377,
               0,
@@ -3054,7 +3160,7 @@
               3,
               0.38775634765625,
               3,
-              0.34999999403953552,
+              0.5,
               3,
               0.38775634765625,
               3,
@@ -3144,11 +3250,11 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.95999997854232788
+      "volume": 0.89999997615814209
     },
     {
       "color": 5264990,
-      "id": 40,
+      "id": 41,
       "invertPolarity": false,
       "muted": false,
       "name": "BUS 808",
@@ -3221,9 +3327,9 @@
               0,
               0.7070000171661377,
               0,
-              6,
-              136.25840759277344,
-              0,
+              5,
+              52,
+              2.2000000476837158,
               1,
               0,
               6,
@@ -3232,8 +3338,8 @@
               1,
               0,
               6,
-              632.45550537109375,
-              0,
+              125,
+              -3.2000000476837158,
               1,
               0,
               6,
@@ -3274,7 +3380,7 @@
               3,
               0.38775634765625,
               3,
-              0.38775634765625,
+              0.44999998807907104,
               3,
               0.38775634765625,
               3,
@@ -3338,11 +3444,11 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.56000000238418579
+      "volume": 0.60000002384185791
     },
     {
       "color": 5264990,
-      "id": 41,
+      "id": 42,
       "invertPolarity": false,
       "muted": false,
       "name": "BUS Music",
@@ -3370,8 +3476,8 @@
               1,
               0,
               6,
-              293.55984497070312,
-              0,
+              635,
+              -6,
               1,
               0,
               6,
@@ -3384,13 +3490,13 @@
               0,
               1,
               0,
-              6,
-              2935.5986328125,
-              0,
+              7,
+              10200,
+              2.2000000476837158,
               1,
               0,
               3,
-              12500,
+              16800,
               0,
               0.7070000171661377,
               0,
@@ -3415,7 +3521,7 @@
               3,
               0.38775634765625,
               3,
-              0.38775634765625,
+              0.5,
               3,
               0.38775634765625,
               3,
@@ -3476,12 +3582,12 @@
           "mix": 1,
           "plugin": {
             "params": [
-              -19.5,
-              2,
+              -13.5,
+              1.6000000238418579,
               0.019999999552965164,
               0.10999999940395355,
               0,
-              3.5,
+              0.60000002384185791,
               0,
               0,
               0,
@@ -3547,11 +3653,11 @@
       "solo": false,
       "stereoSep": 0,
       "swapLR": false,
-      "volume": 0.89999997615814209
+      "volume": 0.86000001430511475
     },
     {
       "color": 5264990,
-      "id": 42,
+      "id": 43,
       "invertPolarity": false,
       "muted": false,
       "name": "FX Room",
@@ -3654,87 +3760,87 @@
     }
   ],
   "modLinks": [],
-  "nextId": 245,
+  "nextId": 247,
   "panLaw": 2,
   "patterns": [
     {
       "bars": 4,
       "color": 7249739,
       "id": 19,
-      "name": "Synth Chords - Intro/Outro",
+      "name": "Dark Piano Chords - Intro/Outro",
       "notes": {
-        "24": [
+        "25": [
           {
             "length": 360,
             "pitch": 52,
             "start": 0,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 55,
             "start": 0,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 59,
             "start": 0,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 384,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 384,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 384,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 52,
             "start": 768,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 768,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 768,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 1152,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 1152,
-            "velocity": 50
+            "velocity": 58
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 1152,
-            "velocity": 50
+            "velocity": 58
           }
         ]
       },
@@ -3744,81 +3850,81 @@
     {
       "bars": 4,
       "color": 13214780,
-      "id": 43,
-      "name": "Synth Chords - Refrain",
+      "id": 44,
+      "name": "Dark Piano Chords - Refrain",
       "notes": {
-        "24": [
+        "25": [
           {
             "length": 360,
             "pitch": 52,
             "start": 0,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 55,
             "start": 0,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 59,
             "start": 0,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 384,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 384,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 384,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 52,
             "start": 768,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 768,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 768,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 1152,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 1152,
-            "velocity": 86
+            "velocity": 94
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 1152,
-            "velocity": 86
+            "velocity": 94
           }
         ]
       },
@@ -3828,81 +3934,81 @@
     {
       "bars": 4,
       "color": 10841304,
-      "id": 44,
-      "name": "Synth Chords - Couplet",
+      "id": 45,
+      "name": "Dark Piano Chords - Couplet",
       "notes": {
-        "24": [
+        "25": [
           {
             "length": 360,
             "pitch": 52,
             "start": 0,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 55,
             "start": 0,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 59,
             "start": 0,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 384,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 384,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 384,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 52,
             "start": 768,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 768,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 768,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 1152,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 1152,
-            "velocity": 70
+            "velocity": 80
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 1152,
-            "velocity": 70
+            "velocity": 80
           }
         ]
       },
@@ -3912,153 +4018,153 @@
     {
       "bars": 4,
       "color": 5224624,
-      "id": 45,
-      "name": "Synth Chords - Staccato",
+      "id": 46,
+      "name": "Dark Piano Chords - Staccato",
       "notes": {
-        "24": [
+        "25": [
           {
             "length": 144,
             "pitch": 52,
             "start": 0,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 55,
             "start": 0,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 59,
             "start": 0,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 120,
             "pitch": 52,
             "start": 192,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 55,
             "start": 192,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 59,
             "start": 192,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 144,
             "pitch": 53,
             "start": 384,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 57,
             "start": 384,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 60,
             "start": 384,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 120,
             "pitch": 53,
             "start": 576,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 57,
             "start": 576,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 60,
             "start": 576,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 144,
             "pitch": 52,
             "start": 768,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 57,
             "start": 768,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 60,
             "start": 768,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 120,
             "pitch": 52,
             "start": 960,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 57,
             "start": 960,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 60,
             "start": 960,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 144,
             "pitch": 53,
             "start": 1152,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 57,
             "start": 1152,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 144,
             "pitch": 60,
             "start": 1152,
-            "velocity": 74
+            "velocity": 84
           },
           {
             "length": 120,
             "pitch": 53,
             "start": 1344,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 57,
             "start": 1344,
-            "velocity": 66
+            "velocity": 76
           },
           {
             "length": 120,
             "pitch": 60,
             "start": 1344,
-            "velocity": 66
+            "velocity": 76
           }
         ]
       },
@@ -4068,81 +4174,81 @@
     {
       "bars": 4,
       "color": 14178959,
-      "id": 46,
-      "name": "Synth Chords - Climax",
+      "id": 47,
+      "name": "Dark Piano Chords - Climax",
       "notes": {
-        "24": [
+        "25": [
           {
             "length": 360,
             "pitch": 52,
             "start": 0,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 55,
             "start": 0,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 59,
             "start": 0,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 384,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 384,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 384,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 52,
             "start": 768,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 768,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 768,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 53,
             "start": 1152,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 57,
             "start": 1152,
-            "velocity": 92
+            "velocity": 102
           },
           {
             "length": 360,
             "pitch": 60,
             "start": 1152,
-            "velocity": 92
+            "velocity": 102
           }
         ]
       },
@@ -4152,10 +4258,82 @@
     {
       "bars": 4,
       "color": 9412789,
-      "id": 47,
+      "id": 48,
+      "name": "Pluck Lead - Intro/Outro",
+      "notes": {
+        "37": [
+          {
+            "length": 43,
+            "pitch": 76,
+            "start": 0,
+            "velocity": 54
+          },
+          {
+            "length": 38,
+            "pitch": 79,
+            "start": 48,
+            "velocity": 51
+          },
+          {
+            "length": 43,
+            "pitch": 76,
+            "start": 96,
+            "velocity": 52
+          },
+          {
+            "length": 38,
+            "pitch": 74,
+            "start": 144,
+            "velocity": 48
+          },
+          {
+            "length": 82,
+            "pitch": 74,
+            "start": 192,
+            "velocity": 52
+          },
+          {
+            "length": 43,
+            "pitch": 76,
+            "start": 768,
+            "velocity": 55
+          },
+          {
+            "length": 38,
+            "pitch": 79,
+            "start": 816,
+            "velocity": 53
+          },
+          {
+            "length": 67,
+            "pitch": 81,
+            "start": 864,
+            "velocity": 61
+          },
+          {
+            "length": 43,
+            "pitch": 79,
+            "start": 960,
+            "velocity": 54
+          },
+          {
+            "length": 67,
+            "pitch": 76,
+            "start": 1008,
+            "velocity": 52
+          }
+        ]
+      },
+      "steps": {},
+      "stepsPerBar": 16
+    },
+    {
+      "bars": 4,
+      "color": 5935064,
+      "id": 49,
       "name": "Pluck Lead - Sparse",
       "notes": {
-        "36": [
+        "37": [
           {
             "length": 43,
             "pitch": 76,
@@ -4223,11 +4401,11 @@
     },
     {
       "bars": 4,
-      "color": 5935064,
-      "id": 48,
+      "color": 14186330,
+      "id": 50,
       "name": "Pluck Lead - Full",
       "notes": {
-        "36": [
+        "37": [
           {
             "length": 43,
             "pitch": 76,
@@ -4355,11 +4533,11 @@
     },
     {
       "bars": 4,
-      "color": 14186330,
-      "id": 49,
+      "color": 7257962,
+      "id": 51,
       "name": "Pluck Lead - Sync Var",
       "notes": {
-        "36": [
+        "37": [
           {
             "length": 38,
             "pitch": 76,
@@ -4469,11 +4647,11 @@
     },
     {
       "bars": 4,
-      "color": 7257962,
-      "id": 50,
+      "color": 13214780,
+      "id": 52,
       "name": "Vox Choir - Response",
       "notes": {
-        "37": [
+        "38": [
           {
             "length": 96,
             "pitch": 69,
@@ -4493,58 +4671,34 @@
     },
     {
       "bars": 4,
-      "color": 13214780,
-      "id": 51,
+      "color": 10841304,
+      "id": 53,
       "name": "Vox Choir - Pont",
       "notes": {
-        "37": [
+        "38": [
           {
             "length": 312,
             "pitch": 71,
             "start": 0,
-            "velocity": 82
+            "velocity": 53
           },
           {
             "length": 312,
             "pitch": 72,
             "start": 384,
-            "velocity": 84
+            "velocity": 54
           },
           {
             "length": 312,
             "pitch": 69,
             "start": 768,
-            "velocity": 86
+            "velocity": 55
           },
           {
             "length": 240,
             "pitch": 69,
             "start": 1152,
-            "velocity": 78
-          }
-        ]
-      },
-      "steps": {},
-      "stepsPerBar": 16
-    },
-    {
-      "bars": 4,
-      "color": 10841304,
-      "id": 52,
-      "name": "Bell Shimmer - Intro/Outro",
-      "notes": {
-        "38": [
-          {
-            "length": 72,
-            "pitch": 76,
-            "start": 0,
-            "velocity": 76
-          },
-          {
-            "length": 72,
-            "pitch": 81,
-            "start": 768,
-            "velocity": 80
+            "velocity": 50
           }
         ]
       },
@@ -4554,10 +4708,34 @@
     {
       "bars": 4,
       "color": 5224624,
-      "id": 53,
+      "id": 54,
+      "name": "Bell Shimmer - Intro/Outro",
+      "notes": {
+        "39": [
+          {
+            "length": 72,
+            "pitch": 76,
+            "start": 0,
+            "velocity": 48
+          },
+          {
+            "length": 72,
+            "pitch": 81,
+            "start": 768,
+            "velocity": 52
+          }
+        ]
+      },
+      "steps": {},
+      "stepsPerBar": 16
+    },
+    {
+      "bars": 4,
+      "color": 14178959,
+      "id": 55,
       "name": "Bell Shimmer - Accent",
       "notes": {
-        "38": [
+        "39": [
           {
             "length": 72,
             "pitch": 76,
@@ -4589,11 +4767,11 @@
     },
     {
       "bars": 4,
-      "color": 14178959,
-      "id": 54,
+      "color": 9412789,
+      "id": 56,
       "name": "Bell Shimmer - Climax",
       "notes": {
-        "38": [
+        "39": [
           {
             "length": 62,
             "pitch": 76,
@@ -4643,11 +4821,11 @@
     },
     {
       "bars": 4,
-      "color": 9412789,
-      "id": 55,
+      "color": 5935064,
+      "id": 57,
       "name": "808 V12 - Refrain A",
       "notes": {
-        "35": [
+        "36": [
           {
             "length": 130,
             "pitch": 28,
@@ -4739,11 +4917,11 @@
     },
     {
       "bars": 4,
-      "color": 5935064,
-      "id": 56,
+      "color": 14186330,
+      "id": 58,
       "name": "808 V12 - Refrain B Pivot",
       "notes": {
-        "35": [
+        "36": [
           {
             "length": 130,
             "pitch": 28,
@@ -4829,11 +5007,11 @@
     },
     {
       "bars": 4,
-      "color": 14186330,
-      "id": 57,
+      "color": 7257962,
+      "id": 59,
       "name": "808 V12 - Climax A",
       "notes": {
-        "35": [
+        "36": [
           {
             "length": 130,
             "pitch": 28,
@@ -4925,11 +5103,11 @@
     },
     {
       "bars": 4,
-      "color": 7257962,
-      "id": 58,
+      "color": 13214780,
+      "id": 60,
       "name": "808 Pluggg - Couplet A",
       "notes": {
-        "34": [
+        "35": [
           {
             "length": 82,
             "pitch": 28,
@@ -4997,11 +5175,11 @@
     },
     {
       "bars": 4,
-      "color": 13214780,
-      "id": 59,
+      "color": 10841304,
+      "id": 61,
       "name": "808 Pluggg - Couplet Pivot",
       "notes": {
-        "34": [
+        "35": [
           {
             "length": 82,
             "pitch": 28,
@@ -5063,11 +5241,11 @@
     },
     {
       "bars": 4,
-      "color": 10841304,
-      "id": 60,
+      "color": 5224624,
+      "id": 62,
       "name": "808 Pluggg - Syncopated",
       "notes": {
-        "34": [
+        "35": [
           {
             "length": 58,
             "pitch": 28,
@@ -5171,11 +5349,11 @@
     },
     {
       "bars": 4,
-      "color": 5224624,
-      "id": 61,
+      "color": 14178959,
+      "id": 63,
       "name": "808 Pluggg - Sync Pivot",
       "notes": {
-        "34": [
+        "35": [
           {
             "length": 58,
             "pitch": 28,
@@ -5267,28 +5445,28 @@
     },
     {
       "bars": 4,
-      "color": 14178959,
-      "id": 62,
+      "color": 9412789,
+      "id": 64,
       "name": "808 Pluggg - Pont Sub",
       "notes": {
-        "34": [
+        "35": [
           {
             "length": 336,
             "pitch": 28,
             "start": 0,
-            "velocity": 96
+            "velocity": 66
           },
           {
             "length": 336,
             "pitch": 29,
             "start": 384,
-            "velocity": 98
+            "velocity": 68
           },
           {
             "length": 336,
             "pitch": 33,
             "start": 768,
-            "velocity": 100
+            "velocity": 70
           }
         ]
       },
@@ -5297,11 +5475,11 @@
     },
     {
       "bars": 4,
-      "color": 9412789,
-      "id": 63,
+      "color": 5935064,
+      "id": 65,
       "name": "Kick - Refrain",
       "notes": {
-        "25": [
+        "26": [
           {
             "length": 24,
             "pitch": 60,
@@ -5387,11 +5565,11 @@
     },
     {
       "bars": 4,
-      "color": 5935064,
-      "id": 64,
+      "color": 14186330,
+      "id": 66,
       "name": "Kick - Refrain Pivot",
       "notes": {
-        "25": [
+        "26": [
           {
             "length": 24,
             "pitch": 60,
@@ -5465,11 +5643,11 @@
     },
     {
       "bars": 4,
-      "color": 14186330,
-      "id": 65,
+      "color": 7257962,
+      "id": 67,
       "name": "Kick - Couplet Sparse",
       "notes": {
-        "25": [
+        "26": [
           {
             "length": 24,
             "pitch": 60,
@@ -5537,11 +5715,11 @@
     },
     {
       "bars": 4,
-      "color": 7257962,
-      "id": 66,
+      "color": 13214780,
+      "id": 68,
       "name": "Kick - Couplet Sparse Piv",
       "notes": {
-        "25": [
+        "26": [
           {
             "length": 24,
             "pitch": 60,
@@ -5603,11 +5781,11 @@
     },
     {
       "bars": 4,
-      "color": 13214780,
-      "id": 67,
+      "color": 10841304,
+      "id": 69,
       "name": "Kick - Couplet Sync",
       "notes": {
-        "25": [
+        "26": [
           {
             "length": 24,
             "pitch": 60,
@@ -5723,11 +5901,11 @@
     },
     {
       "bars": 4,
-      "color": 10841304,
-      "id": 68,
+      "color": 5224624,
+      "id": 70,
       "name": "Kick - Couplet Sync Piv",
       "notes": {
-        "25": [
+        "26": [
           {
             "length": 24,
             "pitch": 60,
@@ -5825,11 +6003,11 @@
     },
     {
       "bars": 4,
-      "color": 5224624,
-      "id": 69,
+      "color": 14178959,
+      "id": 71,
       "name": "Snare - Half-Time",
       "notes": {
-        "26": [
+        "27": [
           {
             "length": 24,
             "pitch": 60,
@@ -5861,11 +6039,11 @@
     },
     {
       "bars": 4,
-      "color": 14178959,
-      "id": 70,
+      "color": 9412789,
+      "id": 72,
       "name": "Snare - Ghost Pivot",
       "notes": {
-        "26": [
+        "27": [
           {
             "length": 24,
             "pitch": 60,
@@ -5903,11 +6081,11 @@
     },
     {
       "bars": 4,
-      "color": 9412789,
-      "id": 71,
+      "color": 5935064,
+      "id": 73,
       "name": "Snare - Pont Build M32",
       "notes": {
-        "26": [
+        "27": [
           {
             "length": 19,
             "pitch": 60,
@@ -5957,11 +6135,11 @@
     },
     {
       "bars": 4,
-      "color": 5935064,
-      "id": 72,
+      "color": 14186330,
+      "id": 74,
       "name": "Clap - Layer Refrain",
       "notes": {
-        "27": [
+        "28": [
           {
             "length": 24,
             "pitch": 60,
@@ -5993,11 +6171,11 @@
     },
     {
       "bars": 4,
-      "color": 14186330,
-      "id": 73,
+      "color": 7257962,
+      "id": 75,
       "name": "Hi-Hat - Triplet Rolls",
       "notes": {
-        "28": [
+        "29": [
           {
             "length": 13,
             "pitch": 60,
@@ -6269,11 +6447,11 @@
     },
     {
       "bars": 4,
-      "color": 7257962,
-      "id": 74,
+      "color": 13214780,
+      "id": 76,
       "name": "Hi-Hat - Triplet Pivot",
       "notes": {
-        "28": [
+        "29": [
           {
             "length": 13,
             "pitch": 60,
@@ -6512,210 +6690,6 @@
             "length": 13,
             "pitch": 60,
             "start": 1392,
-            "velocity": 66
-          }
-        ]
-      },
-      "steps": {},
-      "stepsPerBar": 16
-    },
-    {
-      "bars": 4,
-      "color": 13214780,
-      "id": 75,
-      "name": "Hi-Hat - Two-Step",
-      "notes": {
-        "28": [
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 0,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 48,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 96,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 144,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 192,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 240,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 288,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 336,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 384,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 432,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 480,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 528,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 576,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 624,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 672,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 720,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 768,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 816,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 864,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 912,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 960,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1008,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1056,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1104,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1152,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1200,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1248,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1296,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1344,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1392,
-            "velocity": 66
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1440,
-            "velocity": 94
-          },
-          {
-            "length": 13,
-            "pitch": 60,
-            "start": 1488,
             "velocity": 66
           }
         ]
@@ -6726,10 +6700,214 @@
     {
       "bars": 4,
       "color": 10841304,
-      "id": 76,
+      "id": 77,
+      "name": "Hi-Hat - Two-Step",
+      "notes": {
+        "29": [
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 0,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 48,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 96,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 144,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 192,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 240,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 288,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 336,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 384,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 432,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 480,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 528,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 576,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 624,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 672,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 720,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 768,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 816,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 864,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 912,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 960,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1008,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1056,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1104,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1152,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1200,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1248,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1296,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1344,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1392,
+            "velocity": 66
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1440,
+            "velocity": 94
+          },
+          {
+            "length": 13,
+            "pitch": 60,
+            "start": 1488,
+            "velocity": 66
+          }
+        ]
+      },
+      "steps": {},
+      "stepsPerBar": 16
+    },
+    {
+      "bars": 4,
+      "color": 5224624,
+      "id": 78,
       "name": "Hi-Hat - Couplet B",
       "notes": {
-        "28": [
+        "29": [
           {
             "length": 13,
             "pitch": 60,
@@ -6953,11 +7131,11 @@
     },
     {
       "bars": 4,
-      "color": 5224624,
-      "id": 77,
+      "color": 14178959,
+      "id": 79,
       "name": "Hi-Hat - Couplet B Pivot",
       "notes": {
-        "28": [
+        "29": [
           {
             "length": 13,
             "pitch": 60,
@@ -7157,11 +7335,11 @@
     },
     {
       "bars": 4,
-      "color": 14178959,
-      "id": 78,
+      "color": 9412789,
+      "id": 80,
       "name": "Hi-Hat - Climax 1/32",
       "notes": {
-        "28": [
+        "29": [
           {
             "length": 13,
             "pitch": 60,
@@ -7457,11 +7635,11 @@
     },
     {
       "bars": 4,
-      "color": 9412789,
-      "id": 79,
+      "color": 5935064,
+      "id": 81,
       "name": "Hi-Hat - Climax Pivot",
       "notes": {
-        "28": [
+        "29": [
           {
             "length": 13,
             "pitch": 60,
@@ -7727,11 +7905,11 @@
     },
     {
       "bars": 4,
-      "color": 5935064,
-      "id": 80,
+      "color": 14186330,
+      "id": 82,
       "name": "Open Hat - Offbeat",
       "notes": {
-        "29": [
+        "30": [
           {
             "length": 34,
             "pitch": 60,
@@ -7763,11 +7941,11 @@
     },
     {
       "bars": 4,
-      "color": 14186330,
-      "id": 81,
+      "color": 7257962,
+      "id": 83,
       "name": "Open Hat - Pivot",
       "notes": {
-        "29": [
+        "30": [
           {
             "length": 34,
             "pitch": 60,
@@ -7793,11 +7971,11 @@
     },
     {
       "bars": 4,
-      "color": 7257962,
-      "id": 82,
+      "color": 13214780,
+      "id": 84,
       "name": "Perc - Sync",
       "notes": {
-        "30": [
+        "31": [
           {
             "length": 24,
             "pitch": 60,
@@ -7853,11 +8031,11 @@
     },
     {
       "bars": 4,
-      "color": 13214780,
-      "id": 83,
+      "color": 10841304,
+      "id": 85,
       "name": "Perc - Pivot",
       "notes": {
-        "30": [
+        "31": [
           {
             "length": 24,
             "pitch": 60,
@@ -7907,11 +8085,11 @@
     },
     {
       "bars": 1,
-      "color": 10841304,
-      "id": 84,
+      "color": 5224624,
+      "id": 86,
       "name": "Crash FX - Downbeat",
       "notes": {
-        "31": [
+        "32": [
           {
             "length": 365,
             "pitch": 60,
@@ -7925,15 +8103,15 @@
     },
     {
       "bars": 1,
-      "color": 5224624,
-      "id": 85,
+      "color": 14178959,
+      "id": 87,
       "name": "Riser FX - 1Bar",
       "notes": {
-        "32": [
+        "33": [
           {
-            "length": 384,
+            "length": 292,
             "pitch": 60,
-            "start": 0,
+            "start": 92,
             "velocity": 102
           }
         ]
@@ -7943,11 +8121,11 @@
     },
     {
       "bars": 1,
-      "color": 14178959,
-      "id": 86,
+      "color": 9412789,
+      "id": 88,
       "name": "Chant FX - Accent",
       "notes": {
-        "33": [
+        "34": [
           {
             "length": 43,
             "pitch": 60,
@@ -7962,1091 +8140,1082 @@
   ],
   "playlist": [
     {
-      "id": 87,
+      "id": 89,
       "length": 0,
       "pattern": 19,
       "start": 0,
       "track": 0
     },
     {
-      "id": 88,
-      "length": 0,
-      "pattern": 47,
-      "start": 0,
-      "track": 1
-    },
-    {
-      "id": 89,
-      "length": 0,
-      "pattern": 52,
-      "start": 0,
-      "track": 3
-    },
-    {
       "id": 90,
       "length": 0,
-      "pattern": 85,
-      "start": 1152,
-      "track": 13
+      "pattern": 48,
+      "start": 0,
+      "track": 1
     },
     {
       "id": 91,
       "length": 0,
-      "pattern": 86,
-      "start": 1152,
-      "track": 14
+      "pattern": 54,
+      "start": 0,
+      "track": 3
     },
     {
       "id": 92,
       "length": 0,
-      "pattern": 43,
-      "start": 1536,
-      "track": 0
+      "pattern": 87,
+      "start": 1152,
+      "track": 13
     },
     {
       "id": 93,
       "length": 0,
-      "pattern": 43,
-      "start": 3072,
-      "track": 0
+      "pattern": 88,
+      "start": 1152,
+      "track": 14
     },
     {
       "id": 94,
       "length": 0,
-      "pattern": 48,
+      "pattern": 44,
       "start": 1536,
-      "track": 1
+      "track": 0
     },
     {
       "id": 95,
       "length": 0,
-      "pattern": 48,
+      "pattern": 44,
       "start": 3072,
-      "track": 1
+      "track": 0
     },
     {
       "id": 96,
       "length": 0,
       "pattern": 50,
       "start": 1536,
-      "track": 2
+      "track": 1
     },
     {
       "id": 97,
       "length": 0,
       "pattern": 50,
       "start": 3072,
-      "track": 2
+      "track": 1
     },
     {
       "id": 98,
       "length": 0,
-      "pattern": 55,
+      "pattern": 52,
       "start": 1536,
-      "track": 4
+      "track": 2
     },
     {
       "id": 99,
       "length": 0,
-      "pattern": 56,
+      "pattern": 52,
       "start": 3072,
-      "track": 4
+      "track": 2
     },
     {
       "id": 100,
       "length": 0,
-      "pattern": 63,
+      "pattern": 57,
       "start": 1536,
-      "track": 6
+      "track": 4
     },
     {
       "id": 101,
       "length": 0,
-      "pattern": 64,
+      "pattern": 58,
       "start": 3072,
-      "track": 6
+      "track": 4
     },
     {
       "id": 102,
       "length": 0,
-      "pattern": 69,
+      "pattern": 65,
       "start": 1536,
-      "track": 7
+      "track": 6
     },
     {
       "id": 103,
       "length": 0,
-      "pattern": 70,
+      "pattern": 66,
       "start": 3072,
-      "track": 7
+      "track": 6
     },
     {
       "id": 104,
       "length": 0,
-      "pattern": 72,
+      "pattern": 71,
       "start": 1536,
-      "track": 8
+      "track": 7
     },
     {
       "id": 105,
       "length": 0,
       "pattern": 72,
       "start": 3072,
-      "track": 8
+      "track": 7
     },
     {
       "id": 106,
       "length": 0,
-      "pattern": 73,
+      "pattern": 74,
       "start": 1536,
-      "track": 9
+      "track": 8
     },
     {
       "id": 107,
       "length": 0,
       "pattern": 74,
       "start": 3072,
-      "track": 9
+      "track": 8
     },
     {
       "id": 108,
       "length": 0,
-      "pattern": 80,
+      "pattern": 75,
       "start": 1536,
-      "track": 10
+      "track": 9
     },
     {
       "id": 109,
       "length": 0,
-      "pattern": 81,
+      "pattern": 76,
       "start": 3072,
-      "track": 10
+      "track": 9
     },
     {
       "id": 110,
       "length": 0,
-      "pattern": 84,
+      "pattern": 82,
       "start": 1536,
-      "track": 12
+      "track": 10
     },
     {
       "id": 111,
       "length": 0,
-      "pattern": 85,
-      "start": 4224,
-      "track": 13
+      "pattern": 83,
+      "start": 3072,
+      "track": 10
     },
     {
       "id": 112,
       "length": 0,
       "pattern": 86,
-      "start": 2688,
-      "track": 14
+      "start": 1536,
+      "track": 12
     },
     {
       "id": 113,
       "length": 0,
-      "pattern": 44,
-      "start": 4608,
-      "track": 0
+      "pattern": 87,
+      "start": 4224,
+      "track": 13
     },
     {
       "id": 114,
       "length": 0,
-      "pattern": 47,
-      "start": 4608,
-      "track": 1
+      "pattern": 88,
+      "start": 2688,
+      "track": 14
     },
     {
       "id": 115,
       "length": 0,
-      "pattern": 58,
+      "pattern": 45,
       "start": 4608,
-      "track": 5
+      "track": 0
     },
     {
       "id": 116,
       "length": 0,
-      "pattern": 65,
+      "pattern": 49,
       "start": 4608,
-      "track": 6
+      "track": 1
     },
     {
       "id": 117,
       "length": 0,
-      "pattern": 69,
+      "pattern": 60,
       "start": 4608,
-      "track": 7
+      "track": 5
     },
     {
       "id": 118,
       "length": 0,
-      "pattern": 75,
+      "pattern": 67,
       "start": 4608,
-      "track": 9
+      "track": 6
     },
     {
       "id": 119,
       "length": 0,
-      "pattern": 44,
-      "start": 6144,
-      "track": 0
+      "pattern": 71,
+      "start": 4608,
+      "track": 7
     },
     {
       "id": 120,
       "length": 0,
-      "pattern": 47,
-      "start": 6144,
-      "track": 1
+      "pattern": 77,
+      "start": 4608,
+      "track": 9
     },
     {
       "id": 121,
       "length": 0,
-      "pattern": 58,
+      "pattern": 45,
       "start": 6144,
-      "track": 5
+      "track": 0
     },
     {
       "id": 122,
       "length": 0,
-      "pattern": 65,
+      "pattern": 49,
       "start": 6144,
-      "track": 6
+      "track": 1
     },
     {
       "id": 123,
       "length": 0,
-      "pattern": 69,
+      "pattern": 60,
       "start": 6144,
-      "track": 7
+      "track": 5
     },
     {
       "id": 124,
       "length": 0,
-      "pattern": 75,
+      "pattern": 67,
       "start": 6144,
-      "track": 9
+      "track": 6
     },
     {
       "id": 125,
       "length": 0,
-      "pattern": 44,
-      "start": 7680,
-      "track": 0
+      "pattern": 71,
+      "start": 6144,
+      "track": 7
     },
     {
       "id": 126,
       "length": 0,
-      "pattern": 44,
-      "start": 9216,
-      "track": 0
+      "pattern": 77,
+      "start": 6144,
+      "track": 9
     },
     {
       "id": 127,
       "length": 0,
-      "pattern": 48,
+      "pattern": 45,
       "start": 7680,
-      "track": 1
+      "track": 0
     },
     {
       "id": 128,
       "length": 0,
-      "pattern": 48,
+      "pattern": 45,
       "start": 9216,
-      "track": 1
+      "track": 0
     },
     {
       "id": 129,
       "length": 0,
-      "pattern": 58,
+      "pattern": 50,
       "start": 7680,
-      "track": 5
+      "track": 1
     },
     {
       "id": 130,
       "length": 0,
-      "pattern": 59,
+      "pattern": 50,
       "start": 9216,
-      "track": 5
+      "track": 1
     },
     {
       "id": 131,
       "length": 0,
-      "pattern": 65,
+      "pattern": 60,
       "start": 7680,
-      "track": 6
+      "track": 5
     },
     {
       "id": 132,
       "length": 0,
-      "pattern": 66,
+      "pattern": 61,
       "start": 9216,
-      "track": 6
+      "track": 5
     },
     {
       "id": 133,
       "length": 0,
-      "pattern": 69,
+      "pattern": 67,
       "start": 7680,
-      "track": 7
+      "track": 6
     },
     {
       "id": 134,
       "length": 0,
-      "pattern": 70,
+      "pattern": 68,
       "start": 9216,
-      "track": 7
+      "track": 6
     },
     {
       "id": 135,
       "length": 0,
-      "pattern": 76,
+      "pattern": 71,
       "start": 7680,
-      "track": 9
+      "track": 7
     },
     {
       "id": 136,
       "length": 0,
-      "pattern": 77,
+      "pattern": 72,
       "start": 9216,
-      "track": 9
+      "track": 7
     },
     {
       "id": 137,
       "length": 0,
-      "pattern": 80,
+      "pattern": 78,
       "start": 7680,
-      "track": 10
+      "track": 9
     },
     {
       "id": 138,
       "length": 0,
-      "pattern": 81,
+      "pattern": 79,
       "start": 9216,
-      "track": 10
+      "track": 9
     },
     {
       "id": 139,
       "length": 0,
       "pattern": 82,
       "start": 7680,
-      "track": 11
+      "track": 10
     },
     {
       "id": 140,
       "length": 0,
       "pattern": 83,
       "start": 9216,
-      "track": 11
+      "track": 10
     },
     {
       "id": 141,
       "length": 0,
-      "pattern": 85,
-      "start": 10368,
-      "track": 13
+      "pattern": 84,
+      "start": 7680,
+      "track": 11
     },
     {
       "id": 142,
       "length": 0,
-      "pattern": 86,
-      "start": 7296,
-      "track": 14
+      "pattern": 85,
+      "start": 9216,
+      "track": 11
     },
     {
       "id": 143,
       "length": 0,
-      "pattern": 86,
+      "pattern": 87,
+      "start": 10368,
+      "track": 13
+    },
+    {
+      "id": 144,
+      "length": 0,
+      "pattern": 88,
+      "start": 7296,
+      "track": 14
+    },
+    {
+      "id": 145,
+      "length": 0,
+      "pattern": 88,
       "start": 10368,
       "track": 14
     },
     {
-      "id": 144,
+      "id": 146,
       "length": 0,
       "pattern": 19,
       "start": 10752,
       "track": 0
     },
     {
-      "id": 145,
+      "id": 147,
       "length": 0,
-      "pattern": 51,
+      "pattern": 53,
       "start": 10752,
       "track": 2
     },
     {
-      "id": 146,
+      "id": 148,
       "length": 0,
-      "pattern": 52,
+      "pattern": 54,
       "start": 10752,
       "track": 3
     },
     {
-      "id": 147,
+      "id": 149,
       "length": 0,
-      "pattern": 62,
+      "pattern": 64,
       "start": 10752,
       "track": 5
     },
     {
-      "id": 148,
+      "id": 150,
       "length": 0,
-      "pattern": 71,
+      "pattern": 73,
       "start": 10752,
       "track": 7
     },
     {
-      "id": 149,
+      "id": 151,
       "length": 0,
-      "pattern": 85,
+      "pattern": 87,
       "start": 11904,
       "track": 13
     },
     {
-      "id": 150,
+      "id": 152,
       "length": 0,
-      "pattern": 86,
+      "pattern": 88,
       "start": 11904,
       "track": 14
     },
     {
-      "id": 151,
-      "length": 0,
-      "pattern": 43,
-      "start": 12288,
-      "track": 0
-    },
-    {
-      "id": 152,
-      "length": 0,
-      "pattern": 43,
-      "start": 13824,
-      "track": 0
-    },
-    {
       "id": 153,
       "length": 0,
-      "pattern": 48,
+      "pattern": 44,
       "start": 12288,
-      "track": 1
+      "track": 0
     },
     {
       "id": 154,
       "length": 0,
-      "pattern": 48,
+      "pattern": 44,
       "start": 13824,
-      "track": 1
+      "track": 0
     },
     {
       "id": 155,
       "length": 0,
       "pattern": 50,
       "start": 12288,
-      "track": 2
+      "track": 1
     },
     {
       "id": 156,
       "length": 0,
       "pattern": 50,
       "start": 13824,
-      "track": 2
+      "track": 1
     },
     {
       "id": 157,
       "length": 0,
-      "pattern": 53,
+      "pattern": 52,
       "start": 12288,
-      "track": 3
+      "track": 2
     },
     {
       "id": 158,
       "length": 0,
-      "pattern": 53,
+      "pattern": 52,
       "start": 13824,
-      "track": 3
+      "track": 2
     },
     {
       "id": 159,
       "length": 0,
       "pattern": 55,
       "start": 12288,
-      "track": 4
+      "track": 3
     },
     {
       "id": 160,
       "length": 0,
-      "pattern": 56,
+      "pattern": 55,
       "start": 13824,
-      "track": 4
+      "track": 3
     },
     {
       "id": 161,
       "length": 0,
-      "pattern": 63,
+      "pattern": 57,
       "start": 12288,
-      "track": 6
+      "track": 4
     },
     {
       "id": 162,
       "length": 0,
-      "pattern": 64,
+      "pattern": 58,
       "start": 13824,
-      "track": 6
+      "track": 4
     },
     {
       "id": 163,
       "length": 0,
-      "pattern": 69,
+      "pattern": 65,
       "start": 12288,
-      "track": 7
+      "track": 6
     },
     {
       "id": 164,
       "length": 0,
-      "pattern": 70,
+      "pattern": 66,
       "start": 13824,
-      "track": 7
+      "track": 6
     },
     {
       "id": 165,
       "length": 0,
-      "pattern": 72,
+      "pattern": 71,
       "start": 12288,
-      "track": 8
+      "track": 7
     },
     {
       "id": 166,
       "length": 0,
       "pattern": 72,
       "start": 13824,
-      "track": 8
+      "track": 7
     },
     {
       "id": 167,
       "length": 0,
-      "pattern": 73,
+      "pattern": 74,
       "start": 12288,
-      "track": 9
+      "track": 8
     },
     {
       "id": 168,
       "length": 0,
       "pattern": 74,
       "start": 13824,
-      "track": 9
+      "track": 8
     },
     {
       "id": 169,
       "length": 0,
-      "pattern": 80,
+      "pattern": 75,
       "start": 12288,
-      "track": 10
+      "track": 9
     },
     {
       "id": 170,
       "length": 0,
-      "pattern": 81,
+      "pattern": 76,
       "start": 13824,
-      "track": 10
+      "track": 9
     },
     {
       "id": 171,
       "length": 0,
       "pattern": 82,
       "start": 12288,
-      "track": 11
+      "track": 10
     },
     {
       "id": 172,
       "length": 0,
       "pattern": 83,
       "start": 13824,
-      "track": 11
+      "track": 10
     },
     {
       "id": 173,
       "length": 0,
       "pattern": 84,
       "start": 12288,
-      "track": 12
+      "track": 11
     },
     {
       "id": 174,
       "length": 0,
       "pattern": 85,
-      "start": 14976,
-      "track": 13
+      "start": 13824,
+      "track": 11
     },
     {
       "id": 175,
       "length": 0,
       "pattern": 86,
-      "start": 13440,
-      "track": 14
+      "start": 12288,
+      "track": 12
     },
     {
       "id": 176,
       "length": 0,
-      "pattern": 86,
+      "pattern": 87,
       "start": 14976,
-      "track": 14
+      "track": 13
     },
     {
       "id": 177,
       "length": 0,
-      "pattern": 45,
-      "start": 15360,
-      "track": 0
+      "pattern": 88,
+      "start": 13440,
+      "track": 14
     },
     {
       "id": 178,
       "length": 0,
-      "pattern": 45,
-      "start": 16896,
-      "track": 0
+      "pattern": 88,
+      "start": 14976,
+      "track": 14
     },
     {
       "id": 179,
       "length": 0,
-      "pattern": 49,
+      "pattern": 46,
       "start": 15360,
-      "track": 1
+      "track": 0
     },
     {
       "id": 180,
       "length": 0,
-      "pattern": 49,
+      "pattern": 46,
       "start": 16896,
-      "track": 1
+      "track": 0
     },
     {
       "id": 181,
       "length": 0,
-      "pattern": 60,
+      "pattern": 51,
       "start": 15360,
-      "track": 5
+      "track": 1
     },
     {
       "id": 182,
       "length": 0,
-      "pattern": 60,
+      "pattern": 51,
       "start": 16896,
-      "track": 5
+      "track": 1
     },
     {
       "id": 183,
       "length": 0,
-      "pattern": 67,
+      "pattern": 62,
       "start": 15360,
-      "track": 6
+      "track": 5
     },
     {
       "id": 184,
       "length": 0,
-      "pattern": 67,
+      "pattern": 62,
       "start": 16896,
-      "track": 6
+      "track": 5
     },
     {
       "id": 185,
       "length": 0,
       "pattern": 69,
       "start": 15360,
-      "track": 7
+      "track": 6
     },
     {
       "id": 186,
       "length": 0,
-      "pattern": 70,
+      "pattern": 69,
       "start": 16896,
-      "track": 7
+      "track": 6
     },
     {
       "id": 187,
       "length": 0,
-      "pattern": 76,
+      "pattern": 71,
       "start": 15360,
-      "track": 9
+      "track": 7
     },
     {
       "id": 188,
       "length": 0,
-      "pattern": 76,
+      "pattern": 72,
       "start": 16896,
-      "track": 9
+      "track": 7
     },
     {
       "id": 189,
       "length": 0,
-      "pattern": 82,
+      "pattern": 78,
       "start": 15360,
-      "track": 11
+      "track": 9
     },
     {
       "id": 190,
       "length": 0,
-      "pattern": 82,
+      "pattern": 78,
       "start": 16896,
-      "track": 11
+      "track": 9
     },
     {
       "id": 191,
       "length": 0,
-      "pattern": 44,
-      "start": 18432,
-      "track": 0
+      "pattern": 84,
+      "start": 15360,
+      "track": 11
     },
     {
       "id": 192,
       "length": 0,
-      "pattern": 44,
-      "start": 19968,
-      "track": 0
+      "pattern": 84,
+      "start": 16896,
+      "track": 11
     },
     {
       "id": 193,
       "length": 0,
-      "pattern": 48,
+      "pattern": 45,
       "start": 18432,
-      "track": 1
+      "track": 0
     },
     {
       "id": 194,
       "length": 0,
-      "pattern": 48,
+      "pattern": 45,
       "start": 19968,
-      "track": 1
+      "track": 0
     },
     {
       "id": 195,
       "length": 0,
-      "pattern": 53,
+      "pattern": 50,
       "start": 18432,
-      "track": 3
+      "track": 1
     },
     {
       "id": 196,
       "length": 0,
-      "pattern": 53,
+      "pattern": 50,
       "start": 19968,
-      "track": 3
+      "track": 1
     },
     {
       "id": 197,
       "length": 0,
-      "pattern": 60,
+      "pattern": 55,
       "start": 18432,
-      "track": 5
+      "track": 3
     },
     {
       "id": 198,
       "length": 0,
-      "pattern": 61,
+      "pattern": 55,
       "start": 19968,
-      "track": 5
+      "track": 3
     },
     {
       "id": 199,
       "length": 0,
-      "pattern": 67,
+      "pattern": 62,
       "start": 18432,
-      "track": 6
+      "track": 5
     },
     {
       "id": 200,
       "length": 0,
-      "pattern": 68,
+      "pattern": 63,
       "start": 19968,
-      "track": 6
+      "track": 5
     },
     {
       "id": 201,
       "length": 0,
       "pattern": 69,
       "start": 18432,
-      "track": 7
+      "track": 6
     },
     {
       "id": 202,
       "length": 0,
       "pattern": 70,
       "start": 19968,
-      "track": 7
+      "track": 6
     },
     {
       "id": 203,
       "length": 0,
-      "pattern": 73,
+      "pattern": 71,
       "start": 18432,
-      "track": 9
+      "track": 7
     },
     {
       "id": 204,
       "length": 0,
-      "pattern": 74,
+      "pattern": 72,
       "start": 19968,
-      "track": 9
+      "track": 7
     },
     {
       "id": 205,
       "length": 0,
-      "pattern": 80,
+      "pattern": 75,
       "start": 18432,
-      "track": 10
+      "track": 9
     },
     {
       "id": 206,
       "length": 0,
-      "pattern": 81,
+      "pattern": 76,
       "start": 19968,
-      "track": 10
+      "track": 9
     },
     {
       "id": 207,
       "length": 0,
       "pattern": 82,
       "start": 18432,
-      "track": 11
+      "track": 10
     },
     {
       "id": 208,
       "length": 0,
       "pattern": 83,
       "start": 19968,
-      "track": 11
+      "track": 10
     },
     {
       "id": 209,
       "length": 0,
-      "pattern": 85,
-      "start": 21120,
-      "track": 13
+      "pattern": 84,
+      "start": 18432,
+      "track": 11
     },
     {
       "id": 210,
       "length": 0,
-      "pattern": 86,
-      "start": 21120,
-      "track": 14
+      "pattern": 85,
+      "start": 19968,
+      "track": 11
     },
     {
       "id": 211,
       "length": 0,
-      "pattern": 46,
-      "start": 21504,
-      "track": 0
+      "pattern": 87,
+      "start": 21120,
+      "track": 13
     },
     {
       "id": 212,
       "length": 0,
-      "pattern": 46,
-      "start": 23040,
-      "track": 0
+      "pattern": 88,
+      "start": 21120,
+      "track": 14
     },
     {
       "id": 213,
       "length": 0,
-      "pattern": 48,
+      "pattern": 47,
       "start": 21504,
-      "track": 1
+      "track": 0
     },
     {
       "id": 214,
       "length": 0,
-      "pattern": 48,
+      "pattern": 47,
       "start": 23040,
-      "track": 1
+      "track": 0
     },
     {
       "id": 215,
       "length": 0,
       "pattern": 50,
       "start": 21504,
-      "track": 2
+      "track": 1
     },
     {
       "id": 216,
       "length": 0,
       "pattern": 50,
       "start": 23040,
-      "track": 2
+      "track": 1
     },
     {
       "id": 217,
       "length": 0,
-      "pattern": 54,
+      "pattern": 52,
       "start": 21504,
-      "track": 3
+      "track": 2
     },
     {
       "id": 218,
       "length": 0,
-      "pattern": 54,
+      "pattern": 52,
       "start": 23040,
-      "track": 3
+      "track": 2
     },
     {
       "id": 219,
       "length": 0,
-      "pattern": 57,
+      "pattern": 56,
       "start": 21504,
-      "track": 4
+      "track": 3
     },
     {
       "id": 220,
       "length": 0,
       "pattern": 56,
       "start": 23040,
-      "track": 4
+      "track": 3
     },
     {
       "id": 221,
       "length": 0,
-      "pattern": 63,
+      "pattern": 59,
       "start": 21504,
-      "track": 6
+      "track": 4
     },
     {
       "id": 222,
       "length": 0,
-      "pattern": 64,
+      "pattern": 58,
       "start": 23040,
-      "track": 6
+      "track": 4
     },
     {
       "id": 223,
       "length": 0,
-      "pattern": 69,
+      "pattern": 65,
       "start": 21504,
-      "track": 7
+      "track": 6
     },
     {
       "id": 224,
       "length": 0,
-      "pattern": 70,
+      "pattern": 66,
       "start": 23040,
-      "track": 7
+      "track": 6
     },
     {
       "id": 225,
       "length": 0,
-      "pattern": 72,
+      "pattern": 71,
       "start": 21504,
-      "track": 8
+      "track": 7
     },
     {
       "id": 226,
       "length": 0,
       "pattern": 72,
       "start": 23040,
-      "track": 8
+      "track": 7
     },
     {
       "id": 227,
       "length": 0,
-      "pattern": 78,
+      "pattern": 74,
       "start": 21504,
-      "track": 9
+      "track": 8
     },
     {
       "id": 228,
       "length": 0,
-      "pattern": 79,
+      "pattern": 74,
       "start": 23040,
-      "track": 9
+      "track": 8
     },
     {
       "id": 229,
       "length": 0,
       "pattern": 80,
       "start": 21504,
-      "track": 10
+      "track": 9
     },
     {
       "id": 230,
       "length": 0,
       "pattern": 81,
       "start": 23040,
-      "track": 10
+      "track": 9
     },
     {
       "id": 231,
       "length": 0,
       "pattern": 82,
       "start": 21504,
-      "track": 11
+      "track": 10
     },
     {
       "id": 232,
       "length": 0,
       "pattern": 83,
       "start": 23040,
-      "track": 11
+      "track": 10
     },
     {
       "id": 233,
       "length": 0,
       "pattern": 84,
       "start": 21504,
-      "track": 12
+      "track": 11
     },
     {
       "id": 234,
       "length": 0,
-      "pattern": 84,
+      "pattern": 85,
       "start": 23040,
-      "track": 12
+      "track": 11
     },
     {
       "id": 235,
       "length": 0,
       "pattern": 86,
-      "start": 22656,
-      "track": 14
+      "start": 21504,
+      "track": 12
     },
     {
       "id": 236,
       "length": 0,
       "pattern": 86,
+      "start": 23040,
+      "track": 12
+    },
+    {
+      "id": 237,
+      "length": 0,
+      "pattern": 88,
+      "start": 22656,
+      "track": 14
+    },
+    {
+      "id": 238,
+      "length": 0,
+      "pattern": 88,
       "start": 24192,
       "track": 14
     },
     {
-      "id": 237,
+      "id": 239,
       "length": 0,
       "pattern": 19,
       "start": 24576,
       "track": 0
     },
     {
-      "id": 238,
+      "id": 240,
       "length": 0,
-      "pattern": 47,
+      "pattern": 48,
       "start": 24576,
       "track": 1
     },
     {
-      "id": 239,
+      "id": 241,
       "length": 0,
-      "pattern": 52,
+      "pattern": 54,
       "start": 24576,
       "track": 3
     },
     {
-      "id": 240,
+      "id": 242,
       "length": 0,
-      "pattern": 84,
+      "pattern": 86,
       "start": 24576,
       "track": 12
-    },
-    {
-      "id": 242,
-      "kind": "automation",
-      "length": 26112,
-      "pattern": 0,
-      "source": 241,
-      "start": 0,
-      "track": 15
     },
     {
       "id": 244,
@@ -9054,6 +9223,15 @@
       "length": 26112,
       "pattern": 0,
       "source": 243,
+      "start": 0,
+      "track": 15
+    },
+    {
+      "id": 246,
+      "kind": "automation",
+      "length": 26112,
+      "pattern": 0,
+      "source": 245,
       "start": 0,
       "track": 16
     }
@@ -9068,7 +9246,7 @@
     {
       "color": 5264990,
       "muted": false,
-      "name": "Synth Chords"
+      "name": "Dark Piano Chords"
     },
     {
       "color": 5264990,
@@ -9143,7 +9321,7 @@
     {
       "color": 5264990,
       "muted": false,
-      "name": "Auto Synth Cutoff"
+      "name": "Auto Piano Cutoff"
     },
     {
       "color": 5264990,
