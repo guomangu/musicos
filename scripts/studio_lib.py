@@ -299,13 +299,32 @@ def setup_standard_buses(
     limiter_ceiling_db: float = -2.35,
     limiter_gain_db: float = 7.5,
     fx_room_vol: float = 0.30,
+    profile: str = "trap_rap",
 ) -> None:
     """
-    Instantiate calibrated Master + BUS Drums + BUS 808 + BUS Music (4-slot Timbral Glue)
-    + FX Room (Dry=0, Dry full=0, Decay <= T_noire).
+    Instantiate calibrated Master + BUS Drums + BUS 808/Bass + BUS Music (Timbral Glue)
+    + FX Room (Dry=0, Dry full=0, Decay <= T_noire), adapted to `profile`:
+    - trap_rap / edm_club: punchy sidechain, gentle tape/soft saturation, bright drums
+    - pop_rnb / rock_metal: balanced glue, moderate sidechain
+    - lofi_chill: warmer LPF on BUS Music, soft glue, light drums air
+    - jazz_acoustic / classical_ambient: clean transparent bus (no distortion, gentle/minimal comp, larger room decay)
     """
     t_noire_s = 60.0 / float(bpm)
-    rt60 = round(min(0.35, max(0.16, t_noire_s * 0.50)), 3)
+    acoustic_mode = profile in ("jazz_acoustic", "classical_ambient")
+    lofi_mode = profile == "lofi_chill"
+    rt60 = round(min(1.10 if acoustic_mode else 0.42, max(0.18, t_noire_s * (1.2 if acoustic_mode else 0.65))), 3)
+    rt60_ds = max(1, min(200, int(round(rt60 * 10.0))))
+
+    # Ensure mixer tracks up to max bus index exist (Empty template only has 0..16)
+    mixer_info = mcp.call("get_mixer", {})
+    existing_count = len(mixer_info.get("tracks", []))
+    max_needed = max(bus_drums, bus_808, bus_music, fx_room)
+    if existing_count <= max_needed:
+        add_tracks = [
+            {"tool": "add_mixer_track", "arguments": {"name": f"Insert {idx}"}}
+            for idx in range(existing_count, max_needed + 1)
+        ]
+        mcp.batch(add_tracks)
 
     fx_adds = [
         {"tool": "add_plugin", "arguments": {"mixer": 0, "plugin": "gl.eq"}},
@@ -324,47 +343,61 @@ def setup_standard_buses(
     ]
     mcp.batch(fx_adds)
 
+    music_hpf = 90 if acoustic_mode else (110 if lofi_mode else 135)
+    music_lpf = 9500 if lofi_mode else (15500 if acoustic_mode else 12800)
+    music_dist_mix = 0.0 if acoustic_mode else (0.12 if lofi_mode else 0.08)
+    drums_air_gain = 0.0 if (acoustic_mode or lofi_mode) else 1.8
+    sc_ratio_bass = 1.5 if acoustic_mode else (3.0 if profile in ("pop_rnb", "rock_metal", "lofi_chill") else 5.0)
+    sc_ratio_music = 1.2 if acoustic_mode else 2.2
+    master_comp_thresh = -8.5 if acoustic_mode else -10.5
+    master_comp_makeup = 0.5 if acoustic_mode else 1.5
+
     changes = [
-        # Master
+        # Master (look-ahead 0.002s avoids True Peak overshoots & hi-hat micro-glitches)
         ("mixer/0/slot/1/Quality", 1),
         ("mixer/0/slot/1/Band 1 type", 1), ("mixer/0/slot/1/Band 1 freq", 28),
-        ("mixer/0/slot/1/Band 7 type", 3), ("mixer/0/slot/1/Band 7 freq", 16000),
-        ("mixer/0/slot/2/Threshold", -11.5), ("mixer/0/slot/2/Ratio", 1.7),
-        ("mixer/0/slot/2/Attack", 0.020), ("mixer/0/slot/2/Release", 0.110),
-        ("mixer/0/slot/2/Makeup", 2.0), ("mixer/0/slot/2/Detector high-pass", 95),
+        ("mixer/0/slot/1/Band 7 type", 3), ("mixer/0/slot/1/Band 7 freq", 17000),
+        ("mixer/0/slot/2/Threshold", master_comp_thresh), ("mixer/0/slot/2/Ratio", 1.6),
+        ("mixer/0/slot/2/Attack", 0.025), ("mixer/0/slot/2/Release", 0.110),
+        ("mixer/0/slot/2/Makeup", master_comp_makeup), ("mixer/0/slot/2/Detector high-pass", 95),
         ("mixer/0/slot/3/Gain", limiter_gain_db), ("mixer/0/slot/3/Ceiling", limiter_ceiling_db),
-        ("mixer/0/slot/3/Attack (look-ahead)", 0.005), ("mixer/0/slot/3/0.2 dB safety", 1),
+        ("mixer/0/slot/3/Attack (look-ahead)", 0.002), ("mixer/0/slot/3/0.2 dB safety", 1),
         # BUS Drums
         (f"mixer/{bus_drums}/slot/1/Band 1 type", 1), (f"mixer/{bus_drums}/slot/1/Band 1 freq", 34),
-        (f"mixer/{bus_drums}/slot/1/Band 7 type", 7), (f"mixer/{bus_drums}/slot/1/Band 7 freq", 10000), (f"mixer/{bus_drums}/slot/1/Band 7 gain", 1.5),
-        (f"mixer/{bus_drums}/slot/2/Threshold", -17.0), (f"mixer/{bus_drums}/slot/2/Ratio", 2.6),
-        (f"mixer/{bus_drums}/slot/2/Attack", 0.012), (f"mixer/{bus_drums}/slot/2/Release", 0.085), (f"mixer/{bus_drums}/slot/2/Makeup", 3.0),
-        # BUS 808
+        (f"mixer/{bus_drums}/slot/1/Band 7 type", 7), (f"mixer/{bus_drums}/slot/1/Band 7 freq", 10000), (f"mixer/{bus_drums}/slot/1/Band 7 gain", drums_air_gain),
+        (f"mixer/{bus_drums}/slot/2/Threshold", -15.0), (f"mixer/{bus_drums}/slot/2/Ratio", 2.2),
+        (f"mixer/{bus_drums}/slot/2/Attack", 0.015), (f"mixer/{bus_drums}/slot/2/Release", 0.085), (f"mixer/{bus_drums}/slot/2/Makeup", 2.0),
+        # BUS Bass / 808
         (f"mixer/{bus_808}/slot/1/Width", 0.0),
         (f"mixer/{bus_808}/slot/2/Detector input", 1),
-        (f"mixer/{bus_808}/slot/2/Threshold", -22.0), (f"mixer/{bus_808}/slot/2/Ratio", 5.0),
-        (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", 0.070), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
-        (f"mixer/{bus_808}/slot/3/Band 1 type", 1), (f"mixer/{bus_808}/slot/3/Band 1 freq", 28),
-        # BUS Music (4-slot Timbral Glue)
-        (f"mixer/{bus_music}/slot/1/Band 1 type", 1), (f"mixer/{bus_music}/slot/1/Band 1 freq", 145),
-        (f"mixer/{bus_music}/slot/1/Band 7 type", 3), (f"mixer/{bus_music}/slot/1/Band 7 freq", 12500),
-        (f"mixer/{bus_music}/slot/2/Mode", 0), (f"mixer/{bus_music}/slot/2/Drive", 4.0),
-        (f"mixer/{bus_music}/slot/2/Tone", 12000), (f"mixer/{bus_music}/slot/2/Mix", 0.08),
+        (f"mixer/{bus_808}/slot/2/Threshold", -20.0), (f"mixer/{bus_808}/slot/2/Ratio", sc_ratio_bass),
+        (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", 0.085), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
+        (f"mixer/{bus_808}/slot/3/Band 1 type", 1), (f"mixer/{bus_808}/slot/3/Band 1 freq", 30),
+        # BUS Music (4-slot Timbral Glue — Threshold -13.5 dB preserves Intro/Chorus dynamic arc)
+        (f"mixer/{bus_music}/slot/1/Band 1 type", 1), (f"mixer/{bus_music}/slot/1/Band 1 freq", music_hpf),
+        (f"mixer/{bus_music}/slot/1/Band 7 type", 3), (f"mixer/{bus_music}/slot/1/Band 7 freq", music_lpf),
+        (f"mixer/{bus_music}/slot/2/Mode", 0), (f"mixer/{bus_music}/slot/2/Drive", 3.5),
+        (f"mixer/{bus_music}/slot/2/Tone", 12000), (f"mixer/{bus_music}/slot/2/Mix", music_dist_mix),
         (f"mixer/{bus_music}/slot/2/Output", 0.0), (f"mixer/{bus_music}/slot/2/Oversampling", 2), (f"mixer/{bus_music}/slot/2/Remove DC", 1),
-        (f"mixer/{bus_music}/slot/3/Threshold", -19.5), (f"mixer/{bus_music}/slot/3/Ratio", 2.0),
-        (f"mixer/{bus_music}/slot/3/Attack", 0.020), (f"mixer/{bus_music}/slot/3/Release", 0.110), (f"mixer/{bus_music}/slot/3/Makeup", 3.5),
+        (f"mixer/{bus_music}/slot/3/Threshold", -13.5), (f"mixer/{bus_music}/slot/3/Ratio", 1.8),
+        (f"mixer/{bus_music}/slot/3/Attack", 0.022), (f"mixer/{bus_music}/slot/3/Release", 0.110), (f"mixer/{bus_music}/slot/3/Makeup", 1.5),
         (f"mixer/{bus_music}/slot/4/Detector input", 1),
-        (f"mixer/{bus_music}/slot/4/Threshold", -23.0), (f"mixer/{bus_music}/slot/4/Ratio", 2.6),
-        (f"mixer/{bus_music}/slot/4/Attack", 0.005), (f"mixer/{bus_music}/slot/4/Release", 0.080), (f"mixer/{bus_music}/slot/4/Lookahead", 1),
-        # FX Room (Dry=0, Dry full=0, RT60 <= T_noire)
+        (f"mixer/{bus_music}/slot/4/Threshold", -21.0), (f"mixer/{bus_music}/slot/4/Ratio", sc_ratio_music),
+        (f"mixer/{bus_music}/slot/4/Attack", 0.005), (f"mixer/{bus_music}/slot/4/Release", 0.085), (f"mixer/{bus_music}/slot/4/Lookahead", 1),
+        # FX Room (Dry=0, Dry full=0, Decay <= T_noire for rhythmic genres)
         (f"mixer/{fx_room}/slot/1/Model", 1),
-        (f"mixer/{fx_room}/slot/1/Pre-delay", 10), (f"mixer/{fx_room}/slot/1/Room size", 0.22),
+        (f"mixer/{fx_room}/slot/1/Pre-delay", 12), (f"mixer/{fx_room}/slot/1/Room size", 0.45 if acoustic_mode else 0.24),
         (f"mixer/{fx_room}/slot/1/Decay time", rt60),
-        (f"mixer/{fx_room}/slot/1/Low cut", 500), (f"mixer/{fx_room}/slot/1/High cut", 6400), (f"mixer/{fx_room}/slot/1/High damping", 4000),
-        (f"mixer/{fx_room}/slot/1/Dry", 0), (f"mixer/{fx_room}/slot/1/Wet", 0.45), (f"mixer/{fx_room}/slot/1/Width", 0.78),
-        (f"mixer/{fx_room}/slot/1/Low cut (full)", 500), (f"mixer/{fx_room}/slot/1/Decay (full)", 2),
-        (f"mixer/{fx_room}/slot/1/Dry (full)", 0), (f"mixer/{fx_room}/slot/1/Early reflections (full)", 8),
-        (f"mixer/{fx_room}/slot/1/Wet (full)", 45),
+        (f"mixer/{fx_room}/slot/1/Low cut", 350 if acoustic_mode else 480), (f"mixer/{fx_room}/slot/1/High cut", 6800), (f"mixer/{fx_room}/slot/1/High damping", 4200),
+        (f"mixer/{fx_room}/slot/1/Dry", 0), (f"mixer/{fx_room}/slot/1/Wet", 0.45), (f"mixer/{fx_room}/slot/1/Width", 0.80),
+        (f"mixer/{fx_room}/slot/1/Low cut (full)", 350 if acoustic_mode else 480), (f"mixer/{fx_room}/slot/1/Decay (full)", rt60_ds),
+        (f"mixer/{fx_room}/slot/1/Dry (full)", 0), (f"mixer/{fx_room}/slot/1/Early reflections (full)", 14 if acoustic_mode else 10),
+        (f"mixer/{fx_room}/slot/1/Wet (full)", 58),
     ]
     mcp.set_params(changes)
-    mcp.call("edit_mixer_track", {"mixer": fx_room, "name": "FX Room", "routeTo": 0, "volume": fx_room_vol, "pan": 0.0})
+    mcp.batch([
+        {"tool": "edit_mixer_track", "arguments": {"mixer": bus_drums, "name": "BUS Drums", "routeTo": 0, "volume": 1.0, "pan": 0.0}},
+        {"tool": "edit_mixer_track", "arguments": {"mixer": bus_808, "name": "BUS Bass", "routeTo": 0, "volume": 1.0, "pan": 0.0}},
+        {"tool": "edit_mixer_track", "arguments": {"mixer": bus_music, "name": "BUS Music", "routeTo": 0, "volume": 1.0, "pan": 0.0}},
+        {"tool": "edit_mixer_track", "arguments": {"mixer": fx_room, "name": "FX Room", "routeTo": 0, "volume": fx_room_vol, "pan": 0.0}},
+    ])

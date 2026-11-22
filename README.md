@@ -2,17 +2,13 @@
 
 Studio complet de production musicale assistée par IA sur **Fedora / Ultramarine 44 (PipeWire + Wayland)** dans `/home/gamo/Bureau/musicos` (accessible aussi via `~/Music/AI-Studio`).
 
-## Documentation
-- **Pour apprendre et produire pas à pas (Humain)** : [`docs/GUIDE_COMPLET_UTILISATEUR.md`](docs/GUIDE_COMPLET_UTILISATEUR.md)
-- **Technologies employées, ordre et rôles** : [`docs/TECHNOLOGIES_ET_ARCHITECTURE.md`](docs/TECHNOLOGIES_ET_ARCHITECTURE.md)
-- **Pour les agents IA (Antigravity / Zed)** :
-  - Règles principales : [`.rules`](.rules) (liées par `GEMINI.md` et `AGENTS.md`)
-  - Architecture, outils MCP & IDs plugins : [`docs/ai/ARCHITECTURE_AGENTS.md`](docs/ai/ARCHITECTURE_AGENTS.md)
-  - Reverse Engineering VGM → Instru Rap : [`docs/ai/WORKFLOW_VGM_TO_RAP.md`](docs/ai/WORKFLOW_VGM_TO_RAP.md)
-  - Spécifications Blueprint & Mixage : [`docs/ai/MIXING_AND_BLUEPRINT_SPEC.md`](docs/ai/MIXING_AND_BLUEPRINT_SPEC.md)
-  - Protocole Multi-Échelles, Physique des Durées & Trap : [`docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md`](docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) · [`docs/regles_melodie_et_cohesion_inter_pistes.md`](docs/regles_melodie_et_cohesion_inter_pistes.md) · [`docs/harmonisation_verticale_et_horizontale.md`](docs/harmonisation_verticale_et_horizontale.md) · [`docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md`](docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md)
-  - Sélection Psychoacoustique & API en ligne : [`docs/sp_cification_technique_syst_me_d_analyse_et_de_s_lection_de_sonorit_s_pour_agent_ia.md`](docs/sp_cification_technique_syst_me_d_analyse_et_de_s_lection_de_sonorit_s_pour_agent_ia.md) · [`docs/documentation_api_audio_freesound_v2_lots_of_sounds.md`](docs/documentation_api_audio_freesound_v2_lots_of_sounds.md)
-- **Architecture source du projet** : [`docs/stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md`](docs/stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md)
+## Documentation (5 Facettes Universelles & Optimisées pour Agents IA)
+- **Règles normatives agents IA (Routeur + Machine à états 5 tours)** : [`.rules`](.rules) (liées par `GEMINI.md` et `AGENTS.md`)
+- **Facette 1 — Système, Stack, Gridline `0.7.7`, Unités & Guide Utilisateur** : [`docs/01_SYSTEME_STACK_ET_GUIDE.md`](docs/01_SYSTEME_STACK_ET_GUIDE.md)
+- **Facette 2 — Composition Universelle, Émotion `(V, T, E, D)`, Harmonie, Mélodie & Rythmes Multi-Genres** : [`docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md`](docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md)
+- **Facette 3 — Blueprint, Arrangement, Top-Down, MIDI Gate & Patron `build_song.py`** : [`docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md`](docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md)
+- **Facette 4 — DSP Déterministe, Samples, APIs Audio, Remix & Chant (Vocaloid)** : [`docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md`](docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md)
+- **Facette 5 — Mixage Multi-Genres, Buses/FX, Quality Gate, Symptôme→Fix & Playbook** : [`docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md`](docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md)
 
 ## Briques installées et actives
 1. **Gridline `0.7.7`** : MCP natif activé (`mcp.enabled: true`, `mcp.allowEdits: true`, port `47390`), modèles de séparation de stems téléchargés (`htdemucs` et `htdemucs_6s`).
@@ -40,4 +36,4 @@ Options utiles : `./install.sh --check-only`, `--skip-plugins`, `--skip-clap`, `
 
 # Option B : générer sans ouvrir l'interface, puis ouvrir projects/active/projet.gridline
 ```
-Puis ouvre `/home/gamo/Bureau/musicos` dans **Antigravity** ou **Zed** et suis les tutoriels dans [`docs/GUIDE_COMPLET_UTILISATEUR.md`](docs/GUIDE_COMPLET_UTILISATEUR.md).
+Puis ouvre `/home/gamo/Bureau/musicos` dans **Antigravity** ou **Zed** et suis les tutoriels dans [`docs/01_SYSTEME_STACK_ET_GUIDE.md`](docs/01_SYSTEME_STACK_ET_GUIDE.md).

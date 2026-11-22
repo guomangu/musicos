@@ -471,20 +471,34 @@ def audit_midi_file(
     ref_key_str = expected_key.strip() or detected_key_str
     parts = ref_key_str.split()
     tonic_raw = parts[0].replace("b", "-") if parts else "C"
-    mode_raw = parts[1].lower() if len(parts) > 1 else "minor"
-    if "harmonic" in mode_raw:
-        target_scale = music21.scale.HarmonicMinorScale(tonic_raw)
+    mode_raw = " ".join(parts[1:]).lower().replace("-", "_") if len(parts) > 1 else "minor"
+    tonic_pc = music21.pitch.Pitch(tonic_raw).pitchClass
+    if "phrygian_dominant" in mode_raw or "phrygian dominant" in mode_raw:
+        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 1, 4, 5, 7, 8, 10)}
+    elif "blues" in mode_raw:
+        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 3, 5, 6, 7, 10)}
+    elif "pentatonic" in mode_raw and ("min" in mode_raw or "aeolian" in mode_raw):
+        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 3, 5, 7, 10)}
+    elif "pentatonic" in mode_raw:
+        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 7, 9)}
+    elif "harmonic" in mode_raw:
+        allowed_pcs = {p.pitchClass for p in music21.scale.HarmonicMinorScale(tonic_raw).getPitches()}
     elif "melodic" in mode_raw:
-        target_scale = music21.scale.MelodicMinorScale(tonic_raw)
+        allowed_pcs = {p.pitchClass for p in music21.scale.MelodicMinorScale(tonic_raw).getPitches()}
     elif "dorian" in mode_raw:
-        target_scale = music21.scale.DorianScale(tonic_raw)
+        allowed_pcs = {p.pitchClass for p in music21.scale.DorianScale(tonic_raw).getPitches()}
     elif "phrygian" in mode_raw:
-        target_scale = music21.scale.PhrygianScale(tonic_raw)
-    elif "min" in mode_raw:
-        target_scale = music21.scale.MinorScale(tonic_raw)
+        allowed_pcs = {p.pitchClass for p in music21.scale.PhrygianScale(tonic_raw).getPitches()}
+    elif "lydian" in mode_raw:
+        allowed_pcs = {p.pitchClass for p in music21.scale.LydianScale(tonic_raw).getPitches()}
+    elif "mixolydian" in mode_raw:
+        allowed_pcs = {p.pitchClass for p in music21.scale.MixolydianScale(tonic_raw).getPitches()}
+    elif "locrian" in mode_raw:
+        allowed_pcs = {p.pitchClass for p in music21.scale.LocrianScale(tonic_raw).getPitches()}
+    elif "min" in mode_raw or "aeolian" in mode_raw:
+        allowed_pcs = {p.pitchClass for p in music21.scale.MinorScale(tonic_raw).getPitches()}
     else:
-        target_scale = music21.scale.MajorScale(tonic_raw)
-    allowed_pcs = {p.pitchClass for p in target_scale.getPitches()}
+        allowed_pcs = {p.pitchClass for p in music21.scale.MajorScale(tonic_raw).getPitches()}
 
     track_reports: list[dict[str, Any]] = []
     melodic_notes: list[tuple[float, float, int, str]] = []

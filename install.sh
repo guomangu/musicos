@@ -772,7 +772,7 @@ PY
   echo "Pour démarrer une session :"
   echo "  1. (Optionnel Live GUI) : $STUDIO_DIR/scripts/launch-gridline.sh"
   echo "  2. Ouvrir $STUDIO_DIR dans Antigravity ou Zed."
-  echo "  3. Consulter le tutoriel : $STUDIO_DIR/docs/GUIDE_COMPLET_UTILISATEUR.md"
+  echo "  3. Consulter le tutoriel : $STUDIO_DIR/docs/01_SYSTEME_STACK_ET_GUIDE.md"
 }
 
 check_fedora

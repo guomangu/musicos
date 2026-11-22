@@ -3,8 +3,8 @@
 Shared Psychoacoustic, DSP, Bark-Masking, Pitch & LAION-CLAP Evaluation Library
 for AI-Studio Sample Selection & Online API Filtering.
 
-Implements the 4-layer funnel specified in:
-docs/sp_cification_technique_syst_me_d_analyse_et_de_s_lection_de_sonorit_s_pour_agent_ia.md
+Implements the 4-layer deterministic DSP & psychoacoustic funnel specified in:
+docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md
 """
 
 from __future__ import annotations

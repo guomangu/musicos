@@ -8,6 +8,20 @@
     "title": { "type": "string", "minLength": 1 },
     "genre": { "type": "string", "minLength": 1 },
     "mood": { "type": "string" },
+    "mix_profile": {
+      "type": "string",
+      "enum": ["trap_rap", "pop_rnb", "edm_club", "rock_metal", "lofi_chill", "jazz_acoustic", "classical_ambient"],
+      "default": "trap_rap"
+    },
+    "emotion_vector": {
+      "type": "object",
+      "properties": {
+        "valence": { "type": "number", "minimum": -1, "maximum": 1 },
+        "tension": { "type": "number", "minimum": 0, "maximum": 1 },
+        "energy": { "type": "number", "minimum": 0, "maximum": 1 },
+        "depth": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
     "bpm": { "type": "number", "minimum": 40, "maximum": 300 },
     "time_signature": {
       "type": "object",
@@ -37,11 +51,28 @@
         },
         "mode": {
           "type": "string",
-          "enum": ["aeolian", "phrygian", "harmonic_minor", "dorian"]
+          "enum": [
+            "ionian",
+            "major",
+            "aeolian",
+            "minor",
+            "dorian",
+            "phrygian",
+            "phrygian_dominant",
+            "lydian",
+            "mixolydian",
+            "harmonic_minor",
+            "melodic_minor",
+            "locrian",
+            "pentatonic_minor",
+            "pentatonic_major",
+            "blues"
+          ]
         },
         "progression_bars": {
           "type": "integer",
-          "enum": [2, 4, 8]
+          "minimum": 1,
+          "maximum": 32
         },
         "chord_progression": {
           "type": "array",
@@ -51,18 +82,18 @@
             "required": ["bar", "symbol", "bass_midi", "voicing_midi"],
             "properties": {
               "bar": { "type": "integer", "minimum": 1 },
-              "symbol": { "type": "string", "description": "Ex: 'Em7', 'Cmaj7', 'Am9', 'B7'" },
+              "symbol": { "type": "string", "description": "Ex: 'Em7', 'Cmaj7', 'Am9', 'B7', 'Fmaj9'" },
               "bass_midi": {
                 "type": "integer",
-                "minimum": 28,
-                "maximum": 55,
-                "description": "Fondamentale 808 (dans la plage 40-78 Hz idéale)"
+                "minimum": 24,
+                "maximum": 60,
+                "description": "Fondamentale basse/808 (MIDI 28-48 pour sub/808, 33-55 pour basse acoustique/électrique)"
               },
               "voicing_midi": {
                 "type": "array",
                 "minItems": 2,
-                "maxItems": 4,
-                "items": { "type": "integer", "minimum": 48, "maximum": 76 },
+                "maxItems": 6,
+                "items": { "type": "integer", "minimum": 36, "maximum": 84 },
                 "description": "Notes MIDI déjà renversées pour voice leading minimal (<= 2.5 st moyen)"
               },
               "chord_tones_pc": {
@@ -79,27 +110,27 @@
           "properties": {
             "intervals_from_tonic": {
               "type": "array",
-              "minItems": 3,
-              "maxItems": 6,
+              "minItems": 2,
+              "maxItems": 12,
               "items": { "type": "integer" }
             },
             "rhythm_beats": {
               "type": "array",
-              "minItems": 3,
-              "maxItems": 6,
+              "minItems": 2,
+              "maxItems": 12,
               "items": { "type": "number" }
             },
             "apex_midi": {
               "type": "integer",
-              "minimum": 60,
-              "maximum": 84,
-              "description": "Sommet mélodique unique de la phrase (mesure 3)"
+              "minimum": 55,
+              "maximum": 88,
+              "description": "Sommet mélodique unique de la phrase (typiquement mesure 3)"
             }
           }
         },
         "phrase_plan": {
           "type": "string",
-          "enum": ["A-A'-A''-B", "A-B-A'-C", "A-A'-B-B'"],
+          "enum": ["A-A'-A''-B", "A-B-A'-C", "A-A'-B-B'", "A-A-B-A", "free_ambient"],
           "default": "A-A'-A''-B"
         }
       }
