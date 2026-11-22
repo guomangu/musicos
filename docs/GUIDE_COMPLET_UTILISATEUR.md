@@ -9,7 +9,7 @@ Bienvenue dans ton studio musical assisté par intelligence artificielle. Ce tut
 Quand tu écris un prompt dans **Antigravity** ou **Zed**, l'IA n'invente pas de l'audio à l'aveugle : elle pilote un vrai studio numérique grâce à **5 outils spécialisés (serveurs MCP)** :
 
 1. **`gridline` (le DAW)** : crée les pistes, programme les notes MIDI et scripts Lua, charge tes samples et effets, puis exporte l'audio. Chaque modification de l'IA crée une étape `AI: ...` dans l'historique `Ctrl+Z` de Gridline — tu ne perds jamais ton travail manuel.
-2. **`audio-index` (la mémoire de tes samples)** : a analysé tes packs dans `pack/` (1 898 fichiers audio/MIDI dont 1 682 avec vecteurs **LAION CLAP** et analyse **Essentia**). L'IA peut chercher par ambiance (*« kick sec punchy »*, *« guitare lofi sombre »*), BPM ou tonalité.
+2. **`audio-index` (la mémoire et le tri qualitatif de tes samples)** : a analysé tes packs dans `pack/` (`samples.db` avec vecteurs **LAION CLAP** + **Essentia**), évalue le **confort auditif** et le **masquage fréquentiel Bark** de chaque sonorité (`evaluate_sample_quality` / `select_best_samples` avec `golden_references/`), et peut récupérer de nouveaux samples CC0 à la volée via **Freesound API v2** & **Lots of Sounds API** (`fetch_samples_online`, clés à renseigner dans `.env`).
 3. **`reverse-engineer` (le laboratoire VGM → Rap)** : sépare n'importe quel morceau en 4 ou 6 pistes isolées (`drums`, `bass`, `other`, `vocals`, `guitar`, `piano`) avec `htdemucs_6s`, puis convertit les mélodies et accords audio en vraies notes **MIDI** grâce au modèle **Spotify Basic Pitch (ONNX)**.
 4. **`audio-analyzer` (les oreilles mathématiques)** : écoute les rendus WAV exportés et mesure les **LUFS** (volume perçu), le **True Peak** (saturation), la répartition sur 5 bandes de fréquences et les conflits Kick/808.
 5. **`vocaloid` (la voix et le chant)** : découpe tes paroles en syllabes, écrit des partitions **OpenUTAU / DiffSinger** (`.ustx`) et synthétise un guide vocal `.wav` calé sur ton morceau.
@@ -141,7 +141,11 @@ gridline render projects/active/projet.gridline -o projects/active/renders/maste
   Demande à l'IA *« Ré-indexe mes samples avec CLAP »* ou lance :
   ```bash
   /home/gamo/Bureau/musicos/.venv/bin/python /home/gamo/Bureau/musicos/mcp-servers/audio-index/indexer.py --with-clap
+  /home/gamo/Bureau/musicos/.venv/bin/python /home/gamo/Bureau/musicos/scripts/index_samples.py --input-dir /home/gamo/Bureau/musicos/samples
   ```
+- **Activer la récupération de samples en ligne (Freesound API v2 / Lots of Sounds) & Golden References :**
+  - Copie `.env.example` vers `.env` (`cp .env.example .env`) et renseigne `FREESOUND_API_KEY` et/ou `LOTSOFSOUNDS_API_KEY`.
+  - Dépose 5–15 de tes meilleurs samples validés par rôle dans `golden_references/<role>/` puis exécute `scripts/build_references.py`.
 - **Pourquoi certains plugins Windows du web (Voxengo SPAN, PsyScope, Isol8, Youlean, Kilohearts, Valhalla) ne sont pas installés ?**
   Ils n'existent pas en version Linux native : les installer exigerait Wine/Yabridge (lourd, fragile sous Wayland, et inutile pour l'IA). Ils sont tous remplacés par des équivalents **Linux natifs CLAP/VST3** déjà installés et vérifiés sans aucune erreur : **LSP Spectrum Analyzer**, **LSP Oscilloscope**, **LSP Crossover**, **ZL Equalizer 2**, **TDR Nova**, **Dragonfly Reverb**, **CHOW Tape Model**, plus le moteur python `pyloudnorm`.
 - **Cas particulier de Vital et NeuralNote :**

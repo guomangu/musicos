@@ -1,26 +1,101 @@
 {
-  "title": "Starter Studio Blueprint",
-  "genre": "Template",
-  "mood": "Neutral",
-  "bpm": 120,
-  "time_signature": { "numerator": 4, "denominator": 4 },
-  "key": "C minor",
-  "swing": 0.0,
-  "target_lufs": -14.0,
+  "title": "Le Serpent de Pigalle (Attaque)",
+  "genre": "Dark Cinematic French Trap (Captaine Roshi Type Beat)",
+  "mood": "Menacing, epic, pirate-shonen, conquering, kinetic",
+  "bpm": 136,
+  "time_signature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "key": "E phrygian",
+  "swing": 0.04,
+  "target_lufs": -10.5,
   "harmonic_core": {
-    "key": "C",
-    "mode": "aeolian",
+    "key": "E",
+    "mode": "phrygian",
     "progression_bars": 4,
     "chord_progression": [
-      { "bar": 1, "symbol": "Cm7", "bass_midi": 36, "voicing_midi": [55, 58, 60, 63], "chord_tones_pc": [0, 3, 7, 10] },
-      { "bar": 2, "symbol": "Abmaj7", "bass_midi": 32, "voicing_midi": [55, 56, 60, 63], "chord_tones_pc": [8, 0, 3, 7] },
-      { "bar": 3, "symbol": "Fm7", "bass_midi": 41, "voicing_midi": [53, 56, 60, 63], "chord_tones_pc": [5, 8, 0, 3] },
-      { "bar": 4, "symbol": "Gm7", "bass_midi": 43, "voicing_midi": [53, 55, 58, 62], "chord_tones_pc": [7, 10, 2, 5] }
+      {
+        "bar": 1,
+        "symbol": "Em",
+        "bass_midi": 28,
+        "voicing_midi": [
+          52,
+          55,
+          59
+        ],
+        "chord_tones_pc": [
+          4,
+          7,
+          11,
+          2
+        ]
+      },
+      {
+        "bar": 2,
+        "symbol": "Fmaj7",
+        "bass_midi": 29,
+        "voicing_midi": [
+          53,
+          57,
+          60
+        ],
+        "chord_tones_pc": [
+          5,
+          9,
+          0,
+          4
+        ]
+      },
+      {
+        "bar": 3,
+        "symbol": "Am7",
+        "bass_midi": 33,
+        "voicing_midi": [
+          52,
+          57,
+          60
+        ],
+        "chord_tones_pc": [
+          9,
+          0,
+          4,
+          7
+        ]
+      },
+      {
+        "bar": 4,
+        "symbol": "Fmaj7",
+        "bass_midi": 29,
+        "voicing_midi": [
+          53,
+          57,
+          60
+        ],
+        "chord_tones_pc": [
+          5,
+          9,
+          0,
+          4
+        ]
+      }
     ],
     "motif_cell": {
-      "intervals_from_tonic": [0, 3, 7, 5],
-      "rhythm_beats": [0.0, 0.5, 1.0, 2.0],
-      "apex_midi": 79
+      "intervals_from_tonic": [
+        0,
+        3,
+        0,
+        -2,
+        -5
+      ],
+      "rhythm_beats": [
+        0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0
+      ],
+      "apex_midi": 81
     },
     "phrase_plan": "A-A'-A''-B"
   },
@@ -30,70 +105,248 @@
       "start_bar": 1,
       "bars": 4,
       "energy": 0.35,
-      "active_roles": ["pad", "hat"],
-      "notes": "Atmosphère d'ouverture"
+      "active_roles": [
+        "harmony_synth_filtered",
+        "pluck_lead_sparse",
+        "bell_shimmer"
+      ],
+      "notes": "Tension cinematographique E Phrygian : synth filtre LPF + motif Pluck + riser M4."
     },
     {
-      "section": "Drop / Refrain",
+      "section": "Refrain 1 (Attaque)",
       "start_bar": 5,
       "bars": 8,
-      "energy": 0.85,
-      "active_roles": ["kick", "808", "snare", "hat", "pad", "lead"],
-      "notes": "Section principale"
+      "energy": 0.9,
+      "active_roles": [
+        "808_grit",
+        "harmony_synth_full",
+        "pluck_lead",
+        "vox_counter"
+      ],
+      "notes": "Drop initial conquerant : Kick + Snare/Clap sur 3 + Hats triolets + 808 V12 agressive + Pluck Lead + Vox Choir en appel-reponse."
+    },
+    {
+      "section": "Couplet 1",
+      "start_bar": 13,
+      "bars": 16,
+      "energy": 0.72,
+      "active_roles": [
+        "808_bounce",
+        "harmony_synth_carved",
+        "pluck_lead_sparse"
+      ],
+      "notes": "Espace degage 800Hz-2.5kHz (M13-20 epure avec 808 Pluggg bounce, M21-28 reprise hats + perc ghosts + pivot mute/riser M28)."
+    },
+    {
+      "section": "Pont (Equipage)",
+      "start_bar": 29,
+      "bars": 4,
+      "energy": 0.42,
+      "active_roles": [
+        "808_sub_sustain",
+        "harmony_synth_filtered",
+        "vox_counter",
+        "bell_shimmer"
+      ],
+      "notes": "Coupure Kick/808 percussive, sub tenue + Vox Choir sombre + Bell cristalline + snare build & riser M32."
+    },
+    {
+      "section": "Refrain 2 (Pigalle)",
+      "start_bar": 33,
+      "bars": 8,
+      "energy": 0.93,
+      "active_roles": [
+        "808_grit",
+        "harmony_synth_full",
+        "pluck_lead",
+        "vox_counter"
+      ],
+      "notes": "Retour massif : 808 V12 avec sauts d'octave + glissandos, doubles hats triolets, Pluck Lead + Bell + Vox Choir + Chant FX."
+    },
+    {
+      "section": "Couplet 2",
+      "start_bar": 41,
+      "bars": 16,
+      "energy": 0.76,
+      "active_roles": [
+        "808_bounce",
+        "harmony_synth_carved",
+        "pluck_lead_var"
+      ],
+      "notes": "Variation rythmique (M41-48 syncopes 808 + open hats ; M49-56 montee progressive avec Bell + mute & riser M56)."
+    },
+    {
+      "section": "Refrain 3 (Climax Final)",
+      "start_bar": 57,
+      "bars": 8,
+      "energy": 0.97,
+      "active_roles": [
+        "808_grit",
+        "harmony_synth_full",
+        "pluck_lead_octave",
+        "vox_counter"
+      ],
+      "notes": "Energie maximale : couche haute sur Bell/Pluck, 808 active, crash downbeat, chants et rolls 1/32."
+    },
+    {
+      "section": "Outro",
+      "start_bar": 65,
+      "bars": 4,
+      "energy": 0.25,
+      "active_roles": [
+        "harmony_synth_filtered",
+        "bell_shimmer"
+      ],
+      "notes": "Soustraction Kick/808 a M65, extinction progressive sur Synth filtre et echo Bell."
     }
   ],
   "frequency_plan": {
-    "sub_20_60": "808 / Sub Bass (mono)",
-    "bass_60_250": "Kick punch + harmoniques basses",
-    "low_mids_250_500": "Corps des accords / guitare / piano (nettoyé autour de 300 Hz)",
-    "mids_500_4000": "Lead mélodique + voix (poche 1-3 kHz)",
-    "highs_4000_20000": "Hi-hats, claps, air"
+    "sub_20_60": "Mono strict (gl.stereo Width=0) reserve a BUS 808 (E1 41.2Hz - D2 73.4Hz), HPF 28 Hz.",
+    "bass_60_250": "Kick sidechain -> BUS 808 (attack 2ms, release 70ms) ; HPF >= 145 Hz sur BUS Music.",
+    "low_mids_250_500": "Corps Synth Chords & Snare controles, coupe douce -3 dB @ 280 Hz sur Synth.",
+    "mids_500_4000": "Relais Call-and-Response Pluck Lead vs Vox Choir (overlap <= 15%), creux -2.5 dB @ 1.8 kHz sur Chords.",
+    "highs_4000_20000": "Hi-hats triolets > 4 kHz (LPF 12.5 kHz), Bell shimmer, send unique FX Room (RT60=0.22s, Dry=0)."
   },
   "tracks": [
     {
       "name": "Kick",
       "role": "kick",
-      "source_type": "gridline_native",
-      "plugin": "gl.kick",
-      "preset": "Punchy",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/kick_roshi_clean.wav",
       "mixer_track": 1,
-      "freq_lane": "50-120 Hz + click 3 kHz"
+      "freq_lane": "55-120 Hz + click 2.5 kHz",
+      "pan": 0.0,
+      "notes": "Routed to BUS Drums (17), sidechain to BUS 808 (18) and BUS Music (19)."
     },
     {
       "name": "Snare",
       "role": "snare",
-      "source_type": "gridline_native",
-      "plugin": "gl.snare",
-      "preset": "Tight",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/snare_roshi_clean.wav",
       "mixer_track": 2,
-      "freq_lane": "180 Hz + 2-6 kHz"
+      "freq_lane": "180 Hz - 10 kHz",
+      "pan": 0.0,
+      "notes": "Half-time beat 3, sec, send leger FX Room (4%)."
+    },
+    {
+      "name": "Clap",
+      "role": "clap",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/clap_roshi_clean.wav",
+      "mixer_track": 3,
+      "freq_lane": "400 Hz - 12 kHz",
+      "pan": 0.0,
+      "notes": "Layer sur Refrains/accents beat 3, send FX Room (5%)."
     },
     {
       "name": "Hi-Hat",
       "role": "hat",
-      "source_type": "gridline_native",
-      "plugin": "gl.hat",
-      "preset": "Closed",
-      "mixer_track": 3,
-      "freq_lane": "6-16 kHz"
-    },
-    {
-      "name": "Sub / 808",
-      "role": "808",
-      "source_type": "gridline_native",
-      "plugin": "gl.acid",
-      "preset": "Square sub",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/hh_roshi_clean.wav",
       "mixer_track": 4,
-      "freq_lane": "30-150 Hz"
+      "freq_lane": "4 - 12.5 kHz",
+      "pan": -0.08,
+      "notes": "Two-step + rolls triolets 1/16T / 1/32 pitch-down."
     },
     {
-      "name": "Pad",
-      "role": "pad",
-      "source_type": "gridline_native",
-      "plugin": "gl.analog",
-      "preset": "Velvet Pad",
+      "name": "Open Hat",
+      "role": "openhat",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/openhat_roshi.wav",
       "mixer_track": 5,
-      "freq_lane": "200 Hz - 4 kHz"
+      "freq_lane": "4 - 12.5 kHz",
+      "pan": 0.14,
+      "notes": "Contretemps et fins de 4 mesures."
+    },
+    {
+      "name": "Perc",
+      "role": "perc",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/perc_roshi.wav",
+      "mixer_track": 6,
+      "freq_lane": "600 Hz - 10 kHz",
+      "pan": -0.22,
+      "notes": "Syncopes en Couplets/Refrains."
+    },
+    {
+      "name": "Crash & Riser FX",
+      "role": "fx",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/riser_1bar_136.wav",
+      "mixer_track": 7,
+      "freq_lane": "300 Hz - 12 kHz",
+      "pan": 0.0,
+      "notes": "Riser 1 bar avant Drops + Crash sur impacts."
+    },
+    {
+      "name": "Chant FX",
+      "role": "fx",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/chant_roshi.wav",
+      "mixer_track": 8,
+      "freq_lane": "500 Hz - 8 kHz",
+      "pan": 0.18,
+      "notes": "Gimmick pirate/trap ponctuel avec send FX Room + delay."
+    },
+    {
+      "name": "808 Pluggg (Main)",
+      "role": "808",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/808_pluggg_440.wav",
+      "mixer_track": 9,
+      "freq_lane": "35 - 180 Hz",
+      "pan": 0.0,
+      "notes": "Mono strict (Cut Itself), Couplets bounce + Pont."
+    },
+    {
+      "name": "808 V12 (Grit)",
+      "role": "808",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/808_v12_440.wav",
+      "mixer_track": 10,
+      "freq_lane": "38 - 320 Hz",
+      "pan": 0.0,
+      "notes": "Mono strict (Cut Itself), Refrains agressifs + slides octave."
+    },
+    {
+      "name": "Synth Chords",
+      "role": "chords",
+      "source_type": "gridline_native",
+      "plugin": "gl.synth",
+      "mixer_track": 11,
+      "freq_lane": "160 Hz - 4.5 kHz",
+      "pan": 0.0,
+      "notes": "Dark anime brass/pad de roshlike.gridline, voicings <= 2.5 st, carve @ 1.8kHz."
+    },
+    {
+      "name": "Pluck Lead",
+      "role": "lead",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/pluck_b3_440.wav",
+      "mixer_track": 12,
+      "freq_lane": "250 Hz - 7 kHz",
+      "pan": -0.06,
+      "notes": "Motif principal A-A'-A''-B (B4-A5), send FX Room 10%."
+    },
+    {
+      "name": "Vox Choir Counter",
+      "role": "counter",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/vox_c5_440.wav",
+      "mixer_track": 13,
+      "freq_lane": "350 Hz - 6 kHz",
+      "pan": 0.16,
+      "notes": "Call-and-Response dans les silences du Lead, send FX Room 12%."
+    },
+    {
+      "name": "Bell Shimmer",
+      "role": "counter",
+      "source_type": "sample",
+      "sample_path": "/home/gamo/Bureau/morceaux/rosh/samples/bell_bb6_440.wav",
+      "mixer_track": 14,
+      "freq_lane": "1.2 - 11 kHz",
+      "pan": -0.18,
+      "notes": "Accents cristallins sur temps forts/octaves en Intro, Pont et Refrain Climax."
     }
   ],
   "vocals": {

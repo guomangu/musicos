@@ -11,13 +11,14 @@ Studio complet de production musicale assistée par IA sur **Fedora / Ultramarin
   - Reverse Engineering VGM → Instru Rap : [`docs/ai/WORKFLOW_VGM_TO_RAP.md`](docs/ai/WORKFLOW_VGM_TO_RAP.md)
   - Spécifications Blueprint & Mixage : [`docs/ai/MIXING_AND_BLUEPRINT_SPEC.md`](docs/ai/MIXING_AND_BLUEPRINT_SPEC.md)
   - Protocole Multi-Échelles, Physique des Durées & Trap : [`docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md`](docs/protocole_universel_d_architecture_musicale_coh_rence_multi_chelles_mod_le_pr_dictif_orientation_trap.md) · [`docs/regles_melodie_et_cohesion_inter_pistes.md`](docs/regles_melodie_et_cohesion_inter_pistes.md) · [`docs/harmonisation_verticale_et_horizontale.md`](docs/harmonisation_verticale_et_horizontale.md) · [`docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md`](docs/sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sound_design_de_la_trap.md)
+  - Sélection Psychoacoustique & API en ligne : [`docs/sp_cification_technique_syst_me_d_analyse_et_de_s_lection_de_sonorit_s_pour_agent_ia.md`](docs/sp_cification_technique_syst_me_d_analyse_et_de_s_lection_de_sonorit_s_pour_agent_ia.md) · [`docs/documentation_api_audio_freesound_v2_lots_of_sounds.md`](docs/documentation_api_audio_freesound_v2_lots_of_sounds.md)
 - **Architecture source du projet** : [`docs/stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md`](docs/stack_technologique_studio_musical_assist_par_ia_gridline_zed_antigravity.md)
 
 ## Briques installées et actives
 1. **Gridline `0.7.7`** : MCP natif activé (`mcp.enabled: true`, `mcp.allowEdits: true`, port `47390`), modèles de séparation de stems téléchargés (`htdemucs` et `htdemucs_6s`).
 2. **5 serveurs MCP connectés à Antigravity et Zed** :
    - `gridline` (mode live via `--attach` si Gridline GUI est ouvert, sinon édition directe sur `projects/active/projet.gridline`)
-   - `audio-index` (`1 898` fichiers indexés, `1 682` embeddings sémantiques **LAION CLAP** + analyse **Essentia**)
+   - `audio-index` (`1 898` fichiers indexés dans `samples.db`, vecteurs **LAION CLAP** + analyse **Essentia**, sélection psychoacoustique à 4 couches `select_best_samples` / `evaluate_sample_quality` sur `sample_index.json` + `golden_references/`, et récupération à la volée via **Freesound API v2** & **Lots of Sounds API** `fetch_samples_online`)
    - `audio-analyzer` (`pyloudnorm` LUFS BS.1770, True Peak 4x, spectre 5 bandes, phase, masquage Kick/808)
    - `vocaloid` (syllabation FR/EN, génération `.ustx`, guides vocaux `.wav`, OpenUTAU `0.1.576` dans `tools/OpenUtau/`)
    - `reverse-engineer` (split 6 stems + **Spotify Basic Pitch ONNX** Audio→MIDI + détection d'accords/BPM/tonalité pour flips Rap)

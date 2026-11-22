@@ -23,9 +23,11 @@ pretty_midi>=0.2.11
 onnxruntime>=1.20.0
 mido>=1.3.0
 
-# Sémantique CLAP & Esthétique perceptuelle (laion/clap-htsat-unfused, facebook/audiobox-aesthetics)
+# Sémantique CLAP, Esthétique perceptuelle & API audio en ligne
 transformers>=5.0.0
 audiobox_aesthetics>=0.0.4
+scikit-learn>=1.4.0
+requests>=2.31.0
 
 # Configuration, Blueprint & OpenUTAU .ustx
 PyYAML>=6.0.0

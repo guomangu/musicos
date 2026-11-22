@@ -4,10 +4,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Banques de samples locales & index SQLite généré
+# Banques de samples locales & index SQLite/NPZ générés
 pack/
 samples
 mcp-servers/audio-index/samples.db*
+mcp-servers/audio-index/sample_index.json
+mcp-servers/audio-index/sample_index.npz
+mcp-servers/audio-index/golden_embeddings.npz
+golden_references/*
+!golden_references/README.md
+.env
 *.wav
 *.mp3
 *.ogg

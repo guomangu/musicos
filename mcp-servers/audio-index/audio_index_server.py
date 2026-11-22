@@ -7,6 +7,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 from typing import Any
 
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
@@ -15,14 +16,18 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 import numpy as np
 from mcp.server.mcpserver import MCPServer
 
-from indexer import DEFAULT_DB_PATH, DEFAULT_SAMPLES_DIR, NOTE_TO_PC, index_directory, init_db
+from indexer import DEFAULT_DB_PATH, DEFAULT_SAMPLES_DIR, NOTE_TO_PC, STUDIO_DIR, index_directory, init_db
+
+SCRIPTS_DIR = os.path.join(STUDIO_DIR, "scripts")
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 
 mcp = MCPServer(
     name="audio-index",
     instructions=(
-        "Mémoire sonore locale sur ~/Music/AI-Studio/samples (pack/) : "
-        "recherche sémantique (CLAP + descripteurs acoustiques FR/EN), filtrage par BPM, "
-        "tonalité harmonique (Essentia), brillance spectrale et compatibilité musicale."
+        "Mémoire sonore locale sur ~/Music/AI-Studio/samples (pack/) + évaluation psychoacoustique "
+        "(confort auditif, rugosité, dureté, masquage Bark, CLAP) et récupération de samples à la volée "
+        "via Freesound API v2 et Lots of Sounds API."
     ),
 )
 
@@ -416,6 +421,175 @@ def reindex_synth_presets(with_clap: bool = True, force: bool = False) -> str:
     from preset_indexer import index_gridline_presets
 
     return json.dumps(index_gridline_presets(db_path=DEFAULT_DB_PATH, with_clap=with_clap, force=force), ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def evaluate_sample_quality(
+    path_or_dir: str,
+    role: str = "lead_melody",
+    mix_path: str = "",
+    target_key: str = "",
+    top_k: int = 10,
+    with_clap: bool = True,
+) -> str:
+    """
+    Évalue un sample ou tout un dossier de samples avec l'entonnoir psychoacoustique à 4 couches :
+    Hard Filter (clipping, phase, silence, clics), Confort Auditif (dureté 2-5kHz, rugosité Plomp-Levelt),
+    Adéquation au rôle (kick, bass_sub, snare_clap, hihat_perc, lead_melody, pad_atmosphere, chord_keys),
+    Esthétique LAION-CLAP et Masquage Bark vis-à-vis de mix_path.
+    """
+    from audio_metrics import (
+        ClapEmbedder,
+        VALID_ROLES,
+        analyze_single_file,
+        extract_dsp_metrics,
+        load_and_normalize_audio,
+        score_candidate,
+    )
+
+    role_id = role if role in VALID_ROLES else "lead_melody"
+    abs_target = os.path.abspath(os.path.expanduser(path_or_dir))
+    files: list[str] = []
+    if os.path.isfile(abs_target):
+        files = [abs_target]
+    elif os.path.isdir(abs_target):
+        for root, _, fns in os.walk(abs_target, followlinks=True):
+            for fn in sorted(fns):
+                if os.path.splitext(fn)[1].lower() in {".wav", ".flac", ".ogg", ".mp3", ".aiff", ".aif"}:
+                    files.append(os.path.join(root, fn))
+    else:
+        return json.dumps({"error": f"Chemin introuvable : {abs_target}"}, ensure_ascii=False)
+
+    mix_bark = None
+    if mix_path and os.path.isfile(os.path.expanduser(mix_path)):
+        ml = load_and_normalize_audio(mix_path)
+        mix_bark = extract_dsp_metrics(ml["y_stereo"], ml["mono_norm"], sr=ml["sr"])["bark_24"]
+
+    embedder = ClapEmbedder(device="cpu") if with_clap else None
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+
+    for fp in files:
+        try:
+            entry, vec = analyze_single_file(fp, embedder=embedder, with_clap=with_clap)
+            if entry["hard_reject"]:
+                rejected.append({"filepath": fp, "reasons": entry["reject_reasons"]})
+                continue
+            scored = score_candidate(
+                entry,
+                role_id=role_id,
+                clap_vec=vec,
+                embedder=embedder,
+                mix_bark=mix_bark,
+                target_key=target_key or None,
+            )
+            if scored.get("rejected"):
+                rejected.append({"filepath": fp, "reasons": [scored.get("reject_reason")]})
+                continue
+            accepted.append(scored)
+        except Exception as exc:
+            rejected.append({"filepath": fp, "reasons": [str(exc)]})
+
+    accepted.sort(key=lambda x: x["final_score"], reverse=True)
+    for i, item in enumerate(accepted[: max(1, top_k)], start=1):
+        item["rank"] = i
+
+    return json.dumps(
+        {
+            "role": role_id,
+            "total_evaluated": len(files),
+            "passed_count": len(accepted),
+            "rejected_count": len(rejected),
+            "recommendations": accepted[: max(1, top_k)],
+            "rejected_samples": rejected[:10],
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+def select_best_samples(
+    role: str,
+    target_key: str = "",
+    mix_path: str = "",
+    query: str = "",
+    db_path: str = "",
+    top_k: int = 5,
+    min_score: float = 0.55,
+    auto_fetch: bool = False,
+) -> str:
+    """
+    Sélectionne les meilleurs samples depuis l'index psychoacoustique (sample_index.json + golden_embeddings.npz)
+    pour un rôle donné (kick, bass_sub, snare_clap, hihat_perc, lead_melody, pad_atmosphere, chord_keys).
+    Si auto_fetch=True et qu'aucun candidat local n'atteint 0.70, interroge automatiquement les API en ligne.
+    """
+    from index_samples import DEFAULT_OUT_DB, index_directory_psychoacoustic
+    from select_sample import DEFAULT_REFS_PATH, select_best_from_db
+
+    target_db = db_path.strip() or DEFAULT_OUT_DB
+    if not os.path.isfile(target_db):
+        index_directory_psychoacoustic(DEFAULT_SAMPLES_DIR, target_db, device="cpu", with_clap=True)
+
+    res = select_best_from_db(
+        db_path=target_db,
+        role=role,
+        refs_path=DEFAULT_REFS_PATH,
+        mix_path=mix_path,
+        target_key=target_key,
+        top_k=top_k,
+        min_score=min_score,
+        query_filter=query,
+        auto_fetch=auto_fetch,
+        with_clap=True,
+    )
+    return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def fetch_samples_online(
+    query: str,
+    role: str = "lead_melody",
+    provider: str = "auto",
+    target_key: str = "",
+    mix_path: str = "",
+    duration_min: float = 0.1,
+    duration_max: float = 5.0,
+    cc0_only: bool = True,
+    limit: int = 5,
+    min_score: float = 0.55,
+    out_dir: str = "",
+    similar_to_fs_id: int | None = None,
+) -> str:
+    """
+    Récupère des samples à la volée via Freesound API v2 et/ou Lots of Sounds API,
+    les normalise en WAV 24-bit/44.1kHz, applique le filtre psychoacoustique (Hard Filter + Confort + Role + CLAP + Bark),
+    indexe les samples retenus et renvoie les candidats classés prêts pour gl.sampler.
+    """
+    from fetch_samples_api import DEFAULT_OUT_DIR, fetch_and_filter_samples
+
+    dst = os.path.abspath(os.path.expanduser(out_dir)) if out_dir.strip() else DEFAULT_OUT_DIR
+    res = fetch_and_filter_samples(
+        query=query,
+        role=role,
+        provider=provider,
+        duration_min=duration_min,
+        duration_max=duration_max,
+        cc0_only=cc0_only,
+        limit=limit,
+        out_dir=dst,
+        mix_path=mix_path,
+        target_key=target_key,
+        min_score=min_score,
+        with_clap=True,
+        similar_to_fs_id=similar_to_fs_id,
+    )
+    if res.get("accepted") and dst.startswith(os.path.abspath(DEFAULT_SAMPLES_DIR)):
+        try:
+            index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH, force=False, with_clap=True)
+        except Exception:
+            pass
+    return json.dumps(res, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

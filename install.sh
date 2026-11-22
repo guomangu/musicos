@@ -584,6 +584,11 @@ configure_workspace_and_mcps() {
     mkdir -p "$STUDIO_DIR/samples"
   fi
 
+  mkdir -p "$STUDIO_DIR/golden_references/"{kick,bass_sub,snare_clap,hihat_perc,lead_melody,pad_atmosphere,chord_keys}
+  if [[ -f "$STUDIO_DIR/.env.example" && ! -f "$STUDIO_DIR/.env" ]]; then
+    cp "$STUDIO_DIR/.env.example" "$STUDIO_DIR/.env"
+  fi
+
   if [[ ! -e "$HOME/Music/AI-Studio" ]]; then
     ln -s "$STUDIO_DIR" "$HOME/Music/AI-Studio"
   fi
@@ -695,8 +700,10 @@ index_samples_and_verify() {
     log "Indexation incrémentale de $sample_count fichiers dans samples/..."
     if [[ $SKIP_CLAP -eq 0 ]]; then
       HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/indexer.py" --with-clap
+      HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/scripts/index_samples.py" --input-dir "$STUDIO_DIR/samples"
     else
       "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/indexer.py"
+      "$venv_py" "$STUDIO_DIR/scripts/index_samples.py" --input-dir "$STUDIO_DIR/samples" --no-clap
     fi
   else
     warn "Aucun sample audio détecté dans $STUDIO_DIR/samples/ (dépose tes packs ici puis relance install.sh ou indexer.py)."

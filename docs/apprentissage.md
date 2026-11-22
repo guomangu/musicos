@@ -391,3 +391,15 @@ Analyse des goulots d'étranglement et faux positifs observés durant la product
 - **Rendu final vérifié (`master_final.wav` & `Glass_Horizon_3min.mp3`, `180.92 s`)** : **`-12.12 LUFS`** (`Intro -14.41`, `Drops -10.98 à -11.05`, `Breaks -13.06 à -13.71`, `Outro -15.80`), **`-1.13 dBTP`**, `0` sample clippé, `0` micro-glitch, `tuning = 440.25 Hz (+1.0 ct)`, `correlation_low_end_150hz = 1.0`, `low_mid_corr = 0.848`, `air = 3.58%`, `sharpness = 1.68 acum`, `CE = 6.923`, `CU = 7.403`, `PQ = 7.234`, toutes les 4 sondes CLAP saines, verdict `audio-analyzer` : *« Mix équilibré : loudness, True Peak, spectre et phase dans les cibles. »*
 
 
+
+
+---
+
+## 18. Production *Le Serpent de Pigalle (Attaque)* (Captaine Roshi, `68 mesures @ 136 BPM`, `E Phrygian`) & Pipeline Psychoacoustique + APIs en Ligne — 2026-11-22
+- **Piège critique `gl.eq` (`Band N type = 4` vs `type = 6`)** :
+  - Dans `gl.eq`, l'index `4` correspond à **`Notch`** (coupe infinie $-\infty\text{ dB}$) et non à `Peak` (`type = 6`) — l'ordre exact des choix est `['Off', 'Low cut', 'Band pass', 'High cut', 'Notch', 'Low shelf', 'Peak', 'High shelf']`. Utiliser `type = 4` sur `7.8 kHz` ou `1.8 kHz` creuse un trou total dans le spectre ; passer à `type = 6` (`Peak`) rétablit une cloche douce et maîtrisée.
+- **Choix du hi-hat pour éviter la résonance `8 kHz` sur Trap rapide** :
+  - `hh_batwing_clean.wav` concentre `82.7 %` de son énergie entre `6–10 kHz` (pic à `7.4 kHz`) et provoque une résonance locale `8 kHz` sous shelf. `hh_bankroll_clean.wav` (`52.2 %` dans `9–16 kHz` contre `42.1 %` dans `6–9 kHz`, filtré LPF `14.2 kHz` dans `hh_roshi_clean.wav`) élimine totalement la résonance `8 kHz` (`resonances_third_oct = []`) avec `PQ = 7.562` et `CE = 6.462`.
+- **Intégration du Pipeline Psychoacoustique (`scripts/audio_metrics.py`, `index_samples.py`, `build_references.py`, `select_sample.py`) & APIs en Ligne (`fetch_samples_api.py` + `audio-index` MCP)** :
+  - Entonnoir à 4 couches : Hard Filter (clipping consécutif, clics bornes `needs_fade`, silence, corrélation $\rho_{LR}$) → Confort Auditif ($R_{\text{harsh}}$ `2–5 kHz`, pic résonant, rugosité Plomp-Levelt) → Profil de rôle (`kick`, `bass_sub`, `snare_clap`, `hihat_perc`, `lead_melody`, `pad_atmosphere`, `chord_keys`) → LAION-CLAP Zero-Shot & `golden_references/` + Masquage Bhattacharyya sur 24 bandes Bark.
+  - Client `fetch_samples_api.py` (Freesound API v2 + Lots of Sounds API, clés dans `.env` / `.env.example`) : en mode démo public `/api/v1/sounds/sample`, Lots of Sounds renvoie un champ relatif `stream_url` qui retourne du JSON contenant l'URL signée CDN ; `ffmpeg` nécessite `-c:a pcm_s24le` (et non `-sample_fmt s24`) pour exporter en WAV 24-bit avec `loudnorm`.

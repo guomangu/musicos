@@ -7,7 +7,7 @@ Ce document décrit l'infrastructure exacte de `/home/gamo/Bureau/musicos` (lien
 | Serveur | Binaire / Script | Rôle principal |
 | :--- | :--- | :--- |
 | `gridline` | `scripts/gridline-mcp.sh` | Pilote Gridline 0.7.7 (live via `--attach` si port `47390` actif, sinon fichier `projects/active/projet.gridline`). |
-| `audio-index` | `.venv/bin/python mcp-servers/audio-index/audio_index_server.py` | Recherche hybride Essentia + LAION CLAP (`laion/clap-htsat-unfused`) sur `mcp-servers/audio-index/samples.db` (1 898 fichiers dont 1 682 avec vecteurs CLAP). |
+| `audio-index` | `.venv/bin/python mcp-servers/audio-index/audio_index_server.py` | Recherche hybride Essentia + LAION CLAP (`samples.db`), sélection psychoacoustique à 4 couches (`select_best_samples`, `evaluate_sample_quality` sur `sample_index.json` + `golden_embeddings.npz`) et téléchargement à la volée via **Freesound API v2** & **Lots of Sounds API** (`fetch_samples_online`). |
 | `audio-analyzer` | `.venv/bin/python mcp-servers/audio-analyzer/audio_analyzer_server.py` | Analyse ITU-R BS.1770 (`pyloudnorm`), True Peak 4x, spectre 5 bandes, corrélation de phase, masquage Kick/808, audit psychoacoustique profond (`audit_mix_deep`) et Gate de musicalité/voice leading (`audit_midi_harmony` + `musicality_metrics.py`). |
 | `vocaloid` | `.venv/bin/python mcp-servers/vocaloid/vocaloid_server.py` | Syllabation FR/EN, génération `.ustx` (OpenUTAU/DiffSinger) et synthèse d'aperçu vocal `.wav` via `espeak-ng` + `librosa`. |
 | `reverse-engineer` | `.venv/bin/python mcp-servers/reverse-engineer/reverse_engineer_server.py` | Séparation de stems (`gridline stems` avec `htdemucs` / `htdemucs_6s`), transcription Audio->MIDI (Basic Pitch ONNX `tools/models/nmp.onnx`), analyse harmonique et plan de flip Rap. |
@@ -74,6 +74,8 @@ Ce document décrit l'infrastructure exacte de `/home/gamo/Bureau/musicos` (lien
   - Limiter la polyphonie et l'unison (`gl.multisampler <= 24`, synthés `Unison <= 2`, `Polyphony <= 16`) et mutualiser la réverbe sur 1 bus send (`FX Room`).
 
 ## 5. Scripts partagés du Studio (Réduction des erreurs & économie de tokens)
+- `scripts/audio_metrics.py`, `scripts/index_samples.py`, `scripts/build_references.py`, `scripts/select_sample.py` : pipeline d'analyse psychoacoustique et sélection à 4 couches (Hard Filter + Confort `2–5 kHz` / Plomp-Levelt + Profil de rôle + CLAP Zero-Shot & `golden_references/` + Masquage 24 bandes Bark + Shift tonal).
+- `scripts/fetch_samples_api.py` : client unifié **Freesound API v2** (`FREESOUND_API_KEY` dans `.env`) & **Lots of Sounds API** (`LOTSOFSOUNDS_API_KEY` dans `.env`, ou `/sample` public), avec normalisation automatique `ffmpeg` 24-bit/44.1kHz (`loudnorm I=-14 TP=-1.0`) + fondu `5 ms` + Gate psychoacoustique `audio_metrics.py`.
 - `scripts/audit_project_sources.py <projet.gridline> --prepare-samples projects/<actif>/samples` : inventaire complet + analyse harmonique 808 (`1*f0, 2*f0, 3*f0`) + détection de boucles/tempo/chroma + drapeaux Nyquist/DC/mud + nettoyage automatique des samples `< 5 s` en 1 seul appel.
 - `scripts/studio_lib.py` : client `GridlineMCP` (retry rate-limit, batch chunké), `clean_audio_sample`, `verify_midi_gate`, `setup_standard_buses` (`BUS Drums`, `BUS 808`, `BUS Music` 4-slots, `FX Room`, `Master`).
 - `scripts/render_and_audit.py <projet.gridline> -o <out.wav> [--range 5-12 --no-neural] [--mp3] [--sections ...]` : rendu silencieux (sans spam `\r`) + `analyze_mix` + `audit_mix_deep` + LUFS par section en 1 seule commande. Utiliser `--range` durant les itérations EQ/mix (~4× plus rapide).
