@@ -49,6 +49,7 @@ def select_best_from_db(
     auto_fetch: bool = False,
     fetch_query: str = "",
     with_clap: bool = True,
+    monophonic_only: bool = False,
 ) -> dict[str, Any]:
     abs_db = os.path.abspath(os.path.expanduser(db_path))
     if not os.path.isfile(abs_db):
@@ -104,6 +105,7 @@ def select_best_from_db(
             ref_matrix=ref_matrix,
             mix_bark=mix_bark,
             target_key=target_key or None,
+            monophonic_only=monophonic_only,
         )
         if res.get("rejected"):
             continue
@@ -127,6 +129,7 @@ def select_best_from_db(
             target_key=target_key,
             min_score=max(0.55, min_score),
             with_clap=with_clap,
+            monophonic_only=monophonic_only,
         )
 
     out: dict[str, Any] = {
@@ -169,6 +172,7 @@ def main() -> None:
     ap.add_argument("--min-score", type=float, default=0.0)
     ap.add_argument("--auto-fetch", action="store_true", help="Fallback to online APIs if best local score < 0.70.")
     ap.add_argument("--fetch-query", default="", help="Custom query for --auto-fetch.")
+    ap.add_argument("--mono-only", action="store_true", help="Require single-note monophonic samples.")
     ap.add_argument("--no-clap", action="store_true")
     ap.add_argument("--format", default="json", choices=["json", "text"])
     args = ap.parse_args()
@@ -185,6 +189,7 @@ def main() -> None:
         auto_fetch=args.auto_fetch,
         fetch_query=args.fetch_query,
         with_clap=not args.no_clap,
+        monophonic_only=args.mono_only,
     )
 
     if args.format == "json":

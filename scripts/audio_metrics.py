@@ -13,6 +13,7 @@ import hashlib
 import math
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from typing import Any
@@ -21,6 +22,13 @@ import librosa
 import numpy as np
 import soundfile as sf
 from scipy import signal
+
+try:
+    import parselmouth
+    _HAS_PARSELMOUTH = True
+except ImportError:
+    parselmouth = None  # type: ignore[assignment]
+    _HAS_PARSELMOUTH = False
 
 # 24 Bark critical band edges (Hz), covering 20 Hz .. 20 kHz
 BARK_EDGES_HZ: list[tuple[float, float]] = [
@@ -289,46 +297,358 @@ def _compute_plomp_levelt_roughness(
     return round(float(np.mean(rough_vals)) if rough_vals else 0.0, 4)
 
 
-def _detect_pitch_note(mono_norm: np.ndarray, sr: int, bands: dict[str, float]) -> tuple[str | None, float | None]:
-    """Detect median fundamental frequency & note name for tonal roles."""
-    if len(mono_norm) < 1024:
-        return None, None
+def _compute_low_mid_corr(y_stereo: np.ndarray, sr: int) -> float:
+    """Compute 200-800 Hz stereo phase correlation to flag overly wide pads/samples."""
+    if y_stereo.ndim < 2 or y_stereo.shape[1] < 2 or len(y_stereo) < 64:
+        return 1.0
+    try:
+        sos = signal.butter(2, [200.0, min(800.0, sr * 0.45)], btype="bandpass", fs=sr, output="sos")
+        l_lm = signal.sosfilt(sos, y_stereo[:, 0].astype(np.float64))
+        r_lm = signal.sosfilt(sos, y_stereo[:, 1].astype(np.float64))
+        denom = float(np.sqrt(np.sum(l_lm ** 2) * np.sum(r_lm ** 2))) + 1e-12
+        return round(float(np.sum(l_lm * r_lm) / denom), 4)
+    except Exception:
+        return 1.0
 
-    is_low = (bands["sub"] + bands["bass"]) > 0.60
+
+def analyze_pitch_and_purity(
+    y_stereo: np.ndarray,
+    mono_norm: np.ndarray,
+    sr: int,
+    bands: dict[str, float],
+    r_harm: float = 0.5,
+) -> dict[str, Any]:
+    """
+    Deterministic DSP pitch, stability, polyphony & harmonicity analyzer.
+    Distinguishes true single-note `mono_oneshot` samples from `melodic_sequence`
+    or `poly_chord_or_dyad` samples to prevent chromatic dissonance in gl.sampler.
+    """
+    low_mid_corr = _compute_low_mid_corr(y_stereo, sr)
+    dur_s = len(mono_norm) / float(sr) if sr > 0 else 0.0
+    if len(mono_norm) < 1024:
+        return {
+            "detected_note": None,
+            "detected_f0_hz": None,
+            "midi_root": None,
+            "cents_offset": None,
+            "recommended_fine_tune_ct": 0,
+            "f0_std_semitones": 0.0,
+            "onset_count": 1,
+            "hnr_db": None,
+            "polyphony_ratio": 0.0,
+            "inharmonic_warnings": [],
+            "sample_nature": "percussion",
+            "playable_chromatically": False,
+            "low_mid_corr": low_mid_corr,
+        }
+
+    is_low = (bands.get("sub", 0.0) + bands.get("bass", 0.0)) > 0.60
+    is_perc_heavy = (
+        ((bands.get("air", 0.0) + bands.get("harsh", 0.0)) > 0.72 and r_harm < 0.35)
+        or (dur_s < 0.14 and (bands.get("air", 0.0) + bands.get("harsh", 0.0)) > 0.50)
+    )
     fmin = 27.0 if is_low else 65.0
-    fmax = 220.0 if is_low else 2100.0
+    fmax = 220.0 if is_low else 2400.0
     frame_len = 4096 if is_low else 2048
 
-    if len(mono_norm) < frame_len:
-        pad = np.zeros(frame_len - len(mono_norm), dtype=np.float32)
-        sig = np.concatenate([mono_norm, pad])
-    else:
-        sig = mono_norm
+    sig = np.pad(mono_norm, (0, max(0, frame_len - len(mono_norm)))) if len(mono_norm) < frame_len else mono_norm
 
+    # 1. Onset detection (calibrated delta so vibrato/tremolo on steady tones doesn't spam false note onsets)
+    onset_times: list[float] = []
+    try:
+        o_env = librosa.onset.onset_strength(y=mono_norm, sr=sr, hop_length=512)
+        o_frames = librosa.onset.onset_detect(
+            onset_envelope=o_env, sr=sr, hop_length=512,
+            units="frames", delta=0.22, wait=max(4, int(0.12 * sr / 512)), backtrack=False,
+        )
+        o_t = librosa.frames_to_time(o_frames, sr=sr, hop_length=512)
+        onset_times = [round(float(t), 3) for t in o_t]
+    except Exception:
+        pass
+    distinct_onsets = 0
+    last_t = -1.0
+    for t in onset_times:
+        if t - last_t > 0.14:
+            distinct_onsets += 1
+            last_t = t
+    onset_count = max(1, distinct_onsets) if len(onset_times) > 0 else 1
+
+    # 2. Frame-by-frame YIN pitch & stability
+    med_f0: float | None = None
+    f0_std_st = 0.0
+    detected_note: str | None = None
+    midi_root: int | None = None
+    cents_offset: float | None = None
+    fine_tune_ct = 0
     try:
         f0 = librosa.yin(sig, fmin=fmin, fmax=fmax, sr=sr, frame_length=frame_len, hop_length=512)
-        # Filter unvoiced / boundary hits
         rms_frames = librosa.feature.rms(y=sig, frame_length=frame_len, hop_length=512)[0]
         if len(rms_frames) == len(f0):
-            thresh = float(np.max(rms_frames)) * 0.15
-            valid = f0[(rms_frames >= thresh) & (f0 > fmin * 1.02) & (f0 < fmax * 0.98)]
+            thresh = float(np.max(rms_frames)) * 0.14
+            valid = f0[(rms_frames >= thresh) & (f0 > fmin * 1.03) & (f0 < fmax * 0.97)]
         else:
-            valid = f0[(f0 > fmin * 1.02) & (f0 < fmax * 0.98)]
+            valid = f0[(f0 > fmin * 1.03) & (f0 < fmax * 0.97)]
 
         if len(valid) >= 2:
-            med_f0 = float(np.median(valid))
-            midi_val = 69.0 + 12.0 * math.log2(med_f0 / 440.0)
-            pc = int(round(midi_val)) % 12
-            return NOTE_NAMES[pc], round(med_f0, 2)
+            # Measure steady body (skip initial 85ms pitch-drop on 808/kick or 45ms on tonal instruments)
+            skip_s = 0.085 if is_low else 0.045
+            start_idx = min(len(valid) // 3, int(skip_s * sr / 512)) if dur_s > 0.25 else 0
+            body_f0 = valid[start_idx:] if len(valid[start_idx:]) >= 2 else valid
+            med_f0 = float(np.median(body_f0))
+            midi_vals = 69.0 + 12.0 * np.log2(np.maximum(body_f0, 1e-6) / 440.0)
+            f0_std_st = round(float(np.std(midi_vals)), 3)
+            # Snap exact FFT peak around med_f0 for sub-cent precision
+            n_fft_hi = 65536
+            s_body = min(len(sig) - 2048, int(skip_s * sr)) if dur_s > 0.30 else 0
+            win = sig[max(0, s_body) : min(len(sig), max(0, s_body) + sr * 2)]
+            if len(win) < 512:
+                win = sig
+            sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft_hi))
+            fr = np.fft.rfftfreq(n_fft_hi, 1.0 / sr)
+            lo_b, hi_b = med_f0 * 0.88, med_f0 * 1.12
+            m_b = (fr >= lo_b) & (fr <= hi_b)
+            if np.any(m_b):
+                med_f0 = float(fr[m_b][np.argmax(sp[m_b])])
+            midi_f = 69.0 + 12.0 * math.log2(med_f0 / 440.0)
+            midi_root = int(round(midi_f))
+            cents_offset = round((midi_f - midi_root) * 100.0, 1)
+            fine_tune_ct = int(round(-cents_offset))
+            detected_note = NOTE_NAMES[midi_root % 12]
     except Exception:
         pass
 
+    # 3. Praat HNR (Harmonics-to-Noise Ratio; minimum_pitch=26 Hz for 808 sub support)
+    hnr_db: float | None = None
+    if _HAS_PARSELMOUTH and dur_s >= 0.10:
+        try:
+            snd = parselmouth.Sound(mono_norm.astype(np.float64), sampling_frequency=float(sr))
+            min_p = 26.0 if is_low else 65.0
+            harm = snd.to_harmonicity(minimum_pitch=min_p)
+            vals = harm.values[harm.values > -190.0]
+            if len(vals) > 0:
+                hnr_db = round(float(np.nanmean(vals)), 2)
+        except Exception:
+            pass
+
+    # 4. Polyphony / Chord detection via spectral peaks outside f0 harmonic series (avoids CQT semitone bleed)
+    polyphony_ratio = 0.0
     try:
-        chroma = librosa.feature.chroma_cqt(y=sig, sr=sr, hop_length=512)
-        pc = int(np.argmax(np.mean(chroma, axis=1)))
-        return NOTE_NAMES[pc], None
+        if len(sig) >= 2048 and med_f0 is not None and med_f0 > 25.0:
+            n_fft_p = 65536
+            win = sig[: min(len(sig), sr * 3)]
+            sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft_p))
+            fr = np.fft.rfftfreq(n_fft_p, 1.0 / sr)
+            m_tonal = (fr >= 50.0) & (fr <= 4500.0)
+            sp_t = sp[m_tonal]
+            fr_t = fr[m_tonal]
+            if len(sp_t) > 10:
+                p_idx, _ = signal.find_peaks(sp_t, height=float(np.max(sp_t) * 0.15), distance=25)
+                if len(p_idx) > 0:
+                    dom_amp = float(np.max(sp_t[p_idx])) + 1e-12
+                    non_harm_amps = []
+                    for idx in p_idx:
+                        pf = float(fr_t[idx])
+                        # Check if pf is near k*f0 (or f0/2 sub-octave) within +-55 cents
+                        ratio = pf / med_f0
+                        nearest_k = max(1, round(ratio))
+                        is_harm = (abs(1200.0 * math.log2(pf / (nearest_k * med_f0))) <= 55.0) or (
+                            abs(1200.0 * math.log2(pf / (0.5 * med_f0))) <= 55.0
+                        )
+                        if not is_harm:
+                            non_harm_amps.append(float(sp_t[idx]) / dom_amp)
+                    if non_harm_amps:
+                        polyphony_ratio = round(min(1.0, max(non_harm_amps)), 3)
     except Exception:
-        return None, None
+        pass
+
+    # 5. Harmonicity check (2*f0, 3*f0) for bass_sub / tonal samples
+    inharmonic_warnings: list[str] = []
+    if med_f0 is not None and med_f0 > 25.0 and len(sig) >= 2048:
+        try:
+            n_fft_h = 65536
+            win = sig[: min(len(sig), sr * 2)]
+            sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft_h))
+            fr = np.fft.rfftfreq(n_fft_h, 1.0 / sr)
+            a1 = float(np.max(sp[(fr >= med_f0 * 0.94) & (fr <= med_f0 * 1.06)])) + 1e-12
+            for mult in (2, 3):
+                lo, hi = med_f0 * mult * 0.85, med_f0 * mult * 1.15
+                mh = (fr >= lo) & (fr <= hi)
+                if np.any(mh):
+                    fh = float(fr[mh][np.argmax(sp[mh])])
+                    ah = float(np.max(sp[mh]))
+                    if ah / a1 > 0.12:
+                        err_ct = round(1200.0 * math.log2(fh / (med_f0 * mult)), 1)
+                        if abs(err_ct) > 45.0:
+                            inharmonic_warnings.append(f"h{mult}_deviates_{err_ct:+.0f}ct")
+        except Exception:
+            pass
+
+    # 6. Classify sample_nature & playable_chromatically
+    # Notice: if f0_std_st is super stable (<= 0.25 st) and polyphony_ratio < 0.42, extra onsets from slow reverb/tremolo are NOT a melodic sequence
+    is_melodic_seq = (f0_std_st > 0.75 and not is_low) or (onset_count >= 3 and f0_std_st > 0.35)
+    if is_perc_heavy or (not is_low and r_harm < 0.30 and (hnr_db is None or hnr_db < 4.5)):
+        sample_nature = "percussion"
+        playable = False
+    elif is_melodic_seq:
+        sample_nature = "melodic_sequence"
+        playable = False
+    elif polyphony_ratio >= 0.45:
+        sample_nature = "poly_chord_or_dyad"
+        playable = False
+    elif inharmonic_warnings and not is_low:
+        sample_nature = "inharmonic_bell_or_fx"
+        playable = False
+    elif dur_s >= 5.0 and f0_std_st > 0.40:
+        sample_nature = "ambient_bed"
+        playable = False
+    elif med_f0 is not None and (f0_std_st <= 0.65 or is_low) and polyphony_ratio < 0.45:
+        sample_nature = "mono_oneshot"
+        playable = True
+    else:
+        sample_nature = "ambient_bed" if dur_s >= 4.0 else "percussion"
+        playable = False
+
+    return {
+        "detected_note": detected_note,
+        "detected_f0_hz": round(med_f0, 2) if med_f0 is not None else None,
+        "midi_root": midi_root,
+        "cents_offset": cents_offset,
+        "recommended_fine_tune_ct": fine_tune_ct,
+        "f0_std_semitones": f0_std_st,
+        "onset_count": onset_count,
+        "hnr_db": hnr_db,
+        "polyphony_ratio": polyphony_ratio,
+        "inharmonic_warnings": inharmonic_warnings,
+        "sample_nature": sample_nature,
+        "playable_chromatically": playable,
+        "low_mid_corr": low_mid_corr,
+    }
+
+
+def analyze_vocal_signature(filepath: str) -> dict[str, Any]:
+    """
+    Deterministic DSP vocal & timbre analyzer (CPU-only, zero ML required):
+    Uses librosa + praat-parselmouth (HNR, F0, Formants F1-F3, Jitter, Shimmer) + optional sox.
+    """
+    abs_p = os.path.abspath(os.path.expanduser(filepath))
+    y, sr = librosa.load(abs_p, sr=None, mono=True)
+    dur_total = float(librosa.get_duration(y=y, sr=sr)) if len(y) else 0.0
+    if dur_total <= 0.01:
+        return {"filepath": abs_p, "duree_totale_s": 0.0, "est_voix_probable": False, "style_vocal": "non_vocal"}
+
+    intervals = librosa.effects.split(y, top_db=30)
+    dur_active = float(sum((end - start) / sr for start, end in intervals))
+    ratio_presence = dur_active / dur_total if dur_total > 0 else 0.0
+
+    o_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=512)
+    onsets = librosa.onset.onset_detect(
+        onset_envelope=o_env, sr=sr, hop_length=512,
+        units="time", delta=0.22, wait=max(4, int(0.12 * sr / 512)),
+    )
+    densite_syllabique = (len(onsets) / dur_active) if dur_active > 0.05 else 0.0
+
+    zcr_mean = float(np.mean(librosa.feature.zero_crossing_rate(y=y)[0]))
+    centroid_hz = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)[0]))
+
+    hnr_mean = 0.0
+    f0_med = 0.0
+    f0_std_hz = 0.0
+    formants_hz: list[float] = []
+    jitter_pct = 0.0
+    shimmer_pct = 0.0
+    longest_voiced_s = 0.0
+
+    if _HAS_PARSELMOUTH:
+        snd = parselmouth.Sound(y.astype(np.float64), sampling_frequency=float(sr))
+        harm = snd.to_harmonicity()
+        valid_h = harm.values[harm.values > -190.0]
+        if len(valid_h) > 0:
+            hnr_mean = float(np.nanmean(valid_h))
+
+        pitch = snd.to_pitch()
+        f0_vals = pitch.selected_array["frequency"]
+        dt = float(pitch.dx) if hasattr(pitch, "dx") else 0.01
+        f0_voiced = f0_vals[f0_vals > 0]
+        if len(f0_voiced) > 0:
+            f0_med = float(np.median(f0_voiced))
+            f0_std_hz = float(np.std(np.diff(f0_voiced))) if len(f0_voiced) > 1 else 0.0
+            # Longest contiguous voiced segment
+            run = 0
+            best_run = 0
+            for v in f0_vals:
+                if v > 0:
+                    run += 1
+                    best_run = max(best_run, run)
+                else:
+                    run = 0
+            longest_voiced_s = best_run * dt
+
+        try:
+            formant_obj = snd.to_formant_burg(max_number_of_formants=5, maximum_formant=5500.0)
+            t_mid = dur_total / 2.0
+            for idx in (1, 2, 3):
+                fv = float(formant_obj.get_value_at_time(idx, t_mid))
+                if not math.isnan(fv) and fv > 0:
+                    formants_hz.append(round(fv, 1))
+        except Exception:
+            pass
+
+        try:
+            pp = parselmouth.praat.call(snd, "To PointProcess (periodic, cc)", 75, 600)
+            jit = float(parselmouth.praat.call(pp, "Get jitter (local)", 0, 0, 0.0001, 0.02, 1.3))
+            shm = float(parselmouth.praat.call([snd, pp], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6))
+            if not math.isnan(jit):
+                jitter_pct = round(jit * 100.0, 3)
+            if not math.isnan(shm):
+                shimmer_pct = round(shm * 100.0, 3)
+        except Exception:
+            pass
+    else:
+        f0 = librosa.yin(y, fmin=70, fmax=550, sr=sr)
+        voiced = f0[(f0 > 75) & (f0 < 520)]
+        if len(voiced) > 0:
+            f0_med = float(np.median(voiced))
+            f0_std_hz = float(np.std(np.diff(voiced))) if len(voiced) > 1 else 0.0
+
+    est_voix = bool(80.0 <= f0_med <= 450.0 and hnr_mean > 7.0)
+    if not est_voix:
+        style_vocal = "non_vocal"
+    elif densite_syllabique < 2.0 and (longest_voiced_s >= 0.40 or ratio_presence >= 0.65):
+        style_vocal = "chant_lent_tenu"
+    elif densite_syllabique < 3.5:
+        style_vocal = "chant_rythme"
+    else:
+        style_vocal = "parole_rapide"
+
+    sox_stats: dict[str, Any] | None = None
+    if shutil.which("sox"):
+        try:
+            proc = subprocess.run(["sox", abs_p, "-n", "stat"], capture_output=True, text=True, timeout=5)
+            sox_stats = {"raw_lines": [ln.strip() for ln in proc.stderr.splitlines()[:8] if ln.strip()]}
+        except Exception:
+            pass
+
+    out = {
+        "filepath": abs_p,
+        "duree_totale_s": round(dur_total, 2),
+        "duree_active_s": round(dur_active, 2),
+        "ratio_presence": round(ratio_presence, 2),
+        "est_voix_probable": est_voix,
+        "style_vocal": style_vocal,
+        "hnr_db": round(hnr_mean, 2),
+        "frequence_moyenne_hz": round(f0_med, 1),
+        "attaques_par_seconde": round(densite_syllabique, 2),
+        "instabilite_pitch_hz": round(f0_std_hz, 2),
+        "longest_voiced_s": round(longest_voiced_s, 2),
+        "formants_hz": formants_hz,
+        "jitter_pct": jitter_pct,
+        "shimmer_pct": shimmer_pct,
+        "zcr_mean": round(zcr_mean, 4),
+        "spectral_centroid_hz": round(centroid_hz, 1),
+    }
+    if sox_stats:
+        out["sox_stat"] = sox_stats
+    return out
 
 
 def extract_dsp_metrics(
@@ -427,10 +747,11 @@ def extract_dsp_metrics(
     else:
         spectral_flux = 0.0
 
-    detected_note, detected_f0_hz = _detect_pitch_note(mono_norm, sr, bands)
+    pitch_purity = analyze_pitch_and_purity(y_stereo, mono_norm, sr, bands, r_harm=r_harm)
 
     return {
         "phase_corr": round(float(phase_corr), 4),
+        "low_mid_corr": pitch_purity["low_mid_corr"],
         "crest_factor_db": crest_factor_db,
         "attack_ms": attack_ms,
         "r_harsh": round(r_harsh, 4),
@@ -441,8 +762,18 @@ def extract_dsp_metrics(
         "spectral_flux": spectral_flux,
         "bands": bands,
         "bark_24": bark_24,
-        "detected_note": detected_note,
-        "detected_f0_hz": detected_f0_hz,
+        "detected_note": pitch_purity["detected_note"],
+        "detected_f0_hz": pitch_purity["detected_f0_hz"],
+        "midi_root": pitch_purity["midi_root"],
+        "cents_offset": pitch_purity["cents_offset"],
+        "recommended_fine_tune_ct": pitch_purity["recommended_fine_tune_ct"],
+        "f0_std_semitones": pitch_purity["f0_std_semitones"],
+        "onset_count": pitch_purity["onset_count"],
+        "hnr_db": pitch_purity["hnr_db"],
+        "polyphony_ratio": pitch_purity["polyphony_ratio"],
+        "inharmonic_warnings": pitch_purity["inharmonic_warnings"],
+        "sample_nature": pitch_purity["sample_nature"],
+        "playable_chromatically": pitch_purity["playable_chromatically"],
     }
 
 
@@ -719,6 +1050,7 @@ def score_candidate(
     ref_matrix: np.ndarray | None = None,
     mix_bark: list[float] | None = None,
     target_key: str | None = None,
+    monophonic_only: bool = False,
 ) -> dict[str, Any]:
     """Run Layers 1-4 and compute final composite score S_final per Section 7."""
     dsp = entry["dsp"]
@@ -730,6 +1062,14 @@ def score_candidate(
         return {
             "rejected": True,
             "reject_reason": f"low_phase_corr_for_{role_id}({dsp.get('phase_corr')}<0.70)",
+        }
+
+    sample_nature = dsp.get("sample_nature", "unknown")
+    playable = bool(dsp.get("playable_chromatically", True))
+    if monophonic_only and not playable:
+        return {
+            "rejected": True,
+            "reject_reason": f"not_monophonic_oneshot(nature={sample_nature},onsets={dsp.get('onset_count')},std_st={dsp.get('f0_std_semitones')})",
         }
 
     s_comfort = compute_comfort_score(dsp, needs_fade=bool(entry.get("needs_fade")), role=role_id)
@@ -751,7 +1091,20 @@ def score_candidate(
     else:
         w1, w2, w3, w4 = 0.25, 0.30, 0.45, 0.20
 
-    s_final = round(float(max(0.0, min(1.0, w1 * s_comfort + w2 * s_role + w3 * s_aesth - w4 * p_mask))), 4)
+    penalty = 0.0
+    if role_id in ("lead_melody", "chord_keys", "bass_sub") and not playable:
+        penalty = 0.28
+        warnings.append(
+            f"DISSONANCE_RISK: sample is '{sample_nature}' (onsets={dsp.get('onset_count')}, "
+            f"f0_std={dsp.get('f0_std_semitones')}st, poly={dsp.get('polyphony_ratio')}); "
+            "do NOT play chromatically across MIDI notes without extracting a single mono note!"
+        )
+    if dsp.get("inharmonic_warnings") and role_id in ("bass_sub", "lead_melody", "chord_keys"):
+        warnings.append(f"inharmonic_partials: {dsp.get('inharmonic_warnings')}")
+    if not is_perc and float(dsp.get("low_mid_corr", 1.0)) < 0.50:
+        warnings.append(f"wide_low_mid_phase(corr={dsp.get('low_mid_corr')}): apply M/S <650Hz stabilization")
+
+    s_final = round(float(max(0.0, min(1.0, w1 * s_comfort + w2 * s_role + w3 * s_aesth - w4 * p_mask - penalty))), 4)
 
     if s_final >= 0.70:
         tier = "excellent"
@@ -764,6 +1117,18 @@ def score_candidate(
         "detected_note": dsp.get("detected_note"),
         "recommended_semitone_shift": 0,
     }
+    pitch_info.update({
+        "f0_hz": dsp.get("detected_f0_hz"),
+        "midi_root": dsp.get("midi_root"),
+        "cents_offset": dsp.get("cents_offset"),
+        "recommended_fine_tune_ct": dsp.get("recommended_fine_tune_ct"),
+        "sample_nature": sample_nature,
+        "playable_chromatically": playable,
+        "onset_count": dsp.get("onset_count"),
+        "f0_std_semitones": dsp.get("f0_std_semitones"),
+        "hnr_db": dsp.get("hnr_db"),
+        "low_mid_corr": dsp.get("low_mid_corr"),
+    })
     if pitch_info.get("shift_warning"):
         warnings.append(pitch_info["shift_warning"])
         pitch_info.pop("shift_warning", None)

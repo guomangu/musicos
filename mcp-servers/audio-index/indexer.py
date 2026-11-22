@@ -332,7 +332,9 @@ def _iter_media_files(samples_dir: str) -> list[tuple[str, str]]:
     results: list[tuple[str, str]] = []
     seen_real: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(root_abs, followlinks=True):
-        dirnames[:] = sorted(d for d in dirnames if d != "__MACOSX" and not d.startswith("."))
+        dirnames[:] = sorted(
+            d for d in dirnames if d not in ("__MACOSX", "sfz") and not d.startswith(".")
+        )
         for fname in sorted(filenames):
             if fname.startswith("."):
                 continue

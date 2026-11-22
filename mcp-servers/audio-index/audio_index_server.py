@@ -431,10 +431,12 @@ def evaluate_sample_quality(
     target_key: str = "",
     top_k: int = 10,
     with_clap: bool = True,
+    monophonic_only: bool = False,
 ) -> str:
     """
     Évalue un sample ou tout un dossier de samples avec l'entonnoir psychoacoustique à 4 couches :
     Hard Filter (clipping, phase, silence, clics), Confort Auditif (dureté 2-5kHz, rugosité Plomp-Levelt),
+    Pureté mono-note vs séquence/polyphonie (Praat HNR + YIN + pics FFT),
     Adéquation au rôle (kick, bass_sub, snare_clap, hihat_perc, lead_melody, pad_atmosphere, chord_keys),
     Esthétique LAION-CLAP et Masquage Bark vis-à-vis de mix_path.
     """
@@ -453,7 +455,8 @@ def evaluate_sample_quality(
     if os.path.isfile(abs_target):
         files = [abs_target]
     elif os.path.isdir(abs_target):
-        for root, _, fns in os.walk(abs_target, followlinks=True):
+        for root, dirnames, fns in os.walk(abs_target, followlinks=True):
+            dirnames[:] = sorted(d for d in dirnames if d not in ("__MACOSX", "sfz") and not d.startswith("."))
             for fn in sorted(fns):
                 if os.path.splitext(fn)[1].lower() in {".wav", ".flac", ".ogg", ".mp3", ".aiff", ".aif"}:
                     files.append(os.path.join(root, fn))
@@ -482,6 +485,7 @@ def evaluate_sample_quality(
                 embedder=embedder,
                 mix_bark=mix_bark,
                 target_key=target_key or None,
+                monophonic_only=monophonic_only,
             )
             if scored.get("rejected"):
                 rejected.append({"filepath": fp, "reasons": [scored.get("reject_reason")]})
@@ -518,10 +522,12 @@ def select_best_samples(
     top_k: int = 5,
     min_score: float = 0.55,
     auto_fetch: bool = False,
+    monophonic_only: bool = False,
 ) -> str:
     """
     Sélectionne les meilleurs samples depuis l'index psychoacoustique (sample_index.json + golden_embeddings.npz)
     pour un rôle donné (kick, bass_sub, snare_clap, hihat_perc, lead_melody, pad_atmosphere, chord_keys).
+    Si monophonic_only=True, n'accepte que les one-shots mono-note jouables chromatiquement en MIDI.
     Si auto_fetch=True et qu'aucun candidat local n'atteint 0.70, interroge automatiquement les API en ligne.
     """
     from index_samples import DEFAULT_OUT_DB, index_directory_psychoacoustic
@@ -542,6 +548,7 @@ def select_best_samples(
         query_filter=query,
         auto_fetch=auto_fetch,
         with_clap=True,
+        monophonic_only=monophonic_only,
     )
     return json.dumps(res, ensure_ascii=False, indent=2)
 
@@ -560,6 +567,7 @@ def fetch_samples_online(
     min_score: float = 0.55,
     out_dir: str = "",
     similar_to_fs_id: int | None = None,
+    monophonic_only: bool = False,
 ) -> str:
     """
     Récupère des samples à la volée via Freesound API v2 et/ou Lots of Sounds API,
@@ -583,6 +591,7 @@ def fetch_samples_online(
         min_score=min_score,
         with_clap=True,
         similar_to_fs_id=similar_to_fs_id,
+        monophonic_only=monophonic_only,
     )
     if res.get("accepted") and dst.startswith(os.path.abspath(DEFAULT_SAMPLES_DIR)):
         try:
@@ -590,6 +599,66 @@ def fetch_samples_online(
         except Exception:
             pass
     return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def analyze_sample_dsp(
+    filepath: str,
+    target_key: str = "",
+    include_vocal_signature: bool = True,
+) -> str:
+    """
+    Analyse DSP déterministe pure (CPU, sans modèle IA) d'un sample audio :
+    - Nature : mono_oneshot vs melodic_sequence vs poly_chord_or_dyad vs percussion vs ambient_bed
+    - Accordage exact (f0 Hz, midi_root, cents_offset, recommended_fine_tune_ct A4=440 Hz)
+    - Stabilité F0, polyphonie, inharmonicité, HNR (Praat), corrélation stéréo 200-800 Hz
+    - Signature vocale optionnelle (est_voix_probable, style_vocal, formants F1-F3, attaques/s, jitter/shimmer).
+    """
+    from audio_metrics import analyze_single_file, analyze_vocal_signature, compute_pitch_shift
+
+    abs_p = os.path.abspath(os.path.expanduser(filepath))
+    if not os.path.isfile(abs_p):
+        return json.dumps({"error": f"Fichier introuvable : {abs_p}"}, ensure_ascii=False)
+
+    entry, _ = analyze_single_file(abs_p, with_clap=False)
+    dsp = entry["dsp"]
+    out: dict[str, Any] = {
+        "filepath": abs_p,
+        "duration_sec": entry["duration_sec"],
+        "sample_rate": entry["sample_rate"],
+        "hard_reject": entry["hard_reject"],
+        "reject_reasons": entry["reject_reasons"],
+        "needs_fade": entry["needs_fade"],
+        "pitch_and_purity": {
+            "sample_nature": dsp.get("sample_nature"),
+            "playable_chromatically": dsp.get("playable_chromatically"),
+            "detected_note": dsp.get("detected_note"),
+            "f0_hz": dsp.get("detected_f0_hz"),
+            "midi_root": dsp.get("midi_root"),
+            "cents_offset": dsp.get("cents_offset"),
+            "recommended_fine_tune_ct": dsp.get("recommended_fine_tune_ct"),
+            "f0_std_semitones": dsp.get("f0_std_semitones"),
+            "onset_count": dsp.get("onset_count"),
+            "polyphony_ratio": dsp.get("polyphony_ratio"),
+            "hnr_db": dsp.get("hnr_db"),
+            "inharmonic_warnings": dsp.get("inharmonic_warnings"),
+        },
+        "spectral_and_stereo": {
+            "phase_corr": dsp.get("phase_corr"),
+            "low_mid_corr": dsp.get("low_mid_corr"),
+            "attack_ms": dsp.get("attack_ms"),
+            "crest_factor_db": dsp.get("crest_factor_db"),
+            "r_harsh": dsp.get("r_harsh"),
+            "roughness": dsp.get("roughness"),
+            "r_harm": dsp.get("r_harm"),
+            "bands": dsp.get("bands"),
+        },
+    }
+    if target_key.strip():
+        out["key_alignment"] = compute_pitch_shift(dsp.get("detected_note"), target_key)
+    if include_vocal_signature:
+        out["vocal_signature"] = analyze_vocal_signature(abs_p)
+    return json.dumps(out, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

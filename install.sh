@@ -80,6 +80,9 @@ install_system_deps() {
   have 7z        || missing_pkgs+=(7zip)
   have ar        || missing_pkgs+=(binutils)
   have espeak-ng || missing_pkgs+=(espeak-ng)
+  have sox       || missing_pkgs+=(sox)
+  have aubiopitch || missing_pkgs+=(aubio)
+  rpm -q python3-devel >/dev/null 2>&1 || missing_pkgs+=(python3-devel)
 
   rpm -q pipewire >/dev/null 2>&1 || missing_pkgs+=(pipewire)
   rpm -q pipewire-pulseaudio >/dev/null 2>&1 || missing_pkgs+=(pipewire-pulseaudio)
@@ -578,7 +581,12 @@ configure_workspace_and_mcps() {
   ln -sf .rules "$STUDIO_DIR/GEMINI.md"
   ln -sf .rules "$STUDIO_DIR/AGENTS.md"
 
-  if [[ -d "$STUDIO_DIR/pack" && ! -e "$STUDIO_DIR/samples" ]]; then
+  if [[ -L "$STUDIO_DIR/samples" && ! -e "$STUDIO_DIR/samples" ]]; then
+    rm -f "$STUDIO_DIR/samples"
+  fi
+  if [[ -d "$STUDIO_DIR/soundbanks" && ! -e "$STUDIO_DIR/samples" ]]; then
+    ln -s "$STUDIO_DIR/soundbanks" "$STUDIO_DIR/samples"
+  elif [[ -d "$STUDIO_DIR/pack" && ! -e "$STUDIO_DIR/samples" ]]; then
     ln -s "$STUDIO_DIR/pack" "$STUDIO_DIR/samples"
   elif [[ ! -e "$STUDIO_DIR/samples" ]]; then
     mkdir -p "$STUDIO_DIR/samples"

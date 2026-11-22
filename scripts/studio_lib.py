@@ -156,6 +156,119 @@ def clean_audio_sample(
     }
 
 
+def stabilize_stereo_low_mid(
+    in_path: str,
+    out_path: str,
+    cutoff_hz: float = 650.0,
+    side_keep_low: float = 0.18,
+    side_keep_high: float = 0.85,
+) -> str:
+    """Apply gentle M/S <650 Hz narrowing while preserving high-frequency stereo width."""
+    y, sr = sf.read(in_path, dtype="float32", always_2d=True)
+    if y.shape[1] < 2:
+        y = np.repeat(y, 2, axis=1)
+    M = 0.5 * (y[:, 0] + y[:, 1])
+    S = 0.5 * (y[:, 0] - y[:, 1])
+    sos_lp = signal.butter(2, cutoff_hz, btype="lowpass", fs=sr, output="sos")
+    sos_hp = signal.butter(2, cutoff_hz, btype="highpass", fs=sr, output="sos")
+    S_new = side_keep_low * signal.sosfilt(sos_lp, S) + side_keep_high * signal.sosfilt(sos_hp, S)
+    out = np.column_stack([M + S_new, M - S_new]).astype(np.float32)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    sf.write(out_path, out, sr, subtype="PCM_24")
+    return out_path
+
+
+def extract_clean_oneshot(
+    in_path: str,
+    out_path: str,
+    start_s: float = 0.0,
+    max_dur_s: float = 0.65,
+    fade_in_ms: float = 2.0,
+    fade_out_ms: float = 25.0,
+    lpf_hz: float | None = None,
+    hpf_hz: float | None = None,
+) -> dict[str, Any]:
+    """
+    Extract a single stable mono-note one-shot from a sample or sequence:
+    automatically cuts before the next detected onset if `start_s == 0.0`,
+    removes DC, applies clean fades, and verifies `playable_chromatically`.
+    """
+    import librosa
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from audio_metrics import analyze_single_file
+
+    y, sr = sf.read(in_path, dtype="float32", always_2d=True)
+    y = y - np.mean(y, axis=0, keepdims=True)
+    if y.shape[1] == 1:
+        y = np.repeat(y, 2, axis=1)
+
+    i0 = max(0, int(start_s * sr))
+    y_sub = y[i0:]
+    # Trim leading silence
+    mono = np.max(np.abs(y_sub), axis=1)
+    pk = float(np.max(mono)) + 1e-12
+    nz = np.where(mono > 0.025 * pk)[0]
+    if len(nz):
+        y_sub = y_sub[max(0, int(nz[0] - 0.0015 * sr)) :]
+
+    # Find 2nd distinct onset (> 100ms) so we cut cleanly before the next note in a sequence
+    m_sub = y_sub.mean(axis=1)
+    o_env = librosa.onset.onset_strength(y=m_sub, sr=sr, hop_length=256)
+    o_times = librosa.frames_to_time(
+        librosa.onset.onset_detect(onset_envelope=o_env, sr=sr, hop_length=256, delta=0.18, wait=max(4, int(0.08 * sr / 256))),
+        sr=sr, hop_length=256,
+    )
+    end_s = max_dur_s
+    for t in o_times:
+        if t > 0.11:
+            end_s = min(end_s, float(t) - 0.012)
+            break
+    n_end = max(int(0.08 * sr), min(len(y_sub), int(end_s * sr)))
+    y_cut = y_sub[:n_end].copy()
+
+    tmp = out_path + ".tmp.wav"
+    sf.write(tmp, y_cut, sr, subtype="PCM_24")
+    tel = clean_audio_sample(
+        tmp, out_path, lpf_hz=lpf_hz, hpf_hz=hpf_hz,
+        fade_in_ms=fade_in_ms, fade_out_ms=fade_out_ms,
+        remove_dc=True, max_peak=0.85,
+    )
+    os.remove(tmp)
+    entry, _ = analyze_single_file(out_path, with_clap=False)
+    dsp = entry["dsp"]
+    tel.update({
+        "sample_nature": dsp.get("sample_nature"),
+        "playable_chromatically": dsp.get("playable_chromatically"),
+        "detected_note": dsp.get("detected_note"),
+        "f0_hz": dsp.get("detected_f0_hz"),
+        "midi_root": dsp.get("midi_root"),
+        "recommended_fine_tune_ct": dsp.get("recommended_fine_tune_ct"),
+        "f0_std_semitones": dsp.get("f0_std_semitones"),
+    })
+    return tel
+
+
+def check_pattern_audibility(mcp: GridlineMCP, min_lufs: float = -24.0) -> list[dict[str, Any]]:
+    """Verify every non-empty pattern is audible (`silent == False` and `lufs >= min_lufs`)."""
+    pats = mcp.call("list_patterns", {}).get("patterns", [])
+    issues: list[dict[str, Any]] = []
+    for p in pats:
+        idx = p["pattern"]
+        pat_info = mcp.call("get_pattern", {"pattern": idx})
+        if not pat_info.get("notes") and not pat_info.get("steps"):
+            continue
+        ld = mcp.call("analyze_loudness", {"scope": "pattern", "pattern": idx})
+        lufs = ld.get("lufs")
+        if ld.get("silent") or (lufs is not None and float(lufs) < min_lufs):
+            issues.append({
+                "pattern": idx,
+                "name": p.get("name"),
+                "lufs": lufs,
+                "silent": ld.get("silent"),
+            })
+    return issues
+
+
 def verify_midi_gate(midi_path: str, expected_key: str, max_pitch: int = 84) -> dict[str, Any]:
     """Run strict 7-metric musicality gate via audio-analyzer and raise on FAIL."""
     sys.path.insert(0, f"{ROOT}/mcp-servers/audio-analyzer")

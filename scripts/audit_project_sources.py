@@ -25,6 +25,7 @@ from scipy.signal import find_peaks
 
 sys.path.insert(0, os.path.dirname(__file__))
 from studio_lib import clean_audio_sample
+from audio_metrics import analyze_single_file, analyze_vocal_signature
 
 
 def _analyze_808_harmonics(mono: np.ndarray, sr: int) -> dict[str, Any]:
@@ -107,10 +108,43 @@ def _analyze_long_loop(mono: np.ndarray, sr: int) -> dict[str, Any]:
 
 def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, Any]:
     d = json.load(open(proj_path, encoding="utf-8"))
+    mixer_by_id = {m.get("id"): m for m in d.get("mixer", [])}
+    mixer_warnings: list[str] = []
+
+    # Check mixer hygiene: sidechain buses must receive sidechain=True sends (not direct audio!), flag muted tracks
+    for m in d.get("mixer", []):
+        mname = (m.get("name") or "").lower()
+        if m.get("muted"):
+            mixer_warnings.append(f"MUTED_MIXER_TRACK({m.get('name') or m.get('id')})")
+        # Detect if this track has a sidechain compressor (gl.comp with Detector input=1)
+        has_sc_comp = any(
+            (sl.get("plugin") or {}).get("type") == "gl.comp"
+            and len((sl.get("plugin") or {}).get("params", [])) > 8
+            and (sl.get("plugin") or {}).get("params", [0]*10)[8] == 1
+            for sl in m.get("slots", [])
+        )
+        if has_sc_comp:
+            mid = m.get("id")
+            sc_senders = [
+                src.get("name") or src.get("id")
+                for src in d.get("mixer", [])
+                for s in src.get("sends", [])
+                if s.get("to") == mid and s.get("sidechain")
+            ]
+            audio_senders = [
+                src.get("name") or src.get("id")
+                for src in d.get("mixer", [])
+                for s in src.get("sends", [])
+                if s.get("to") == mid and not s.get("sidechain") and "808" not in (src.get("name") or "").lower() and "bus" not in mname
+            ]
+            if not sc_senders:
+                mixer_warnings.append(f"MISSING_SIDECHAIN_SENDER_TO({m.get('name') or mid})")
+
     report: dict[str, Any] = {
         "project": os.path.abspath(proj_path),
         "tempo": d.get("tempo"),
         "ppq": d.get("ppq"),
+        "mixer_warnings": mixer_warnings,
         "channels": [],
         "prepared_samples": [],
     }
@@ -120,11 +154,13 @@ def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, A
         plug = ch.get("plugin", {})
         spath = plug.get("data")
         name = ch.get("name", f"ch_{idx}")
+        m_obj = mixer_by_id.get(ch.get("mixerTrack"), {})
         entry: dict[str, Any] = {
             "index": idx,
             "name": name,
             "plugin": plug.get("id") or plug.get("type") or ("gl.sampler" if spath else "native"),
-            "mixer": ch.get("mixerTrack"),
+            "mixer_id": ch.get("mixerTrack"),
+            "mixer_name": m_obj.get("name"),
         }
         if spath and os.path.isfile(spath):
             y, sr = sf.read(spath, dtype="float64", always_2d=True)
@@ -159,6 +195,20 @@ def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, A
             if bands["mud_150_300"] >= 35.0:
                 flags.append(f"LOW_MID_HEAVY({bands['mud_150_300']}% -> HPF 175Hz + -4.5dB @ 240Hz)")
 
+            # Deterministic DSP pitch/purity & phase audit on every sample
+            dsp_entry, _ = analyze_single_file(spath, with_clap=False)
+            dsp = dsp_entry["dsp"]
+            nature = dsp.get("sample_nature")
+            playable = dsp.get("playable_chromatically")
+            low_mid_corr = dsp.get("low_mid_corr", 1.0)
+            lname = name.lower()
+            is_perc_ch = any(k in lname for k in ("kick", "snare", "clap", "hat", "hh", "perc", "rim", "crash", "riser", "fx"))
+            is_tonal_playable = any(k in lname for k in ("lead", "chord", "piano", "pluck", "bell", "pad", "keys", "808", "bass"))
+            if is_tonal_playable and not is_perc_ch and not playable:
+                flags.append(f"DISSONANCE_RISK({nature}, onsets={dsp.get('onset_count')}, std_st={dsp.get('f0_std_semitones')}, poly={dsp.get('polyphony_ratio')})")
+            if not is_perc_ch and low_mid_corr < 0.50:
+                flags.append(f"LOW_MID_WIDE_PHASE(corr={low_mid_corr} -> M/S <650Hz)")
+
             entry.update({
                 "file": os.path.basename(spath),
                 "path": spath,
@@ -168,13 +218,26 @@ def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, A
                 "ch": int(y.shape[1]),
                 "peak": round(pk, 3),
                 "max_sample_jump": round(max_diff, 3),
+                "low_mid_corr": low_mid_corr,
+                "pitch_purity": {
+                    "sample_nature": nature,
+                    "playable_chromatically": playable,
+                    "note": dsp.get("detected_note"),
+                    "f0_hz": dsp.get("detected_f0_hz"),
+                    "midi_root": dsp.get("midi_root"),
+                    "fine_tune_ct": dsp.get("recommended_fine_tune_ct"),
+                    "hnr_db": dsp.get("hnr_db"),
+                    "f0_std_st": dsp.get("f0_std_semitones"),
+                    "polyphony_ratio": dsp.get("polyphony_ratio"),
+                },
                 "bands_pct": bands,
                 "flags": flags,
             })
 
-            lname = name.lower()
             if "808" in lname or "bass" in lname or "sub" in lname:
                 entry["bass_harmonics"] = _analyze_808_harmonics(mono, sr)
+            elif any(k in lname for k in ("vox", "vocal", "chant", "voice", "air")):
+                entry["vocal_signature"] = analyze_vocal_signature(spath)
             elif dur >= 5.0:
                 entry["loop_analysis"] = _analyze_long_loop(mono, sr)
 

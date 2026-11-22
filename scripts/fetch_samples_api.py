@@ -63,33 +63,41 @@ def _sanitize_slug(text: str) -> str:
 def normalize_to_wav24(
     src_path: str,
     dst_wav: str,
-    apply_fade_ms: float = 5.0,
+    apply_fade_ms: float = 3.0,
+    is_short_oneshot: bool = False,
 ) -> None:
-    """Convert downloaded MP3/OGG/WAV to 24-bit 44.1 kHz WAV normalized via ffmpeg loudnorm."""
+    """
+    Convert downloaded MP3/OGG/WAV to 24-bit 44.1 kHz WAV.
+    For short one-shots (<2.5s or perc/drums), use clean peak normalization (-1 dBFS)
+    to preserve exact transient phase; for longer beds/loops, use EBU R128 loudnorm.
+    """
     os.makedirs(os.path.dirname(os.path.abspath(dst_wav)), exist_ok=True)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
         tmp_wav = tf.name
     try:
+        cmd = ["ffmpeg", "-y", "-v", "error", "-i", src_path]
+        if not is_short_oneshot:
+            cmd.extend(["-af", "loudnorm=I=-14:TP=-1.0:LRA=11"])
+        cmd.extend(["-ar", "44100", "-c:a", "pcm_s24le", tmp_wav])
         subprocess.run(
-            [
-                "ffmpeg", "-y", "-v", "error", "-i", src_path,
-                "-af", "loudnorm=I=-14:TP=-1.0:LRA=11",
-                "-ar", "44100", "-c:a", "pcm_s24le", tmp_wav,
-            ],
+            cmd,
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        # Apply linear 5ms edge fade + DC removal in Python for click-free one-shots
         import soundfile as sf
         y, sr = sf.read(tmp_wav, dtype="float32", always_2d=True)
         y = y - np.mean(y, axis=0, keepdims=True)
-        n_fade = min(len(y) // 4, int(apply_fade_ms * sr / 1000.0))
-        if n_fade > 0:
-            y[:n_fade] *= np.linspace(0.0, 1.0, n_fade, dtype=np.float32)[:, None]
-            y[-n_fade:] *= np.linspace(1.0, 0.0, n_fade, dtype=np.float32)[:, None]
+        fi = min(len(y) // 4, int(min(apply_fade_ms, 2.0 if is_short_oneshot else apply_fade_ms) * sr / 1000.0))
+        fo = min(len(y) // 4, int((10.0 if is_short_oneshot else apply_fade_ms) * sr / 1000.0))
+        if fi > 0:
+            y[:fi] *= np.linspace(0.0, 1.0, fi, dtype=np.float32)[:, None]
+        if fo > 0:
+            y[-fo:] *= np.linspace(1.0, 0.0, fo, dtype=np.float32)[:, None]
         pk = float(np.max(np.abs(y)))
-        if pk > 0.891:  # -1 dBFS ceiling
+        if is_short_oneshot and pk > 1e-6:
+            y *= (0.891 / pk)  # exact -1.0 dBFS peak norm
+        elif pk > 0.891:
             y *= (0.891 / pk)
         sf.write(dst_wav, y, sr, subtype="PCM_24")
     finally:
@@ -229,6 +237,7 @@ def fetch_and_filter_samples(
     min_score: float = 0.55,
     with_clap: bool = True,
     similar_to_fs_id: int | None = None,
+    monophonic_only: bool = False,
 ) -> dict[str, Any]:
     load_studio_env()
     fs_key = os.environ.get("FREESOUND_API_KEY", "").strip()
@@ -310,7 +319,9 @@ def fetch_and_filter_samples(
                     tf.write(dl.content)
                     tmp_raw = tf.name
                 try:
-                    normalize_to_wav24(tmp_raw, out_wav)
+                    item_dur = float(item.get("duration") or 3.0)
+                    short_flag = item_dur < 2.5 or role_eval in ("kick", "snare_clap", "hihat_perc")
+                    normalize_to_wav24(tmp_raw, out_wav, is_short_oneshot=short_flag)
                 finally:
                     if os.path.exists(tmp_raw):
                         os.remove(tmp_raw)
@@ -327,6 +338,7 @@ def fetch_and_filter_samples(
                 embedder=embedder,
                 mix_bark=mix_bark,
                 target_key=target_key or None,
+                monophonic_only=monophonic_only,
             )
             if scored.get("rejected") or scored["final_score"] < min_score:
                 rejected.append({
@@ -374,6 +386,7 @@ def main() -> None:
     ap.add_argument("--target-key", default="")
     ap.add_argument("--min-score", type=float, default=0.55)
     ap.add_argument("--similar-to-id", type=int, default=None, help="Freesound sound ID for acoustic similarity search.")
+    ap.add_argument("--mono-only", action="store_true", help="Reject melodic sequences / polyphonic chords (require single playable note).")
     ap.add_argument("--no-clap", action="store_true")
     args = ap.parse_args()
 
@@ -391,6 +404,7 @@ def main() -> None:
         min_score=args.min_score,
         with_clap=not args.no_clap,
         similar_to_fs_id=args.similar_to_id,
+        monophonic_only=args.mono_only,
     )
     print(json.dumps(res, indent=2, ensure_ascii=False))
 

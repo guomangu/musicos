@@ -87,6 +87,38 @@ def main() -> None:
     mono = data.mean(axis=1)
     max_jump = round(float(np.max(np.abs(np.diff(mono)))) if len(mono) > 1 else 0.0, 4)
 
+    # Studio Quality Gate evaluation
+    gate_failures: list[str] = []
+    if base["clipped_samples"] > 0:
+        gate_failures.append(f"clipped_samples={base['clipped_samples']} > 0")
+    if base["true_peak_dbtp"] > -1.0:
+        gate_failures.append(f"true_peak_dbtp={base['true_peak_dbtp']} > -1.0")
+    if abs(base["integrated_lufs"] - args.target_lufs) > 1.2:
+        gate_failures.append(f"lufs={base['integrated_lufs']} vs target={args.target_lufs}")
+    if base["stereo"]["correlation_low_end_150hz"] < 0.5:
+        gate_failures.append(f"low_end_corr={base['stereo']['correlation_low_end_150hz']} < 0.50")
+    lm_corr = deep["room_and_transients"]["low_mid_200_800hz_correlation"]
+    if lm_corr < 0.55:
+        gate_failures.append(f"low_mid_corr={lm_corr} < 0.55")
+    sharp = deep["psychoacoustics"].get("sharpness_din_acum", 0.0)
+    if sharp >= 2.2:
+        gate_failures.append(f"sharpness={sharp} >= 2.2")
+    if deep["glitches_and_artifacts"]["micro_glitch_or_crackle_events"] > 0:
+        gate_failures.append(f"micro_glitches={deep['glitches_and_artifacts']['micro_glitch_or_crackle_events']} > 0")
+    if deep["third_octave_resonances"]:
+        gate_failures.append(f"resonances={[r['freq_hz'] for r in deep['third_octave_resonances']]}")
+    if base["spectral_bands"]["low_mids"]["energy_pct"] > 24.0:
+        gate_failures.append(f"low_mids={base['spectral_bands']['low_mids']['energy_pct']}% > 24%")
+    if base["spectral_bands"]["air"]["energy_pct"] < 3.0:
+        gate_failures.append(f"air={base['spectral_bands']['air']['energy_pct']}% < 3.0%")
+    tune_ct = abs(float(deep["psychoacoustics"].get("tuning_cents_offset", 0.0)))
+    if tune_ct > 6.5:
+        gate_failures.append(f"tuning_offset={tune_ct}ct > 6.5ct")
+    if len(sec_lufs) >= 2:
+        arc_db = round(max(sec_lufs.values()) - min(sec_lufs.values()), 2)
+        if arc_db < 2.5:
+            gate_failures.append(f"dynamic_arc={arc_db}dB < 2.5dB")
+
     summary = {
         "out_wav": os.path.abspath(args.out),
         "duration_s": base["duration_seconds"],
@@ -100,9 +132,13 @@ def main() -> None:
         "psychoacoustics": deep["psychoacoustics"],
         "micro_glitches": deep["glitches_and_artifacts"]["micro_glitch_or_crackle_events"],
         "resonances_third_oct": deep["third_octave_resonances"],
-        "low_mid_corr": deep["room_and_transients"]["low_mid_200_800hz_correlation"],
+        "low_mid_corr": lm_corr,
         "neural": deep.get("neural_perception"),
         "section_lufs": sec_lufs,
+        "quality_gate": {
+            "passed": len(gate_failures) == 0,
+            "failures": gate_failures,
+        },
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 

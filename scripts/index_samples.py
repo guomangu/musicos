@@ -57,7 +57,8 @@ def index_directory_psychoacoustic(
             existing_vecs = None
 
     audio_files: list[str] = []
-    for root, _, files in os.walk(abs_in, followlinks=True):
+    for root, dirnames, files in os.walk(abs_in, followlinks=True):
+        dirnames[:] = sorted(d for d in dirnames if d not in ("__MACOSX", "sfz") and not d.startswith("."))
         for fn in sorted(files):
             if os.path.splitext(fn)[1].lower() in AUDIO_EXTS:
                 audio_files.append(os.path.abspath(os.path.join(root, fn)))
