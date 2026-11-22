@@ -12,7 +12,7 @@ import numpy as np
 import pretty_midi
 
 _PERC_TRACK_RE = re.compile(
-    r"\b(kick|snare|clap|open[- ]?hat|hi[- ]?hat|hat|perc|rim|cymbal|crash|tom|shaker|drum|808 kick)\b"
+    r"\b(kick|snare|clap|open[- ]?hat|hi[- ]?hat|hats?|hh|percs?|rim|cymbal|crash|tom|shaker|drum|808 kick|triangle|zap|riser|fx|sfx|chant|chants)\b"
 )
 
 
@@ -102,9 +102,11 @@ def _infer_roles(pm: pretty_midi.PrettyMIDI) -> Dict[str, List[pretty_midi.Instr
 
         if any(k in name for k in ("808", "bass", "sub")) or mean_p < 48.0:
             roles["bass"].append(inst)
+        elif any(k in name for k in ("lead", "melody", "topline", "vox", "vocal")):
+            roles["lead"].append(inst)
         elif any(k in name for k in ("chord", "pad", "string", "rhodes", "harmony")) or poly_ratio >= 0.45:
             roles["chords"].append(inst)
-        elif any(k in name for k in ("lead", "melody", "topline", "vox", "vocal", "piano")):
+        elif "piano" in name:
             roles["lead"].append(inst)
         else:
             roles["counter"].append(inst)

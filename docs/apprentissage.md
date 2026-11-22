@@ -323,3 +323,24 @@ Conformément à [sp_cifications_th_oriques_et_techniques_harmonie_rythme_et_sou
   - `06. hh - bat wing yaiba.wav`, `05. hh - bankroll.wav` et `(SXJ) Percs (8).wav` contenaient des sauts impulsionnels sample-à-sample (`1.00–1.21`) générateurs de micro-clics et d'overshoots True Peak. Un lissage `LPF 11.5–12.5 kHz` + fade-in `2 ms` dans `samples/` ramène `micro_glitch_or_crackle_events` à **`0`**.
   - `NUAN SONAR` concentrait `49,7 %` de son énergie entre `150–300 Hz` (`0,02 %` > `4 kHz`) : une coupe `-5.0 dB @ 245 Hz` + `HPF 185 Hz` sur `mixer 8/9` + présence `BUS Music +2.8 dB @ 1.65 kHz` a porté `high_mids` de `3.92 %` (`v1`) à `15.09 %` (`master_final.wav`).
   - **Rendu final vérifié (`master_final.wav`, `60.00 s`)** : **`-11.83 LUFS`** (`.mp3` `-11.8 LUFS`), **`-1.50 dBTP`**, `0` sample clippé, `0` micro-glitch, `sub = 10.39%`, `low_mids = 21.41%`, `air = 3.87%`, `correlation_low_end_150hz = 0.998`, `low_mid_200_800hz_correlation = 0.873`, `sharpness = 1.608 acum`, `CE = 5.887`, `CU = 7.385`, `PC = 5.791`, `PQ = 7.120`, recommandation `audio-analyzer` : *« Mix équilibré : loudness, True Peak, spectre et phase dans les cibles. »* Arc dynamique : `Intro -15.73 LUFS`, `Refrain 1 -10.37 LUFS`, `Couplet -11.16 LUFS`, `Pont -14.41 LUFS`, `Refrain 2 Climax -10.47 LUFS`, `Outro -18.07 LUFS`.
+
+---
+
+## 14. Post-Mortem Workflow & Optimisations Fiabilité / Tokens (2026-11-22)
+Analyse des goulots d'étranglement et faux positifs observés durant la production de `projects/active6` (*Airey Horizon*), avec correctifs appliqués dans le code et la documentation :
+
+1. **Bug de mesure du diapason (`+41 ct` fantôme) dans `mcp-servers/audio-analyzer/deep_diagnostics.py`** :
+   - *Problème* : `_compute_psychoacoustics` appelait `es.TuningFrequency()` sur un unique bloc de `1,48 s` (`65 536` samples) incluant transitoires de kick/hi-hats, affichant **`450.54 Hz (+41.0 ct)`** alors que chaque section musicale mesurée par CQT était entre **`+0.0` et `+5.0 ct`**.
+   - *Solution* : Calculer `tuning_a4_hz` et `tuning_cents_offset` sur `librosa.effects.harmonic(ex44)` via `librosa.estimate_tuning` (`12 s` harmoniques filtrées). Vérifié sur `master_final.wav` : **`440.51 Hz (+2.0 ct)`**.
+2. **Faux positifs `_PERC_TRACK_RE` & `_infer_roles` dans `musicality_metrics.py` / `deep_diagnostics.py`** :
+   - *Problème* : Des pistes nommées `HH Bankroll`, `Percs (8)`, `FX (4)_2`, `Chants (6)` échappaient à `_PERC_TRACK_RE`, et `"Twin String Lead"` était classé dans `"chords"` parce que `"string"` était testé avant `"lead"`.
+   - *Solution* : Extension unifiée de `_PERC_TRACK_RE` (`hh`, `hats?`, `percs?`, `fx`, `sfx`, `riser`, `zap`, `triangle`, `chant`) partagée entre les deux modules, et priorité des mots-clés `lead/melody/topline/vox/vocal` avant `string` dans `_infer_roles`.
+3. **Coût en tokens/tours des explorations manuelles et des 6 rendus complets (`v1 -> v6`)** :
+   - *Problèmes* : (a) `5` scripts Python ad-hoc pour auditer `newtest.gridline`, les 808 et `NUAN SONAR` ; (b) détection tardive (en `v2` et `v5`) des sauts Nyquist (`1.0–1.21`) sur les hi-hats/`Perc 8`, du partiel inharmonique (`-322.8 ct`) sur `808 (5)`, et de la dérive `-35 ct` de `librosa.effects.pitch_shift` sur sub-bass ; (c) `gridline render` complet (`60 s`) générant ~90 Ko de logs `\r rendering XX%` et bloquant plusieurs tours d'attente ; (d) duplication de `GridlineMCP` et du setup des bus entre `build_active5.py` et `build_active6.py`.
+   - *Solutions déployées* :
+     - **`scripts/audit_project_sources.py`** : pré-audit en 1 appel (harmoniques `1*f0/2*f0/3*f0`, cycles/BPM/chroma des boucles, sauts Nyquist, DC, énergie `150–300 Hz`, + `--prepare-samples`).
+     - **`scripts/studio_lib.py`** : module partagé (`GridlineMCP`, `clean_audio_sample`, `verify_midi_gate`, `setup_standard_buses` pré-calibré `Ceiling = -2.35 dB` + `BUS Music` + `FX Room`).
+     - **`scripts/render_and_audit.py`** : rendu silencieux (0 spam `\r`), support `--range BAR1-BAR2` (~4× plus rapide pour les itérations EQ/mixage) et sortie JSON unique (`analyze_mix` + `audit_mix_deep` + `section_lufs` + `max_sample_jump`).
+4. **Clarification documentaire (`GEMINI.md`, `ARCHITECTURE_AGENTS.md`, `blueprint_help.md`)** :
+   - Préciser explicitement que les synthés déjà inclus dans le `.gridline` initial de l'utilisateur (ex. `gl.twinstring`, `gl.synth`) sont autorisés (seul l'ajout de synthés **non présents** reste interdit).
+   - Référencer les 3 scripts partagés pour réduire de ~60–70 % le nombre d'appels d'outils sur les futurs morceaux.

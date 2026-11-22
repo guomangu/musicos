@@ -6,9 +6,14 @@ Ce guide permet aux agents IA de concevoir rapidement un `song_blueprint.json` s
 
 ## 1. Méthode Rapide (Workflow en 5 étapes avant de coder)
 
-1. **Inventorier les sources existantes** :
-   - Si le projet contient déjà un `.gridline` initial (ex. `Untitled.gridline`), lister ses canaux et extraire : **durée**, **sample rate**, **fréquence fondamentale (`f0`) / note exacte** (pour 808 et one-shots) et **chroma / tonalité** (pour boucles et voix).
-   - Respecter la règle d'or : **zéro ajout de synthé/sample externe non demandé** si l'utilisateur a déjà fourni sa sélection, mais **droit total de dérivation** (time-stretch, découpe de couplets/refrains, version staccato/chopped, riser inversé, couche `+12 st`, filtrage) sauvegardée dans `samples/` du projet.
+1. **Inventorier & pré-nettoyer les sources en 1 appel** :
+   - Si le projet contient déjà un `.gridline` initial (ex. `Untitled.gridline` / `newtest.gridline`), exécuter immédiatement :
+     ```bash
+     /home/gamo/Bureau/musicos/.venv/bin/python scripts/audit_project_sources.py \
+       projects/<actif>/<initial>.gridline --prepare-samples projects/<actif>/samples
+     ```
+     Cela fournit en une passe : liste des canaux, durée, DC offset, sauts Nyquist (`> 0.45`), pureté harmonique des `808` (`1*f0 / 2*f0 / 3*f0` + `Root note` / `Fine tune`), énergie `150–300 Hz` des nappes, et cycles/BPM/chroma des boucles longues (`> 5 s`), tout en générant les one-shots propres dans `samples/`.
+   - Respecter la règle d'or : **zéro ajout de synthé/sample externe non demandé** hors de ceux déjà présents dans le `.gridline` initial, mais **droit total de dérivation** (time-stretch, découpe de couplets/refrains, version staccato/chopped, riser inversé, couche `+12 st`, filtrage) sauvegardée dans `samples/` du projet.
 2. **Fixer la grille temporelle (`bpm` & `time_signature`)** :
    - **Rap / Trap moderne** : si une voix ou boucle est à `70–95 BPM`, passer en **half-time double-grille (`140–190 BPM`)** (ex. voix `90 BPM` → grille **`180 BPM`** dans `active5`). Avantage : `Snare/Clap` verrouillé sur le 3e temps, rolls `1/16` et `1/32` lisibles, et macro-forme naturelle de `64–96 mesures` (`2 min – 2 min 30`).
    - **Boucles à autre tempo** : calculer `rate = target_bpm / source_bpm` (ou `target_half_bpm / source_bpm`) avec `librosa.effects.time_stretch` (préserve le pitch).

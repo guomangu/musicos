@@ -69,10 +69,13 @@ Pour les détails techniques complets (IDs de plugins CLAP/VST3, protocole VGM->
   - **Médiums (1–3 kHz)** : creuser légèrement les instruments si une piste vocale occupe cette poche.
 - Humanise légèrement les vélocités (variation +/- 8..15) et les timings sur les leads/accords pour éviter l'effet robotique.
 
-## 5. Boucle obligatoire d'Auto-Mixage avant livraison
+## 5. Boucle obligatoire d'Auto-Mixage & Outils Studio Rapides (Économie de tokens)
 Avant de conclure un morceau :
-1. Appelle `render_audio(path="mix_check.wav")` (ou dans le dossier `renders/` du projet) puis `save_project()`.
-2. Analyse `mix_check.wav` avec `audio-analyzer:analyze_mix` + `audit_mix_deep(audio_path=..., target_lufs=..., headphone_target="sony_xm6")` (et `analyze_low_end_masking`, `audit_midi_harmony`, `render_project_stems` / `check_pipewire_health` en cas de résonance, d'aigus criards ou de grésillement).
-3. Vérifie : `clipped_samples == 0`, `true_peak_dbtp <= -1.0`, `integrated_lufs` à +/- 1.2 dB de la cible, `correlation_low_end_150hz >= 0.5`, `sharpness_din_acum < 2.2`, `low_mid_200_800hz_correlation >= 0.55`, aucun clash harmonique ou note criarde (> `max_pitch`), et aucun xrun PipeWire sur `bluez_output` (`quantum >= 1024`).
-4. Sinon, ajuste les faders (`edit_mixer_track`), l'EQ (`gl.eq`), le wet des réverbs (`gl.hall`/`gl.reverb`), les presets via `search_synth_presets`, la largeur stéréo (`gl.stereo`) et le limiteur master (`gl.limiter`, preset `"Brickwall -1 dB"` ou `"Loud master"`), re-rends et re-vérifie avec `compare_renders`.
-5. **Capitalisation obligatoire** : À chaque itération (nouveau morceau, correction de mix ou découverte technique), mets à jour [docs/apprentissage.md](docs/apprentissage.md) avec les nouveaux problèmes rencontrés et leurs solutions vérifiées.
+1. **Pré-audit unique des sources (`scripts/audit_project_sources.py`)** : sur tout `.gridline` initial, exécuter `.venv/bin/python scripts/audit_project_sources.py <fichier.gridline> --prepare-samples projects/<actif>/samples` en **1 seul appel** (inventaire, harmoniques `808`, détection de boucles/tempo/chroma, sauts Nyquist, DC offset et nettoyage auto des percussions) plutôt que des scripts Python ad-hoc répétés.
+2. **Construction factorisée (`scripts/studio_lib.py`)** : réutiliser `GridlineMCP`, `verify_midi_gate`, `clean_audio_sample` et `setup_standard_buses` (Master + `BUS Drums` + `BUS 808` + `BUS Music` 4-slots + `FX Room` `Dry=0`).
+3. **Boucle rapide par plage (`scripts/render_and_audit.py`)** :
+   - Itérer d'abord sur un extrait court (`--range 5-12 --no-neural` = ~4× plus rapide et sans spam `\r`) puis valider le rendu final complet (`master_final.wav` + `--mp3` + `--sections`).
+   - Ou, en session live `projects/active`, appeler `render_audio` + `analyze_mix` + `audit_mix_deep(..., headphone_target="sony_xm6")`.
+4. Vérifie : `clipped_samples == 0`, `true_peak_dbtp <= -1.0`, `integrated_lufs` à +/- 1.2 dB de la cible, `correlation_low_end_150hz >= 0.5`, `sharpness_din_acum < 2.2`, `low_mid_200_800hz_correlation >= 0.55`, `micro_glitch_or_crackle_events == 0`, aucun clash harmonique ou note criarde (> `max_pitch`), et aucun xrun PipeWire sur `bluez_output` (`quantum >= 1024`).
+5. Sinon, ajuste les faders (`edit_mixer_track`), l'EQ (`gl.eq`), le wet des réverbs (`gl.hall`/`gl.reverb`), les presets via `search_synth_presets`, la largeur stéréo (`gl.stereo`) et le limiteur master (`gl.limiter`, preset `"Brickwall -1 dB"` / `Ceiling -2.35 dB` + `0.2 dB safety = 1`), re-rends et re-vérifie avec `compare_renders`.
+6. **Capitalisation obligatoire** : À chaque itération (nouveau morceau, correction de mix ou découverte technique), mets à jour [docs/apprentissage.md](docs/apprentissage.md) avec les nouveaux problèmes rencontrés et leurs solutions vérifiées.

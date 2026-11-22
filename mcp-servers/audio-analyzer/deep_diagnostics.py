@@ -192,15 +192,12 @@ def _compute_psychoacoustics(mono: np.ndarray, sr: int) -> dict[str, Any]:
         key, scale, strength = es.KeyExtractor(sampleRate=44100.0)(ex44)
         res["detected_key"] = f"{key} {scale}"
         res["key_confidence"] = round(float(strength), 3)
-        chunk = ex44[:65536] if len(ex44) >= 65536 else ex44[: (len(ex44) // 2) * 2]
-        if len(chunk) >= 2048:
-            spec = es.Spectrum()(es.Windowing(type="hann")(chunk))
-            p_freqs, p_mags = es.SpectralPeaks(sampleRate=44100.0, maxPeaks=60)(spec)
-            if len(p_freqs) > 0:
-                tuning_hz, _ = es.TuningFrequency()(p_freqs, p_mags)
-                if tuning_hz > 100:
-                    res["tuning_a4_hz"] = round(float(tuning_hz), 2)
-                    res["tuning_cents_offset"] = round(1200.0 * math.log2(float(tuning_hz) / 440.0), 1)
+        # Mesure du diapason sur la composante harmonique complète (évite le biais des transitoires de kick/hi-hats)
+        harm_ex = librosa.effects.harmonic(ex44)
+        tuning_st = float(librosa.estimate_tuning(y=harm_ex, sr=44100))
+        tuning_hz = 440.0 * (2.0 ** (tuning_st / 12.0))
+        res["tuning_a4_hz"] = round(tuning_hz, 2)
+        res["tuning_cents_offset"] = round(tuning_st * 100.0, 1)
     except Exception:
         pass
 
@@ -460,7 +457,7 @@ def audit_midi_file(
     """Audite la justesse harmonique, la tessiture (notes trop aiguës), les clashs MIDI et les métriques de musicalité."""
     import music21
     import pretty_midi
-    from musicality_metrics import evaluate_midi_musicality
+    from musicality_metrics import _PERC_TRACK_RE, evaluate_midi_musicality
 
     abs_path = os.path.abspath(os.path.expanduser(midi_path))
     if not os.path.isfile(abs_path):
@@ -491,12 +488,11 @@ def audit_midi_file(
 
     track_reports: list[dict[str, Any]] = []
     melodic_notes: list[tuple[float, float, int, str]] = []
-    perc_re = re.compile(r"\b(kick|snare|clap|open[- ]?hat|hi[- ]?hat|hat|perc|rim|cymbal|crash|tom|shaker|drum|808 kick)\b")
     for inst in pm.instruments:
         name = inst.name or f"Track_{inst.program}"
         if not inst.notes:
             continue
-        is_perc = bool(inst.is_drum) or bool(perc_re.search(name.lower()))
+        is_perc = bool(inst.is_drum) or bool(_PERC_TRACK_RE.search(name.lower()))
         pitches = [n.pitch for n in inst.notes]
         report: dict[str, Any] = {
             "name": name,
