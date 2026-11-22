@@ -1,0 +1,131 @@
+{
+  "title": "Midnight Drift",
+  "genre": "Atmospheric Melodic Trap",
+  "mood": "Rythmé, planant, nocturne et aérien",
+  "bpm": 150,
+  "time_signature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "key": "Bb minor",
+  "swing": 0.06,
+  "target_lufs": -11.0,
+  "harmonic_core": {
+    "key": "Bb",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      {
+        "bar": 1,
+        "symbol": "Bbm7",
+        "bass_midi": 34,
+        "voicing_midi": [53, 56, 58, 61],
+        "chord_tones_pc": [10, 1, 5, 8]
+      },
+      {
+        "bar": 2,
+        "symbol": "Absus2",
+        "bass_midi": 32,
+        "voicing_midi": [51, 56, 58],
+        "chord_tones_pc": [8, 10, 3, 5]
+      },
+      {
+        "bar": 3,
+        "symbol": "Gbmaj7",
+        "bass_midi": 30,
+        "voicing_midi": [53, 54, 58, 61],
+        "chord_tones_pc": [6, 10, 1, 5]
+      },
+      {
+        "bar": 4,
+        "symbol": "Gbmaj7/F",
+        "bass_midi": 29,
+        "voicing_midi": [53, 54, 58, 61],
+        "chord_tones_pc": [6, 10, 1, 5]
+      }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [0, 3, 7, 5, 3],
+      "rhythm_beats": [0.0, 0.5, 1.0, 1.5, 2.0],
+      "apex_midi": 82
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
+  "structure": [
+    {
+      "section": "Intro",
+      "start_bar": 1,
+      "bars": 4,
+      "energy": 0.35,
+      "active_roles": ["harmony_filtered", "vox_ambient", "lead_sparse"],
+      "notes": "M1-M4 (6.4s) : Exposition planante : BFNK filtré LPF 1.2 kHz + VOX Virtual (Bb4) aérien + Synth Lead épuré ; Radiate Riser inversé sur M4."
+    },
+    {
+      "section": "Refrain 1",
+      "start_bar": 5,
+      "bars": 8,
+      "energy": 0.85,
+      "active_roles": ["bass_808", "harmony_open", "lead_main"],
+      "notes": "M5-M12 (12.8s) : Drop rythmé + planant : 808 Pluggg_2 en relais mélodique + Kick + Clap temps 3 + Hi-Hats 1/8-1/16-1/32 + Perc 14 + Synth Lead A-A'-A''-B. Pivot M12 beat 4 (mute + snare fill)."
+    },
+    {
+      "section": "Pont",
+      "start_bar": 13,
+      "bars": 4,
+      "energy": 0.48,
+      "active_roles": ["harmony_chopped", "vox_call_response", "counter_pad"],
+      "notes": "M13-M16 (6.4s) : Respiration planante sans Kick/808 : BFNK chopped rythmique + VOX Virtual & ReUsed en relais + Synth Pad doux + montée snare et BFNK Riser sur M16 -> silence temps 4."
+    },
+    {
+      "section": "Refrain 2 Climax",
+      "start_bar": 17,
+      "bars": 8,
+      "energy": 0.96,
+      "active_roles": ["bass_808_climax", "harmony_shimmer_high12", "lead_apex"],
+      "notes": "M17-M24 (12.8s) : Climax rythmé et céleste : 808 octave bounce + BFNK Full + BFNK High (+12 st) + OG Cym + Open Hat + Synth Lead Apex + Perc 14. Pivot M24 beat 4."
+    },
+    {
+      "section": "Outro",
+      "start_bar": 25,
+      "bars": 4,
+      "energy": 0.28,
+      "active_roles": ["harmony_filtered", "vox_ambient", "lead_cadence"],
+      "notes": "M25-M28 (6.4s -> total ~45.0s) : Soustraction progressive Kick/808/Drums, résolution planante sur Bbm7 avec VOX Virtual et extinction douce."
+    }
+  ],
+  "frequency_plan": {
+    "sub_20_60": "Mono strict réservé à (808) Pluggg_2 sur BUS 808 (HPF 28 Hz, Width=0). Fondamentales entre 43.7 et 77.8 Hz.",
+    "bass_60_250": "Kick Native + DT Farewell Kick (55-120 Hz) en sidechain vers BUS 808 & BUS Music ; HPF >= 175 Hz sur BFNK et >= 160 Hz sur Synth/Vox.",
+    "low_mids_250_500": "BFNK creusé de -4.5 dB @ 240 Hz pour éliminer l'empâtement naturel (75.7% en 150-300 Hz) et garder low_mids <= 22%.",
+    "mids_500_4000": "Synth Lead leader (700-3500 Hz) en relais strict avec VOX Virtual / ReUsed (carve -2.5 dB @ 1.6 kHz sur BFNK).",
+    "highs_4000_20000": "Finesse Hat, Hat Native, Southside Open Hat & OG Cym > 4 kHz (LPF doux 12.5 kHz anti-Nyquist) ; 1 send FX Room partagé (Dry=0, Decay=0.25s <= T_noire=0.40s)."
+  },
+  "tracks": [
+    { "name": "Kick Native", "role": "kick", "source_type": "gridline_native", "plugin": "gl.kick", "mixer_track": 1, "freq_lane": "55-120 Hz + click", "pan": 0.0, "notes": "Kick principal court (125 ms), sidechain vers BUS 808 et BUS Music." },
+    { "name": "Kick Sample", "role": "kick_layer", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/dt_-_farewell_(kick)_2_clean.wav", "mixer_track": 1, "freq_lane": "70-150 Hz", "pan": 0.0, "notes": "Renfort d'attaque punchy sur temps forts des Refrains." },
+    { "name": "808 Pluggg Main", "role": "bass", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/(808)_pluggg_2_clean.wav", "mixer_track": 2, "freq_lane": "43-140 Hz", "pan": 0.0, "notes": "Root=24 (C1), Fine=+4ct, Mono cut-itself (Release 45ms, Glide 55ms), Refrain 1." },
+    { "name": "808 Pluggg Climax", "role": "bass_climax", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/(808)_pluggg_2_clean.wav", "mixer_track": 3, "freq_lane": "43-180 Hz", "pan": 0.0, "notes": "Version Climax avec légère harmonique gl.dist pour Refrain 2." },
+    { "name": "Clap Boring", "role": "clap", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/nm_-_boring_clap_clean.wav", "mixer_track": 4, "freq_lane": "300 Hz - 11.5 kHz", "pan": 0.0, "notes": "Half-time beat 3 immuable." },
+    { "name": "Clap Native", "role": "clap_layer", "source_type": "gridline_native", "plugin": "gl.clap", "mixer_track": 4, "freq_lane": "400 Hz - 11.5 kHz", "pan": 0.0, "notes": "Couche stéréo douce au Refrain 2 Climax." },
+    { "name": "Snare Native", "role": "snare", "source_type": "gridline_native", "plugin": "gl.snare", "mixer_track": 5, "freq_lane": "220 Hz - 11 kHz", "pan": 0.0, "notes": "Ghost notes et fills de transition M4, M12, M16, M24." },
+    { "name": "Hi-Hat Finesse", "role": "hihat_main", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/[pbs]_finesse_hat_clean.wav", "mixer_track": 6, "freq_lane": "4-13 kHz", "pan": 0.06, "notes": "Moteur rythmique 1/8 + 1/16 + rolls 1/32, nettoyé LPF anti-Nyquist." },
+    { "name": "Hi-Hat Native", "role": "hihat_alt", "source_type": "gridline_native", "plugin": "gl.hat", "mixer_track": 6, "freq_lane": "5-13 kHz", "pan": -0.06, "notes": "Subdivisions douces de Pont et doubles accents." },
+    { "name": "Open Hat Southside", "role": "openhat", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/[acd]_-_southsidetriangle_hat_2_clean.wav", "mixer_track": 7, "freq_lane": "5-13 kHz", "pan": -0.14, "notes": "Accents ouverts sur temps clés des Refrains." },
+    { "name": "Cymbal OG", "role": "cymbal", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/[pbs]_og_cym_clean.wav", "mixer_track": 7, "freq_lane": "3.5-13 kHz", "pan": 0.14, "notes": "Crash d'impact sur les drops M5 et M17." },
+    { "name": "Perc 14", "role": "perc", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/nm_-_perc_14_tuned.wav", "mixer_track": 8, "freq_lane": "800 Hz - 10 kHz", "pan": -0.20, "notes": "Percussion tonale accordée (+40ct -> Db6), syncopes." },
+    { "name": "FX (4)_3", "role": "fx", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/fx_4_3_tuned.wav", "mixer_track": 9, "freq_lane": "800 Hz - 10 kHz", "pan": 0.18, "notes": "Accent FX accordé à Bb6 aux transitions." },
+    { "name": "Radiate FX Riser", "role": "fx_riser", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/radiate_riser_150.wav", "mixer_track": 9, "freq_lane": "400 Hz - 11 kHz", "pan": 0.0, "notes": "Riser inversé exact 1 mesure (1.60s) avant Drops M5 et M17." },
+    { "name": "BFNK Notes Base", "role": "harmony", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/bfnk_full_150.wav", "mixer_track": 10, "freq_lane": "180 Hz - 9 kHz", "pan": 0.0, "notes": "Boucle harmonique étirée 120->150 BPM + accordée +7ct (440 Hz), variantes A/Full/Chop." },
+    { "name": "BFNK Shimmer High12", "role": "harmony_shimmer", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/bfnk_high12_150.wav", "mixer_track": 11, "freq_lane": "550 Hz - 11 kHz", "pan": 0.0, "notes": "Couche planante +12 st activée uniquement au Refrain 2 Climax." },
+    { "name": "VOX Virtual", "role": "vocal_pad", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/vox_virtual_bb4.wav", "mixer_track": 12, "freq_lane": "450 Hz - 8 kHz", "pan": -0.10, "notes": "Voix planante accordée sur Bb4 (440 Hz), jouée en relais (Bb4, C5, Db5, F5)." },
+    { "name": "VOX ReUsed", "role": "vocal_chop", "source_type": "sample", "plugin": "gl.sampler", "sample_path": "/home/gamo/Bureau/musicos/projects/active7/samples/vox_reused_f5.wav", "mixer_track": 12, "freq_lane": "500 Hz - 8 kHz", "pan": 0.12, "notes": "Accent vocal accordé sur F5 (-30ct) en réponse au Pont et Refrain 2." },
+    { "name": "Synth Lead", "role": "lead", "source_type": "gridline_native", "plugin": "gl.synth", "mixer_track": 13, "freq_lane": "350 Hz - 7 kHz", "pan": 0.04, "notes": "Bell-pluck planant (Triangle+Sine+detune) pour le motif principal A-A'-A''-B." },
+    { "name": "Synth Counter Pad", "role": "counter", "source_type": "gridline_native", "plugin": "gl.synth", "mixer_track": 14, "freq_lane": "300 Hz - 4.5 kHz", "pan": -0.06, "notes": "Nappe/contre-chant doux en voice-leading pendant le Pont et les creux du Lead." }
+  ],
+  "vocals": {
+    "enabled": false,
+    "language": "en",
+    "singer": "",
+    "lyrics_sections": []
+  }
+}

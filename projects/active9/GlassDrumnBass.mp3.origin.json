@@ -1,0 +1,27 @@
+{
+  "end": -1,
+  "gridlineOrigin": 1,
+  "kind": "render",
+  "rangeKnown": false,
+  "reverse": false,
+  "source": "/home/gamo/Bureau/musicos/projects/active9/samples/dnb_kick_punch.wav",
+  "sources": [
+    "/home/gamo/Bureau/musicos/projects/active9/samples/dnb_kick_punch.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/dnb_snare_crisp.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/tech_dnb_snare_clean.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/tech_dnb_top_8bar_172.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/noisehats_8bar_172.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/dnb_perc_ghost.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/deep_808_clean.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/sausage_bass_clean.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/glass_waves_pad_a_8bar.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/glass_waves_high12_8bar.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/bfnk_pad_fm_shot.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/glass_waves_riser_1bar.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/glass_waves_intro_8bar.wav",
+    "/home/gamo/Bureau/musicos/projects/active9/samples/glass_waves_pad_b_8bar.wav"
+  ],
+  "speed": 1,
+  "start": 0
+}
+

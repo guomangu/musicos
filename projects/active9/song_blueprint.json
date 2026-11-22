@@ -1,0 +1,201 @@
+{
+  "title": "Glass Horizon",
+  "genre": "Atmospheric Liquid Drum and Bass",
+  "mood": "Dreamy, floating, nostalgic, kinetic, emotional",
+  "bpm": 172,
+  "time_signature": { "numerator": 4, "denominator": 4 },
+  "key": "F minor",
+  "swing": 0.02,
+  "target_lufs": -11.0,
+  "harmonic_core": {
+    "key": "F",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      {
+        "bar": 1,
+        "symbol": "Fm7",
+        "bass_midi": 29,
+        "voicing_midi": [53, 56, 60, 63],
+        "chord_tones_pc": [5, 8, 0, 3]
+      },
+      {
+        "bar": 2,
+        "symbol": "Dbmaj9",
+        "bass_midi": 37,
+        "voicing_midi": [53, 56, 61, 63],
+        "chord_tones_pc": [1, 5, 8, 0, 3]
+      },
+      {
+        "bar": 3,
+        "symbol": "Abmaj7",
+        "bass_midi": 32,
+        "voicing_midi": [51, 55, 60, 63],
+        "chord_tones_pc": [8, 0, 3, 7]
+      },
+      {
+        "bar": 4,
+        "symbol": "Eb6",
+        "bass_midi": 39,
+        "voicing_midi": [51, 55, 58, 60],
+        "chord_tones_pc": [3, 7, 10, 0]
+      }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [7, 10, 12, 10],
+      "rhythm_beats": [0.0, 1.0, 2.0, 2.75],
+      "apex_midi": 80
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
+  "structure": [
+    {
+      "section": "Intro",
+      "start_bar": 1,
+      "bars": 8,
+      "energy": 0.34,
+      "active_roles": ["harmony_pad", "piano_motif_sparse", "vocal_atmosphere"],
+      "notes": "Glass Waves intro + Chords Synth doux + Headroom Piano motif epure M5-8 + vocal3 sustain filtre + riser M8 et accent Chant Hi."
+    },
+    {
+      "section": "Drop 1A",
+      "start_bar": 9,
+      "bars": 8,
+      "energy": 0.82,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead"],
+      "notes": "Entree 2-step Liquid DnB epuree (sans Lead Synth ni Noisehats) : Kick + Snare 2&4 + Tech Top + Hats + Deep 808 + Chords + Glass Waves Pad A + Headroom Piano motif A-A'-A''-B."
+    },
+    {
+      "section": "Drop 1B",
+      "start_bar": 17,
+      "bars": 8,
+      "energy": 0.88,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead", "vocal_counter"],
+      "notes": "Glass Waves Pad B + Perc Ghost + BFNK Cloud + reponses vocal3 (G4->F4->Eb4) dans les silences du piano + accents Chant Misc 003 Hi en fin de cycle."
+    },
+    {
+      "section": "Break 1 Planant",
+      "start_bar": 25,
+      "bars": 8,
+      "energy": 0.44,
+      "active_roles": ["reese_swell", "harmony_pad", "piano_lead", "vocal_phrase"],
+      "notes": "Coupure batterie/Deep 808, Sausage Sub doux M29-31, phrase complete vocal3 (C4->G4) sur Fm7->Abmaj7, Headroom Piano intimiste + snare build & riser M31-32."
+    },
+    {
+      "section": "Drop 2A",
+      "start_bar": 33,
+      "bars": 8,
+      "energy": 0.88,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead"],
+      "notes": "Reprise Liquid DnB avec octave bounce 808 + Chords + Glass Waves Pad B + Headroom Piano."
+    },
+    {
+      "section": "Drop 2B Sparkle",
+      "start_bar": 41,
+      "bars": 8,
+      "energy": 0.92,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead", "piano_sparkle", "vocal_counter"],
+      "notes": "Enrichissement cristallin Headroom 99 (registre aigu Eb6/F6/C6) + vocal3 soutenu en appel-reponse + Chant Hi."
+    },
+    {
+      "section": "Break 2 Nocturne",
+      "start_bar": 49,
+      "bars": 16,
+      "energy": 0.42,
+      "active_roles": ["reese_swell", "harmony_pad", "piano_nocturne", "vocal_phrase"],
+      "notes": "Grand pont planant de mi-morceau (16 mesures) : M49-56 piano variation nocturne + vocal3 C4->G4 + Perc Ghost doux ; M57-64 montee Sausage Sub, Pad A, vocal3 reverse swell + snare build."
+    },
+    {
+      "section": "Drop 3A Rolling",
+      "start_bar": 65,
+      "bars": 8,
+      "energy": 0.88,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead"],
+      "notes": "Groove rolling avec variation de kick syncopee + Deep 808 + Headroom Piano + accents Chant Hi Ab3/C4."
+    },
+    {
+      "section": "Drop 3B Soaring",
+      "start_bar": 73,
+      "bars": 8,
+      "energy": 0.93,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead", "piano_sparkle", "vocal_counter"],
+      "notes": "Melodie vocale vocal3 plane (G4->F4->Ab4->G4) + contre-reponse Headroom 99 + BFNK Cloud."
+    },
+    {
+      "section": "Break 3 Suspension",
+      "start_bar": 81,
+      "bars": 16,
+      "energy": 0.40,
+      "active_roles": ["reese_swell", "harmony_pad", "piano_nocturne", "piano_sparkle", "vocal_phrase"],
+      "notes": "Espace stellaire M81-88 (Glass Waves Intro + Headroom Piano + Headroom 99 echos + vocal3) ; M89-96 montee Sausage Sub + vocal3 reverse swell + snare build + riser."
+    },
+    {
+      "section": "Drop 4A Climax",
+      "start_bar": 97,
+      "bars": 8,
+      "energy": 0.94,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead"],
+      "notes": "Impact du climax final : batterie pleine + Tech Top + Perc Ghost + Deep 808 + Glass Waves Pad B + Headroom Piano."
+    },
+    {
+      "section": "Drop 4B Euphoric Peak",
+      "start_bar": 105,
+      "bars": 8,
+      "energy": 0.97,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead", "piano_sparkle", "vocal_counter"],
+      "notes": "Sommet emotionnel : piano, voix vocal3 soutenue, Headroom 99 cristallin et Chant Hi parfaitement entrelaces en appel-reponse."
+    },
+    {
+      "section": "Drop 4C Release",
+      "start_bar": 113,
+      "bars": 8,
+      "energy": 0.85,
+      "active_roles": ["sub_808", "harmony_pad", "piano_lead"],
+      "notes": "Descente controle du climax : retrait progressif des couches hautes tout en gardant le groove DnB roulant."
+    },
+    {
+      "section": "Outro",
+      "start_bar": 121,
+      "bars": 9,
+      "energy": 0.24,
+      "active_roles": ["harmony_pad", "piano_nocturne", "vocal_atmosphere"],
+      "notes": "Soustraction sub/kick M121, extinction hats M123, cadence piano + soupir vocal3 jusqu'a Fm9 a 180.00 s."
+    }
+  ],
+  "frequency_plan": {
+    "sub_20_60": "Mono strict reserve a Deep 808 Sub et Sausage Sub Swell (HPF 28 Hz, jamais simultanes).",
+    "bass_60_250": "DnB Kick (50-125 Hz) en sidechain pre-fader vers BUS 808 et BUS Music ; HPF >= 150 Hz sur Chords, Piano et Pads.",
+    "low_mids_250_500": "Chords Synth, Headroom Piano et Glass Waves stabilises M/S < 650 Hz, coupe douce -3 dB @ 280 Hz.",
+    "mids_500_4000": "Relais temporel entre Headroom Piano (C4-Ab5) et Vocal 3 (G4/F4/Eb4/Ab4, HPF 230 Hz) + creux miroir -2.5 dB @ 1.5 kHz sur Pads.",
+    "highs_4000_20000": "Hi-Hat Crisp + Tech Top (LPF 12.5 kHz, clean) + Headroom 99 Sparkle (Eb6/F6/C6) + FX Room court (0.34 s, HPF 480 Hz, Dry=0)."
+  },
+  "tracks": [
+    { "name": "DnB Kick", "role": "kick", "source_type": "sample", "sample_path": "projects/active9/samples/dnb_kick_punch.wav", "mixer_track": 1, "freq_lane": "45-130 Hz + click 2-4 kHz", "pan": 0.0 },
+    { "name": "DnB Snare", "role": "snare", "source_type": "sample", "sample_path": "projects/active9/samples/dnb_snare_crisp.wav", "mixer_track": 2, "freq_lane": "160 Hz - 10.5 kHz", "pan": 0.0 },
+    { "name": "Tech Snare Layer", "role": "snare_layer", "source_type": "sample", "sample_path": "projects/active9/samples/tech_dnb_snare_clean.wav", "mixer_track": 3, "freq_lane": "200 Hz - 12 kHz", "pan": -0.05 },
+    { "name": "Hi-Hat Crisp", "role": "hihat", "source_type": "gridline_native", "plugin": "gl.hat", "mixer_track": 4, "freq_lane": "5-14 kHz", "pan": 0.14 },
+    { "name": "Tech Top Break FX", "role": "top_loop", "source_type": "loop", "sample_path": "projects/active9/samples/tech_dnb_top_8bar_172_clean.wav", "mixer_track": 5, "freq_lane": "320 Hz - 12.5 kHz", "pan": 0.0 },
+    { "name": "Perc Ghost", "role": "perc", "source_type": "sample", "sample_path": "projects/active9/samples/dnb_perc_ghost.wav", "mixer_track": 6, "freq_lane": "350 Hz - 12 kHz", "pan": -0.22 },
+    { "name": "Deep 808 Sub", "role": "sub_bass", "source_type": "sample", "sample_path": "projects/active9/samples/deep_808_clean.wav", "mixer_track": 7, "freq_lane": "28 - 135 Hz", "pan": 0.0 },
+    { "name": "Sausage Sub Swell", "role": "reese_bass", "source_type": "sample", "sample_path": "projects/active9/samples/sausage_bass_clean.wav", "mixer_track": 8, "freq_lane": "28 - 220 Hz", "pan": 0.0 },
+    { "name": "Chords Synth", "role": "chords", "source_type": "gridline_native", "plugin": "gl.synth", "mixer_track": 9, "freq_lane": "165 Hz - 4.5 kHz", "pan": 0.0 },
+    { "name": "Headroom Piano Lead", "role": "lead", "source_type": "sample", "sample_path": "soundbanks/sfz/headroom-piano/Headroom Piano Clean.sfz", "mixer_track": 10, "freq_lane": "220 Hz - 8 kHz", "pan": 0.04 },
+    { "name": "Headroom 99 Sparkle", "role": "sparkle_keys", "source_type": "sample", "sample_path": "projects/active9/samples/headroom_99_eb7_clean.wav", "mixer_track": 11, "freq_lane": "900 Hz - 13 kHz", "pan": 0.16 },
+    { "name": "Vocal 3 Phrase FX", "role": "vocal_phrase", "source_type": "sample", "sample_path": "projects/active9/samples/vocal3_phrase_g4.wav", "mixer_track": 12, "freq_lane": "240 Hz - 9 kHz", "pan": -0.10 },
+    { "name": "Vocal 3 Counter", "role": "counter", "source_type": "sample", "sample_path": "projects/active9/samples/vocal3_sustain_g4.wav", "mixer_track": 12, "freq_lane": "240 Hz - 9 kHz", "pan": -0.10 },
+    { "name": "Vocal 3 Swell FX", "role": "riser", "source_type": "sample", "sample_path": "projects/active9/samples/vocal3_swell_rev.wav", "mixer_track": 12, "freq_lane": "320 Hz - 9.5 kHz", "pan": 0.0 },
+    { "name": "Chant Hi Ab3 FX", "role": "perc_chant", "source_type": "sample", "sample_path": "projects/active9/samples/chant_hi_ab3.wav", "mixer_track": 13, "freq_lane": "260 Hz - 9 kHz", "pan": -0.18 },
+    { "name": "Chant Hi C4 FX", "role": "perc_chant", "source_type": "sample", "sample_path": "projects/active9/samples/chant_hi_c4.wav", "mixer_track": 13, "freq_lane": "260 Hz - 9 kHz", "pan": 0.18 },
+    { "name": "Glass Waves Pad FX", "role": "pad_texture", "source_type": "loop", "sample_path": "projects/active9/samples/glass_waves_pad_a_8bar.wav", "mixer_track": 14, "freq_lane": "190 Hz - 10 kHz", "pan": 0.0 },
+    { "name": "Glass Waves Pad B FX", "role": "pad_texture", "source_type": "loop", "sample_path": "projects/active9/samples/glass_waves_pad_b_8bar.wav", "mixer_track": 14, "freq_lane": "190 Hz - 10 kHz", "pan": 0.0 },
+    { "name": "BFNK Fm Cloud FX", "role": "pad_echo", "source_type": "sample", "sample_path": "projects/active9/samples/bfnk_pad_fm_shot.wav", "mixer_track": 15, "freq_lane": "250 Hz - 9 kHz", "pan": -0.20 },
+    { "name": "Glass Riser FX", "role": "riser", "source_type": "sample", "sample_path": "projects/active9/samples/glass_waves_riser_1bar.wav", "mixer_track": 16, "freq_lane": "300 Hz - 10 kHz", "pan": 0.0 },
+    { "name": "Glass Waves Intro FX", "role": "pad_intro", "source_type": "loop", "sample_path": "projects/active9/samples/glass_waves_intro_8bar.wav", "mixer_track": 17, "freq_lane": "190 Hz - 10 kHz", "pan": 0.0 }
+  ],
+  "vocals": {
+    "enabled": false,
+    "language": "en",
+    "singer": "",
+    "lyrics_sections": []
+  }
+}

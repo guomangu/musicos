@@ -344,3 +344,50 @@ Analyse des goulots d'étranglement et faux positifs observés durant la product
 4. **Clarification documentaire (`GEMINI.md`, `ARCHITECTURE_AGENTS.md`, `blueprint_help.md`)** :
    - Préciser explicitement que les synthés déjà inclus dans le `.gridline` initial de l'utilisateur (ex. `gl.twinstring`, `gl.synth`) sont autorisés (seul l'ajout de synthés **non présents** reste interdit).
    - Référencer les 3 scripts partagés pour réduire de ~60–70 % le nombre d'appels d'outils sur les futurs morceaux.
+
+
+---
+
+## 15. Production *Midnight Drift* (`projects/active7/projet.gridline`, 28 mesures @ 150 BPM = 45,13 s, `Bb minor`) — 2026-11-22
+- **Format court 45 secondes rythmé et planant à partir de `Untitled.gridline`** :
+  - Analyse de `BFNK - Notes_01.wav` (`16.000 s` @ `120 BPM` exact, `-7 ct`, `75,7 %` d'énergie en `150–300 Hz`, progression `Bbm7 -> Absus2 -> Gbmaj7 -> Gbmaj7/F`) : time-stretch `rate = 1.25` (`12.800 s` = 8 mesures @ `150 BPM`) + recalage `+7 ct` -> `440.0 Hz` exact (`+0.0 ct`).
+  - Dérivés sauvegardés dans `projects/active7/samples/` : `bfnk_full_150.wav`, `bfnk_a_150.wav`, `bfnk_b_150.wav`, `bfnk_chop_150.wav` (gate rythmique à la noire pour le Pont), `bfnk_high12_150.wav` (`+12 st` shimmer Climax), `radiate_riser_150.wav` (riser inversé 1 mesure), `vox_virtual_bb4.wav` (`-210 ct`), `vox_reused_f5.wav` (`-30 ct`), `nm_-_perc_14_tuned.wav` (`+40 ct`), `fx_4_3_tuned.wav` (`-55 ct`), et nettoyage LPF `14 kHz` des hats/cymbales (`0` micro-glitch).
+- **Piège corrélation `200–800 Hz` sur boucle stéréo large (`BFNK - Notes_01.wav`)** :
+  - *Problème* : `BFNK - Notes_01.wav` présentait une corrélation `200–800 Hz` de **`-0,014`** (élargissement stéréo natif extrême), tirant le premier mix de contrôle (`test_ref1.wav`) à `low_mid_corr = 0.177`.
+  - *Solution* : Traitement M/S doux (`< 650 Hz`, atténuation du canal Side à `0.18` tout en conservant `0.90` au-dessus de `650 Hz`) dans les dérivés `bfnk_*_150.wav`. Corrélation `200–800 Hz` portée à `0.910` sur le stem et **`0.707`** sur le master final.
+- **Piège d'écrasement dynamique sur `Intro` avec `gl.synth` + `BUS Music Comp`** :
+  - *Problème* : Avec `BUS Music gl.comp` à `Threshold = -19.5 dB / Makeup +3.6 dB` et `gl.synth` peu sensible à la vélocité, l'`Intro` (`-10.69 LUFS`) était presque au même niveau que `Refrain 1` (`-10.33 LUFS`).
+  - *Solution* : Relever `BUS Music gl.comp Threshold` à `-14.0 dB` (`Makeup +1.4 dB`), `Master Comp Threshold` à `-9.5 dB` (`Makeup +1.4 dB`), et automatiser le fader de `Lead Synth (mixer 12)` (`0.54` Intro -> `0.96` Refrain 1 -> `0.56` Pont -> `1.00` Climax -> `0.52` Outro), rétablissant un arc réel de **`3,2 à 3,9 dB`** (`Intro -12.83 LUFS`, `Refrain1 -9.66 LUFS`, `Pont -13.44 LUFS`, `Climax -9.52 LUFS`, `Outro -16.39 LUFS`).
+- **Rendu final vérifié (`master_final.wav`, `45.13 s`)** : **`-10.71 LUFS`** (`.mp3` généré 320 kbps), **`-1.40 dBTP`**, `0` sample clippé, `0` micro-glitch, `tuning = 440.0 Hz (0.0 ct)`, `correlation_low_end_150hz = 0.999`, `low_mid_200_800hz_correlation = 0.707`, `air = 4.01%`, `sharpness = 1.678 acum`, `CE = 6.720`, `CU = 7.908`, **`PQ = 8.078`**, sondes CLAP toutes saines, verdict `audio-analyzer` : *« Mix équilibré : loudness, True Peak, spectre et phase dans les cibles. »*
+
+
+---
+
+## 16. Production *Simba d'Ea'alah* (`projects/active8/projet.gridline`, 64 mesures @ 144 BPM / 72 BPM ressenti = 107,15 s, `E minor`) — 2026-11-22
+- **Reverse-engineering d'un morceau MP3 (`Ea'alah (Family).mp3`, `240.9 s`, `166.97 BPM` / boucle `5.744 s`, `G major / E minor`) en Cloud Rap inspiré de PNL (*Simba*)** :
+  - **Timeout MCP `split_stems` sur titre long (> 3 min)** : `reverse-engineer:split_stems` a atteint le timeout RPC de 3 min sur un MP3 de `4 min`, alors que le processus enfant `gridline stems --model htdemucs_6s` continuait en arrière-plan (~5 min au total sur CPU) et a produit les 6 stems intacts (`Bass`, `Drums`, `Guitar`, `Other`, `Piano`, `Vocals`). Pour les morceaux `>= 3 min`, lancer `gridline stems` via commande asynchrone ou surveiller sa complétion plutôt que relancer un second `split_stems`.
+  - **Extraction 100 % issue des stems de `Ea'alah (Family).mp3` (zéro synthé ajouté)** :
+    - `Other` (`102–112 s`, `Guitar=0`, `G3` isolé à `111 s` `197.76 Hz`) -> `eaalah_pad_loop.wav` (nappe sous-marine `LPF 2.8 kHz`, stabilisée M/S `< 650 Hz`) + `eaalah_pad_single.wav` (instrument polyphonique d'accords `Em7 -> Cadd9 -> Am7 -> Bm7` avec `Root=55, Fine=-16 ct`).
+    - `Guitar` (`1.89–13.38 s` sans batterie/basse + note isolée `B3` à `230.0 s` `250.02 Hz`) -> `eaalah_guitar_loop.wav` / `_b.wav` (time-stretch `rate = 0.8624` vers `144 BPM`, `-4 ct`), `eaalah_guitar_shimmer.wav` (`+12 st` Climax), `eaalah_guitar_pluck.wav` (`Lead A-A'-A''-B`, `Root=59, Fine=-21 ct`).
+    - `Vocals` (`0.13–5.87 s` & `70.40–76.14 s` sans batterie + note `C5` à `5.72 s` `523.43 Hz`) -> `eaalah_vox_cloud_a/b.wav` (nuages spectraux `360–4200 Hz`) et `eaalah_vox_note_c5.wav` (contre-harmonies placées exclusivement dans les silences du Lead).
+  - **Index `audio-index` vs dossier `soundbanks/`** : Les chemins indexés dans `samples.db` pointant vers `.../samples/<pack>/...` résident physiquement sous `.../soundbanks/<pack>/...`. Penser à vérifier l'existence sur disque (`Deep 808.wav` `33.49 Hz = C1 +41.3 ct`, `Kick Drum 001 Tight.wav`, `Soft Clap.wav`, `Andromeda Snare.wav`, `Crisp hi-hat.wav`, `Chrome Open Hat.wav`).
+  - **Évitement des faux positifs d'audit MIDI sur les déclencheurs de boucles & accords `Cmaj7` (`B3` vs `C4/C5`)** :
+    - Nommer les canaux déclencheurs de boucles longues avec le mot isolé `FX` (`Ea'alah Pad Bed FX`, `Ea'alah Guitar Loop A FX`, `Ea'alah Vocal Cloud A FX`) afin que `_PERC_TRACK_RE` ne prenne pas leurs notes de déclenchement tenues pour des notes d'accords/mélodie, et préférer `Cadd9` (`[52, 55, 60, 62]`) à `Cmaj7` (`B3+C4`) sous un contre-chant `C5`. Résultat sur `simba_eaalah.mid` (`64` mesures) : **`PASS`**, `stepwise = 1.0`, `gap_fill = 1.0`, `rest_ratio = 0.321`, `voice_leading = 0.798 st`, `overlap = 0.0`, `contrary_oblique = 1.0`, `0` clash.
+  - **Choix de hi-hat pour l'air Cloud Rap sans pic `8 kHz`** : `Cloud hi-hat.wav` (`45 ms`, seulement `4.2 %` > `10 kHz`) créait un pic à `8 kHz (+5.57 dB)` sous shelf ; le remplacer par `Crisp hi-hat.wav` (`69.3 %` > `10 kHz`, coupé à `95 ms` et `LPF 11.8 kHz`, `max_diff = 0.443`) a supprimé la résonance `8 kHz`.
+- **Rendu final vérifié (`master_final.wav` & `Simba d'Ea'alah.mp3`, `107.15 s`)** : **`-11.43 LUFS`** (`Intro -15.45`, `Couplet1 -11.23`, `Refrain1 -9.98`, `Pont -14.51`, `Climax -9.89`, `Outro -18.41`), **`-1.82 dBTP`**, `0` sample clippé, `0` micro-glitch, `tuning = 440.0 Hz (0.0 ct)`, `correlation_low_end_150hz = 1.0`, `low_mid_200_800hz_correlation = 0.910`, `sharpness = 1.477 acum`, `CE = 6.69`, `CU = 7.21`, `PQ = 7.457`, toutes les 4 sondes CLAP saines (`shrill_vs_warm = -0.215`).
+
+---
+
+## 17. Extension 3 Minutes & Enrichissement *Glass Horizon* (`projects/active9/projet.gridline`, 129 mesures @ 172 BPM = 180,00 s, `F minor`) — 2026-11-22
+- **Respect des choix stylistiques utilisateur dans un `.gridline` modifié à la main** :
+  - Avant toute refonte, inspecter les IDs canaux/clips et volumes mixeur : l'utilisateur avait retiré `Lead Synth`, `Noisehats Air FX` et `Glass Shimmer`, remonté la `Deep 808` / `Hi-Hat` / `Tech Snare`, et laissé 3 clips audio sur les pistes 16–18 (`Chant Misc 003 Hi.wav`, `HEADROOM PIANO LEVEL1 CLOSE 99.flac`, `vocal-3.ogg`).
+- **Traitement des 3 samples fournis (`A4 = 440 Hz`, anti-aliasing, registre & harmonie)** :
+  - `HEADROOM PIANO LEVEL1 CLOSE 99.flac` présentait un *stretch tuning* natif de **`+30.4 ct`** (`2533.18 Hz` vs `Eb7 = 2489.02 Hz`) et un niveau `pp` très faible (`pk = 0.056`) : dérivé `headroom_99_eb7_clean.wav` recalé `-30.4 ct`, normalisé `0.78`, couplé à `Headroom Piano Clean.sfz` (`gl.multisampler`, `Polyphony = 16`, `Cutoff = 6200 Hz`) pour remplacer `Lead Synth` de manière organique.
+  - `Chant Misc 003 Hi.wav` (`220 Hz` = `A3`, dissonant à `1 st` de `Ab` en `F minor`, et `max_jump = 0.49`) : dérivés `chant_hi_ab3.wav` (`-1 st`) et `chant_hi_c4.wav` (`+3 st`) filtrés (`HPF 240 Hz`, `LPF 8.5 kHz`).
+  - `vocal-3.ogg` (`C4 -> G4`, `391.7 Hz = -1.3 ct`, 2e harmonique dominante à **`783.8 Hz`**) : normalisation à `0.80` sans atténuation avait provoqué un pic de **`+16.59 dB` à `800 Hz`** dans `Break 1` (`-9.98 LUFS` vs `-10.44 LUFS` sur Drop!). Correction vérifiée : volume `mixer 12 = 0.64` + coupe EQ `-7.2 dB @ 784 Hz (Q = 1.6)` + `HPF 230 Hz`.
+- **Collision `_infer_roles` (`musicality_metrics.py`) & micro-glitches `gl.hat` + limiteur `5 ms`** :
+  - Nommer la contre-mélodie vocale `"Vocal 3 Counter"` déclenchait le mot-clé `"vocal"` de `_infer_roles` et fusionnait sa ligne avec `Headroom Piano Lead` (`gap_fill_compliance = 0.571`). Renommer la piste MIDI en `"Counter Harmony (Voice3)"` a rétabli la séparation `lead / counter` (`gap_fill = 0.955`, `lead_overlap_conflict = 0.0`).
+  - En `Break 1`, `gl.hat` (`Tone = 12.2 kHz`) + shelf `BUS Drums +6.2 dB @ 8.2 kHz` + `gl.limiter Attack (look-ahead) = 0.005 s` produisait `7` micro-glitches (`max_jump = 1.136`, `-0.62 dBTP`). Passer `gl.hat Tone = 10.5 kHz`, `BUS Drums Band 7 LPF = 14.2 kHz`, et `gl.limiter Attack = 0.002 s` (`Ceiling = -3.05 dB`) a ramené `micro_glitches` à **`0`** et `true_peak_dbtp` à **`-1.13 dBTP`**.
+- **Rendu final vérifié (`master_final.wav` & `Glass_Horizon_3min.mp3`, `180.92 s`)** : **`-12.12 LUFS`** (`Intro -14.41`, `Drops -10.98 à -11.05`, `Breaks -13.06 à -13.71`, `Outro -15.80`), **`-1.13 dBTP`**, `0` sample clippé, `0` micro-glitch, `tuning = 440.25 Hz (+1.0 ct)`, `correlation_low_end_150hz = 1.0`, `low_mid_corr = 0.848`, `air = 3.58%`, `sharpness = 1.68 acum`, `CE = 6.923`, `CU = 7.403`, `PQ = 7.234`, toutes les 4 sondes CLAP saines, verdict `audio-analyzer` : *« Mix équilibré : loudness, True Peak, spectre et phase dans les cibles. »*
+
+

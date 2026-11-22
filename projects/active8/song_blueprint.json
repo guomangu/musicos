@@ -1,0 +1,336 @@
+{
+  "title": "Simba d'Ea'alah",
+  "genre": "French Cloud Rap / PNL-inspired",
+  "mood": "Mélancolie contemplative nocturne, tristesse lumineuse",
+  "bpm": 144,
+  "time_signature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "key": "E minor",
+  "swing": 0.04,
+  "target_lufs": -11.0,
+  "harmonic_core": {
+    "key": "E",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      {
+        "bar": 1,
+        "symbol": "Em7",
+        "bass_midi": 28,
+        "voicing_midi": [
+          50,
+          52,
+          55,
+          59
+        ],
+        "chord_tones_pc": [
+          4,
+          7,
+          11,
+          2
+        ]
+      },
+      {
+        "bar": 2,
+        "symbol": "Cmaj7",
+        "bass_midi": 36,
+        "voicing_midi": [
+          52,
+          55,
+          59,
+          60
+        ],
+        "chord_tones_pc": [
+          0,
+          4,
+          7,
+          11
+        ]
+      },
+      {
+        "bar": 3,
+        "symbol": "Am7",
+        "bass_midi": 33,
+        "voicing_midi": [
+          52,
+          55,
+          57,
+          60
+        ],
+        "chord_tones_pc": [
+          9,
+          0,
+          4,
+          7
+        ]
+      },
+      {
+        "bar": 4,
+        "symbol": "Bm7",
+        "bass_midi": 35,
+        "voicing_midi": [
+          50,
+          54,
+          57,
+          59
+        ],
+        "chord_tones_pc": [
+          11,
+          2,
+          6,
+          9
+        ]
+      }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [
+        7,
+        11,
+        14,
+        12
+      ],
+      "rhythm_beats": [
+        0.0,
+        0.75,
+        1.5,
+        2.5
+      ],
+      "apex_midi": 79
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
+  "structure": [
+    {
+      "section": "Intro",
+      "start_bar": 1,
+      "bars": 8,
+      "energy": 0.32,
+      "active_roles": [
+        "harmony_filtered",
+        "guitar_loop",
+        "vocal_cloud"
+      ],
+      "notes": "Exposition sous-marine de Ea'alah (Pad LPF + Guitare originale + Voix spectrale) sans batterie ni 808 ; riser inverse M8."
+    },
+    {
+      "section": "Couplet 1",
+      "start_bar": 9,
+      "bars": 16,
+      "energy": 0.64,
+      "active_roles": [
+        "foundation_808",
+        "harmony_carved",
+        "lead_pluck"
+      ],
+      "notes": "Entree 808 Deep ronde (fondamentales E1-C2-A1-B1), clap noye dans la reverb sur temps 3, hats 1/8 doux < 12.5 kHz, espace vocal 1.5-2.5 kHz degage ; pivots M16/M24."
+    },
+    {
+      "section": "Refrain 1",
+      "start_bar": 25,
+      "bars": 8,
+      "energy": 0.88,
+      "active_roles": [
+        "foundation_808",
+        "guitar_loop",
+        "vocal_cloud"
+      ],
+      "notes": "Ouverture du spectre : Guitare d'Ea'alah + Accords Pad + Voix spectrale doublee + couche snare/open-hat + triolets de hats discrets."
+    },
+    {
+      "section": "Pont",
+      "start_bar": 33,
+      "bars": 8,
+      "energy": 0.4,
+      "active_roles": [
+        "harmony_pad",
+        "vocal_harmony",
+        "lead_pluck"
+      ],
+      "notes": "Apesanteur nocturne : coupure 808/Kick, accords m9 ouverts + harmonie vocale C5 d'Ea'alah + riser M40."
+    },
+    {
+      "section": "Refrain 2 Climax",
+      "start_bar": 41,
+      "bars": 16,
+      "energy": 0.95,
+      "active_roles": [
+        "foundation_808",
+        "guitar_shimmer",
+        "lead_pluck"
+      ],
+      "notes": "Climax Cloud Rap : Guitare + Shimmer (+12 st filtre) + Motif complet avec Apex G5 + 808 avec octaves de relance M48/M56."
+    },
+    {
+      "section": "Outro",
+      "start_bar": 57,
+      "bars": 8,
+      "energy": 0.25,
+      "active_roles": [
+        "harmony_filtered",
+        "vocal_cloud"
+      ],
+      "notes": "Soustraction progressive : coupe 808/Kick M57, coupe drums M59, sortie solitaire sur guitare et nappe vocale."
+    }
+  ],
+  "frequency_plan": {
+    "sub_20_60": "Mono strict (Width=0, HPF 28 Hz) reserve a Deep 808 (E1=41.2Hz .. C2=65.4Hz).",
+    "bass_60_250": "Kick Tight sidechain -> BUS 808 & BUS Music ; HPF >= 145 Hz sur guitares, pads et voix.",
+    "low_mids_250_500": "Nappe Ea'alah Pad dominante, stabilisee M/S (< 650 Hz), coupe douce 300 Hz.",
+    "mids_500_4000": "Creux -2.5 dB @ 1.8 kHz sur Pad/Guitare en couplet ; voix spectrale filtrée 360-4200 Hz.",
+    "highs_4000_20000": "Cloud Hats coupes > 12.5 kHz pour douceur nocturne ; FX Cloud Verb (HPF 450 Hz)."
+  },
+  "tracks": [
+    {
+      "name": "Kick Tight",
+      "role": "kick",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/kick_tight.wav",
+      "mixer_track": 1,
+      "freq_lane": "55-120 Hz + click"
+    },
+    {
+      "name": "Soft Clap",
+      "role": "clap",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/clap_soft.wav",
+      "mixer_track": 2,
+      "freq_lane": "1-6 kHz + FX Verb"
+    },
+    {
+      "name": "Andromeda Snare",
+      "role": "snare",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/snare_andromeda.wav",
+      "mixer_track": 3,
+      "freq_lane": "200 Hz - 5 kHz"
+    },
+    {
+      "name": "Cloud Hat",
+      "role": "hat",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/hat_cloud.wav",
+      "mixer_track": 4,
+      "freq_lane": "4-12.5 kHz"
+    },
+    {
+      "name": "Chrome Open Hat",
+      "role": "hat",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/openhat_chrome.wav",
+      "mixer_track": 5,
+      "freq_lane": "3.5-12 kHz"
+    },
+    {
+      "name": "Deep 808 PNL",
+      "role": "bass",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/808_deep_pnl.wav",
+      "mixer_track": 6,
+      "freq_lane": "28-140 Hz mono"
+    },
+    {
+      "name": "Ea'alah Pad Chords",
+      "role": "chords",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_pad_single.wav",
+      "mixer_track": 7,
+      "freq_lane": "150 Hz - 3.2 kHz"
+    },
+    {
+      "name": "Ea'alah Pad Bed",
+      "role": "pad",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_pad_loop.wav",
+      "mixer_track": 8,
+      "freq_lane": "150 Hz - 2.8 kHz"
+    },
+    {
+      "name": "Ea'alah Guitar Loop A",
+      "role": "guitar",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_guitar_loop.wav",
+      "mixer_track": 9,
+      "freq_lane": "160 Hz - 5.8 kHz"
+    },
+    {
+      "name": "Ea'alah Guitar Loop B",
+      "role": "guitar",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_guitar_loop_b.wav",
+      "mixer_track": 10,
+      "freq_lane": "160 Hz - 5.8 kHz"
+    },
+    {
+      "name": "Ea'alah Guitar Shimmer",
+      "role": "guitar",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_guitar_shimmer.wav",
+      "mixer_track": 11,
+      "freq_lane": "750 Hz - 8.5 kHz"
+    },
+    {
+      "name": "Ea'alah Guitar Pluck",
+      "role": "lead",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_guitar_pluck.wav",
+      "mixer_track": 12,
+      "freq_lane": "250 Hz - 7 kHz"
+    },
+    {
+      "name": "Ea'alah Vocal Cloud A",
+      "role": "vocal",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_vox_cloud_a.wav",
+      "mixer_track": 13,
+      "freq_lane": "360 Hz - 4.2 kHz"
+    },
+    {
+      "name": "Ea'alah Vocal Cloud B",
+      "role": "vocal",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_vox_cloud_b.wav",
+      "mixer_track": 14,
+      "freq_lane": "360 Hz - 4.2 kHz"
+    },
+    {
+      "name": "Ea'alah Vocal Note C5",
+      "role": "vocal",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_vox_note_c5.wav",
+      "mixer_track": 15,
+      "freq_lane": "380 Hz - 5.2 kHz"
+    },
+    {
+      "name": "Ea'alah Riser Rev",
+      "role": "fx",
+      "source_type": "sample",
+      "plugin": "gl.sampler",
+      "sample_path": "/home/gamo/Bureau/musicos/projects/active8/samples/eaalah_riser_rev.wav",
+      "mixer_track": 16,
+      "freq_lane": "280 Hz - 5.5 kHz"
+    }
+  ],
+  "vocals": {
+    "enabled": false,
+    "language": "fr",
+    "singer": "",
+    "lyrics_sections": []
+  }
+}
