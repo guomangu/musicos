@@ -1,80 +1,43 @@
-# Facette 4 — DSP Déterministe, Sélection de Samples, APIs Audio, Remix & Chant (Vocaloid)
+# Facette 4 — Mémoire Sonore `samples.db`, DSP Déterministe, APIs, Remix & Chant
 
-> **Cheatsheet IA (L'essentiel en 14 lignes)**
-> - **Règle stricte — Samples fournis initialement** : Si des samples sont fournis initialement (dossier `Samples/` ou `.gridline` existant), **interdiction d'ajouter de nouveaux samples** (ni locaux externes, ni APIs). En revanche, il est autorisé de gérer ces samples et de **créer des versions alternatives des samples fournis** (nettoyage, découpage, extraction de one-shots, filtrage, pitch-shift, inversion, saturation) pour les ajouter au morceau.
-> - **Ordre économique de choix des sons** : (1) Samples/sons déjà fournis par l'utilisateur (en créant des versions alternatives si besoin) → (2) `audio-index:search_samples` (**< 10 ms** sur `samples.db`) ou synthés natifs `gl.*` vérifiés (Facette 1 §3) → (3) Vérification DSP rapide `audio-index:analyze_sample_dsp` (0 GPU, 0 CLAP) → (4) `audio-index:fetch_samples_online(..., monophonic_only=True)` uniquement si aucun sample n'est imposé et qu'un timbre manque.
-> - **Attention timeout CPU** : Ne **pas** appeler `select_best_samples` si `mcp-servers/audio-index/sample_index.json` n'existe pas (sinon indexation CLAP CPU complète synchrone). Préférer `search_samples` + `analyze_sample_dsp`, ou `evaluate_sample_quality(..., with_clap=False)`.
-> - **Zéro dissonance chromatique** : Pour tout sample joué en mélodie/accords dans `gl.sampler`, exiger `playable_chromatically == True` (`sample_nature == "mono_oneshot"`). Si le sample est `melodic_sequence` ou `poly_chord_or_dyad` (`DISSONANCE_RISK`), isoler 1 note via `studio_lib.extract_clean_oneshot(...)` ou remplacer.
-> - **Hygiène audio** : Accordage `A4 = 440.0 Hz ± 5 ct` (`Root note` + `Fine tune`, jamais `pitch_shift` sur 808 `< 80 Hz`) · one-shots `< 2.5 s` en **peak norm `-1.0 dBFS`** (jamais `loudnorm`) · boucles `>= 2.5 s` avec `stabilize_stereo_low_mid` si `low_mid_corr < 0.65`.
-> - **Remix / Flip (tout audio → tout genre)** : `analyze_song_for_rap_flip` → `split_stems` (`htdemucs_6s`) → `transcribe_audio_to_midi` → `master_sketch.mid` → `HPF >= 130 Hz` sur stems.
-> - **Chant (Vocaloid / OpenUTAU)** : `list_voicebanks` → `syllabify_lyrics` → `create_ustx` → `synthesize_vocal_preview` → `gl.sampler` + `addAudioClip`.
+> **Cheatsheet IA (L'essentiel v2.0)**
+> - **Samples fournis initialement** : Si `Samples/` ou un `.gridline` initial existe, **interdiction d'ajouter de nouveaux samples** externes/APIs ; autorisé de **créer des versions alternatives** (`sample_prep_lib.py` : chop, filtre, pitch, reverse, saturation) dans `samples/`.
+> - **Ordre économique** : (1) Samples utilisateur → (2) `audio-index:search_samples` / `select_best_samples` / `scripts/select_sample.py` (**base SQLite `samples.db` unifiée `< 25 ms`**, `samples` + `sample_dsp_metrics`, fallback DSP sans CLAP + `"warning"` si vecteurs absents) ou synthés natifs `gl.*` (`gl_dsl.synth_voice`) → (3) `audio-index:analyze_sample_dsp` (`< 50 ms`) → (4) `fetch_samples_online(..., monophonic_only=True)` si besoin.
+> - **Zéro dissonance chromatique** : Exiger `playable_chromatically == True` (`sample_nature == "mono_oneshot"`) avant de charger un sample mélodique dans `gl.sampler` ; sinon isoler 1 note via `studio_lib.extract_clean_oneshot(...)`.
+> - **Hygiène** : `A4 = 440.0 Hz ± 5 ct` (`measure_fft_tuning()` → `recommended_gl_fine_tune_ct`, jamais `pitch_shift` sur `< 80 Hz`) · one-shots `< 2.5 s` en peak norm `-1.0 dBFS` · boucles `>= 2.5 s` stabilisées (`stabilize_stereo_low_mid`) · carte fichiers → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md).
+> - **Remix / Chant** : `reverse-engineer` (`analyze_song_for_rap_flip` → `split_stems` → `transcribe_audio_to_midi` → `HPF >= 130 Hz`) · `vocaloid` (`list_voicebanks` → `syllabify_lyrics` → `create_ustx` → `synthesize_vocal_preview` → `addAudioClip`).
 
 ---
 
-## Chapitre 1 — Arbre de Décision : Choisir des Sons Sans Gaspiller Tokens ni CPU
+## Chapitre 1 — Arbre de Décision : Sélection & Mémoire Sonore Unifiée (`samples.db`)
 
-Suivre cet ordre exact (s'arrêter dès qu'un son propre est trouvé) :
+Suivre cet ordre exact :
 
-1. **Samples ou projet `.gridline` fournis initialement par l'utilisateur** :
-   - Exécuter en 1 appel `.venv/bin/python scripts/audit_project_sources.py <projet.gridline> --prepare-samples <proj>/samples` (ou analyser le dossier `Samples/` fourni).
-   - **Règle impérative** : si des samples sont fournis initialement, **ne pas rajouter de nouveaux samples** (aucun ajout depuis `samples.db`, d'autres dossiers ou des APIs en ligne).
-   - **Versions alternatives autorisées** : il est possible de gérer les samples fournis et d'en **créer des versions alternatives** dans `samples/` (nettoyage, découpage/chops, extraction `mono_oneshot`, filtrage LPF/HPF, EQ, pitch-shift, inversion, saturation douce, étirement) et de les ajouter au morceau.
-2. **Recherche locale instantanée (`samples.db`, `< 10 ms`)** :
-   - `audio-index:search_samples(query="warm piano", category="...", musical_key="C minor", limit=8)` ou `find_compatible_samples(bpm=..., musical_key=...)`.
-   - Vérifier les 2–3 meilleurs candidats avec `audio-index:analyze_sample_dsp(filepath)` (`< 50 ms`, 0 CLAP).
-3. **Synthèse native `gl.*` (0 téléchargement, 0 dissonance, 100 % polyphonique)** :
-   - Idéal pour basses (`gl.fingerbass`, `gl.analog`, `gl.acid`), claviers (`gl.keys`), cordes (`gl.string`, `gl.twinstring`), plucks (`gl.plucker`), nappes (`gl.warmsynth`, `gl.dcosynth`) et kits (`gl.drumkit`). Chercher des presets avec `audio-index:search_synth_presets(query=...)`.
-4. **Scoring psychoacoustique local (`sample_index.json`)** :
-   - Utiliser `scripts/select_sample.py --role ... --mono-only --no-clap` **uniquement si** `mcp-servers/audio-index/sample_index.json` existe déjà.
-   - **Piège CLI** : dans `scripts/select_sample.py`, `--query` est un **filtre sur le nom de fichier/chemin** (mots simples comme `"bell"`, `"kick"`), **pas** une phrase descriptive CLAP.
-5. **Récupération API en ligne CC0 (Freesound v2 / Lots of Sounds)** :
-   - Uniquement si aucun candidat local propre n'existe : `audio-index:fetch_samples_online(query="glass bell C4", role="lead_melody", monophonic_only=True, limit=5)` ou CLI `scripts/fetch_samples_api.py --mono-only --no-clap`.
+1. **Projet / Samples fournis initialement** : `.venv/bin/python scripts/audit_project_sources.py <projet.gridline> --prepare-samples <proj>/samples`. Zéro ajout externe ; préparer les dérivés uniquement depuis les sources fournies.
+2. **Base SQLite unifiée `samples.db` (`< 25 ms`, 0 GPU, 0 CLAP synchrone)** :
+   - `search_samples`, `find_compatible_samples`, `select_best_samples` et `scripts/select_sample.py` (`--role`, `--target-key`, `--mono-only`, `--top 8`) lisent `samples` + `sample_dsp_metrics` dans `samples.db` (`sfz/` exclu). Sans `clap_embedding`, le classement DSP retourne immédiatement avec `"warning": "clap_index_missing_fallback_dsp"`.
+   - Vérifier les finalistes avec `audio-index:analyze_sample_dsp(filepath)` (`< 50 ms`).
+   - *Maintenance CLI* : `OMP_NUM_THREADS=1 .venv/bin/python scripts/index_samples.py --no-clap --workers 6` (`spectral_profiles.json` géré sans PyTorch par `bootstrap_golden_refs.py`).
+3. **Synthèse native `gl.*`** : 18 synthés dans `gl_dsl.SYNTH_REGISTRY` (`search_synth_presets`, zéro téléchargement).
+4. **Récupération CC0 en ligne (si absent en local)** : `audio-index:fetch_samples_online(..., monophonic_only=True)` ou `scripts/fetch_samples_api.py --mono-only --no-clap` (clés `.env` : `FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`).
 
 ---
 
-## Chapitre 2 — Pipeline DSP Déterministe (Zéro GPU) & Exclusion `sfz/`
+## Chapitre 2 — DSP Déterministe, Pureté `mono_oneshot` & Signature Vocale
 
-* **CLI système** : `sox`, `aubio` (`aubiopitch`, `aubioonset`, `aubiotrack`), `ffmpeg`.
-* **Bibliothèques Python (`.venv`)** :
-  * **`librosa`** : RMS, `effects.split`, `onset_detect`, Centroïde/Rolloff/ZCR, YIN.
-  * **`praat-parselmouth`** (`0.4.7`) : **HNR** (*Harmonics-to-Noise Ratio* dB), $F_0$ dès `26 Hz`, **Formants** ($F_1, F_2, F_3$), **Jitter / Shimmer**.
-  * **`scipy` / `soundfile` / `essentia`** : corrélation de phase stéréo par bande, détection sauts Nyquist, harmoniques `1*f0, 2*f0, 3*f0` sur basses/808.
-* **Exclusion `sfz/`** : tous les indexeurs (`indexer.py`, `index_samples.py`, `evaluate_sample_quality`) ignorent automatiquement tout répertoire `sfz/`.
+* **Outils (`0 GPU`, hors `sfz/`)** : `librosa` (YIN, onsets, HPSS rapide), `praat-parselmouth` (`HNR`, $F_0$ dès `26 Hz`, formants), `scipy`/`essentia`/`soundfile` (phase M/S, Nyquist, harmoniques 808).
+* **`sample_nature`** : **`mono_oneshot`** (`playable_chromatically = True`, seul autorisé chromatiquement) · `melodic_sequence` (isoler 1 note via `extract_clean_oneshot`) · `poly_chord_or_dyad` (`DISSONANCE_RISK`) · `inharmonic_bell_or_fx` / `ambient_bed` / `percussion`.
+* **`analyze_vocal_signature`** : `est_voix_probable` (`80..400 Hz`, `HNR > 7 dB`), `chant_lent_tenu` (`< 2` attaques/s), `ratio_presence > 0.75`.
+* **Scoring 4 couches** : (1) Hard Filter (clipping, silence, phase `< 0.2`, `DISSONANCE_RISK`, `LOW_MID_WIDE_PHASE`), (2) Confort (`r_harsh` `2–5 kHz`, Plomp-Levelt ; filtrer `Cutoff <= 6 kHz` si centroïde `> 2.5 kHz` en `valence < 0` / `lofi_chill`), (3) Adéquation rôle & Bark 24 bandes, (4) CLAP optionnel.
 
 ---
 
-## Chapitre 3 — Pureté Mélodique (`mono_oneshot`), Signature Vocale & Nettoyage
+## Chapitre 3 — Nettoyage, Transitoires & Préparation (`sample_prep_lib.py`)
 
-### 3.1 Classification `sample_nature` (`analyze_pitch_and_purity` / `analyze_sample_dsp`)
-* **`mono_oneshot`** (`playable_chromatically = True`) : note unique stable (`onsets <= 2`, `f0_std_st <= 0.65`, faible `polyphony_ratio`) → **seul type autorisé** pour jouer mélodies ou accords dans `gl.sampler`.
-* **`melodic_sequence`** : riff/arpège multi-notes → interdit en piano-roll chromatique. Extraire 1 note via `studio_lib.extract_clean_oneshot(...)` ou n'utiliser que comme boucle entière dans sa tonalité exacte.
-* **`poly_chord_or_dyad`** (`DISSONANCE_RISK`) : accord pré-enregistré → interdit de transposition parallèle (Règle V2).
-* **`inharmonic_bell_or_fx` / `ambient_bed` / `percussion`** : textures, risers, lits ou percussions.
-* **Hygiène Basse / 808** : vérifier `f0`, `2*f0`, `3*f0` via `audit_project_sources.py` ; appliquer `recommended_root_midi` + `recommended_fine_tune_ct` dans `gl.sampler` (**jamais** `librosa.effects.pitch_shift` sur `< 80 Hz`).
-
-### 3.2 Signature Vocale (`analyze_vocal_signature`)
-Répond en quelques millisecondes à *« Voix ? Chant lent ? Chant continu ? »* :
-* **Voix probable** (`est_voix_probable`) : $80 \le F_0 \le 400\text{ Hz}$, $\text{HNR} > 7\text{ dB}$, formants $F_1, F_2, F_3$ vocaux.
-* **Chant lent / tenu** (`chant_lent_tenu`) : `< 2.0` attaques/s, `longest_voiced_s` élevé, vibrato régulier.
-* **Continuité** : `ratio_presence = duree_active_s / duree_totale_s > 0.75`.
-
-### 3.3 Entonnoir de Scoring 4 Couches & Normalisation (`studio_lib.py`)
-1. **Hard Filter** : rejet si clipping consécutif, silence, phase destructrice ($\rho_{LR} < 0.2$), `DISSONANCE_RISK` si `monophonic_only=True`, ou `LOW_MID_WIDE_PHASE`.
-2. **Confort Auditif** : dureté `2–5 kHz` (`r_harsh`), pics résonants, rugosité Plomp-Levelt :
-   * **Plafond de brillance selon la Valence** : Pour tout projet avec `valence < 0` ou profil `lofi_chill` / `trap_rap` sombre, rejeter ou filtrer (`gl.sampler Filter = 1 [Low pass], Cutoff <= 6 kHz`) tout sample `lead_melody` ou `chord_keys` dont le centroïde spectral dépasse **`2.5 kHz`** ou présentant une énergie excessive dans `2.5–5 kHz` (`r_harsh`).
-   * **Hi-hats doux** : Privilégier des hats courts sans pic résonant entre `3 kHz` et `6 kHz` ; si le sample est métallique, appliquer systématiquement un LPF à `10–12 kHz` et un creux `-3 dB @ 4 kHz`.
-3. **Adéquation au Rôle & Masquage Bark (24 bandes)** : roles valides = `kick`, `bass_sub`, `snare_clap`, `hihat_perc`, `lead_melody`, `pad_atmosphere`, `chord_keys`.
-4. **Esthétique CLAP** (optionnel CPU) + calcul `Root note` / `Fine tune` vers `440.0 Hz`.
-
-* **Nettoyage obligatoire & 4 Lois d'agrément des transitoires rapides ("Tics" / Hi-Hats)** :
-  * **1. Ratio Harmonie/Bruit (`2–6 kHz`)** : spectre large et lisse sans pic isolé (**$Q > 8$** dépassant de **`> 6 dB`** le voisinage spectral) ; si présent, appliquer un EQ soustractif chirurgical (`gl.eq Band type = 6 Peak`, **`-3` à `-6 dB`**, **`Band N width = 0.20–0.25`** *Q étroit*).
-  * **2. Enveloppe transitoire** : temps d'attaque (**`Attack`) de `1 à 3 ms`** (jamais `0 ms` numérique) et relâchement strictement inférieur à l'écart entre frappes (**$T_{\text{decay}} < 0{,}8 \times T_{\text{note}}$**).
-  * **3. Loi Anti-Mitraillette (micro-modulation stochastique)** : varier chaque frappe sur la **vélocité** (ex. temps fort `100 %`, contretemps `65 %`, subdivisions `40 %`, **`±5 %`**), la **hauteur** (**`±5` à `±15 ct`**) et le **filtre LPF** (fréquence de coupure proportionnelle à la vélocité).
-  * **4. Ancrage spectral (`>= 1/16`)** : concentrer l'énergie principale entre **`7 kHz et 14 kHz`** avec **HPF `500 Hz – 1 kHz`** minimum pour supprimer tout résidu grave.
-  * **One-shots courts (`< 2.5 s`, percussions)** : `clean_audio_sample(..., max_peak=0.85, fade_in_ms=2.0, fade_out_ms=15.0)` (**peak norm `-1.0 dBFS`**, jamais `loudnorm`).
-  * **Boucles / Pads (`>= 2.5 s`)** : `pcm_s24le 44.1 kHz`, `loudnorm` doux (`I=-14:TP=-1.0:LRA=11`), et `stabilize_stereo_low_mid(...)` (`< 650 Hz`) si `low_mid_corr < 0.65`.
-  * **Extraction 1 note pure** : `extract_clean_oneshot(in_path, out_path, start_s=0.0, max_dur_s=0.65, fade_in_ms=2.0, fade_out_ms=25.0)`.
-  * **Pipeline déclaratif centralisé (`scripts/sample_prep_lib.py`)** : toujours utiliser `process_sample_specs(src_dir, out_dir, specs)` (gère découpage `slice_s`, `eq_peaks`, `varispeed_hz`, `pitch_shift_st`, `saturate_drive`, `time_stretch_rate`, `reverse`, `stabilize_low_mid`, nettoyage 24-bit et audit `manifest.json` avec `measure_fft_tuning()`). **Signe exact `gl.sampler Fine tune`** : `+X` monte de `+X ct`, `-X` baisse de `-X ct` (`recommended_gl_fine_tune_ct = -round(fft_cents_offset)`).
+* **Transitoires rapides ("Tics" / Hi-Hats `>= 1/16`)** : spectre lisse sans pic étroit `Q > 8` (`> 6 dB` dans `2–6 kHz`, sinon creux `gl_dsl.eq_band` `-3..-6 dB`), `Attack >= 1–3 ms`, $T_{\text{decay}} < 0{,}8 \times T_{\text{note}}$, énergie `7–14 kHz` (`HPF >= 500 Hz`), humanisation via `groove_lib.apply_anti_machine_gun`.
+* **Normalisation & Extraction** : one-shots `< 2.5 s` via `studio_lib.clean_audio_sample(..., max_peak=0.85)` (`-1.0 dBFS`, fades `2/15 ms`, jamais `loudnorm`) ; boucles `>= 2.5 s` en 24-bit `44.1 kHz` (`loudnorm` doux + `stabilize_stereo_low_mid` si corrélation `< 0.65`) ; extraction 1 note pure via `extract_clean_oneshot(...)`.
+* **Pipeline déclaratif centralisé (`scripts/sample_prep_lib.py`)** : utiliser `process_sample_specs(src_dir, out_dir, specs)` (`slice_s`, `eq_peaks`, `varispeed_hz`, `pitch_shift_st`, `saturate_drive`, `time_stretch_rate`, `reverse`, `stabilize_low_mid`, export 24-bit et `manifest.json` avec `measure_fft_tuning()` → `recommended_gl_fine_tune_ct`, où `+X` monte de `+X ct`).
+* **Hygiène Basse / 808** : vérifier `f0`, `2*f0`, `3*f0` via `audit_project_sources.py` ; régler `Root note` + `Fine tune` dans `gl.sampler` (**jamais** `pitch_shift` sur `< 80 Hz`).
 
 ---
 
@@ -83,10 +46,12 @@ Répond en quelques millisecondes à *« Voix ? Chant lent ? Chant continu ? »*
 Clés dans `.env` (`FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`). Client : `scripts/fetch_samples_api.py` ou `audio-index:fetch_samples_online`.
 * **Freesound v2 (`https://freesound.org/apiv2`)** : header `Authorization: Token <KEY>`, requête courte en anglais (`"warm rhodes C4"`, `"acoustic snare dry"`), filtre CC0 automatique, `fields=id,name,duration,tags,previews,license`.
 * **Lots of Sounds (`https://api.lotsofsounds.com`)** : 100 % CC0, mots-clés courts (`1–2` mots), conversion obligatoire FFmpeg `-c:a pcm_s24le -ar 44100`.
-* **Exemple CLI rapide (sans CLAP)** :
+* **Exemple CLI rapide (DB SQLite < 25 ms & API CC0 sans CLAP)** :
   ```bash
+  .venv/bin/python scripts/select_sample.py --role lead_melody --target-key "C minor" --mono-only --top 6
   .venv/bin/python scripts/fetch_samples_api.py --role lead_melody --query "glass bell C4" --mono-only --no-clap --limit 6
   ```
+*(Rappel `--query` : filtre lexicographique sur chemin/fichier SQLite ; combinable avec `--role`, `--target-key`, `--mono-only`, `--json`.)*
 
 ---
 

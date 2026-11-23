@@ -14,6 +14,7 @@ from mcp.server.mcpserver import MCPServer
 from scipy import signal
 
 from deep_diagnostics import (
+    analyze_stem_hierarchy as _analyze_stem_hierarchy_impl,
     audit_midi_file,
     inspect_pipewire,
     match_with_reference,
@@ -390,6 +391,8 @@ def audit_midi_harmony(
     strict_musicality: bool = True,
     valence: float = 0.0,
     tension: float = 0.3,
+    time_signature: str = "",
+    phrase_plan: str = "",
 ) -> str:
     """Audite un fichier MIDI via music21 + pretty_midi + musicality_metrics : justesse, tessiture, clashs, voice leading et musicalité mélodique."""
     return json.dumps(
@@ -401,6 +404,8 @@ def audit_midi_harmony(
             strict_musicality=strict_musicality,
             valence=valence,
             tension=tension,
+            time_signature=time_signature or None,
+            phrase_plan=phrase_plan,
         ),
         ensure_ascii=False,
         indent=2,
@@ -430,6 +435,26 @@ def render_project_stems(
     """Exporte les pistes/stems séparés d'un fichier .gridline et mesure pour chacun son niveau, centroïde et énergie 200-500Hz / 2-6kHz."""
     return json.dumps(
         render_stems_and_audit(project_path=project_path, output_dir=output_dir, mode=mode),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+def analyze_stem_hierarchy(
+    project_path: str = "",
+    range_bars: str = "",
+    stems_dir: str = "",
+    has_drums: bool = True,
+) -> str:
+    """Audite la hiérarchie inter-stems (Lead vs Harmonie 800Hz-3.5kHz, chevauchement Kick/Bass <150Hz, pente rose 60Hz-12kHz)."""
+    return json.dumps(
+        _analyze_stem_hierarchy_impl(
+            project_path=project_path,
+            range_bars=range_bars,
+            stems_dir=stems_dir,
+            has_drums=has_drums,
+        ),
         ensure_ascii=False,
         indent=2,
     )

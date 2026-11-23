@@ -1,14 +1,14 @@
-# Facette 5 — Mixage Multi-Genres, Topologie Buses, Quality Gate, Table Symptôme→Fix & Playbook
+# Facette 5 — Mixage Multi-Genres, Stems, Auto-Fix, Quality Gate & Références
 
-> **Cheatsheet IA (L'essentiel en 14 lignes)**
-> - **Mixage adapté au genre** : Toujours passer **`--profile <mix_profile>`** et **`--beats-per-bar <num>`** à `scripts/render_and_audit.py` (et `profile=..., valence=...` à `studio_lib.setup_standard_buses`). Ne jamais forcer des seuils Trap sur du Lo-Fi, Jazz, Classique ou Ambient !
-> - **Boucle rapide CPU** : (1) Itérer sur un extrait du Refrain/Climax avec `--range <b1>-<b2> --no-neural` (~5× plus rapide, 0 PyTorch), (2) corriger en **1 passe** via la **Table Symptôme→Fix (§3.2)**, (3) lancer **1 seul rendu complet** `--mp3 --sections "..."` (avec score Audiobox PQ) et exiger `quality_gate.passed == true`.
-> - **Topologie Buses** : `BUS Drums (17)` · `BUS Bass (18, mono <150 Hz)` · `BUS Music (19, gl.dist Slot 1 -> gl.eq Slot 2, Threshold -13.5 dB pour préserver l'arc)` · `FX Room (20, Dry=0, Dry full=0, Decay full en décisecondes)` · `Master 0 (gl.limiter Attack = 0.002 s, Ceiling <= -2.1 dB, safety=1)`.
-> - **Règles de confort d'écoute** : `0` sample clippé · `true_peak <= -1.0 dBTP` · `0` micro-glitch · `0` résonance 1/3 oct · `tuning <= ±6.5 ct` · phase grave `>= 0.50` et bas-médiums `>= 0.55` · début sans clic et fin résolue/fade-out propre.
+> **Cheatsheet IA (L'essentiel v2.0)**
+> - **Boucle fermée & Auto-Fix** : Lancer `render_and_audit.py <projet.gridline> --profile <genre> --blueprint song_blueprint.json --range <b1>-<b2> --no-neural --auto-fix --max-passes 2` (~5× plus rapide ; corrige déterministement EQ résonances/low_mids, Gain LUFS et Limiter Ceiling, journalisé dans `renders/autofix_history.json`). Terminer par **1 seul rendu complet** `--mp3 --sections "..."`.
+> - **Stems & Référence Spectrale** : Auditer les stems via `render_project_stems` + `analyze_stem_hierarchy` (`lead_vs_harmony_db >= 2.0`, `kick_bass_transient_overlap`, `pink_slope_db_per_oct` `-3..-6.5`). `render_and_audit` calcule aussi `spectral_match_score` (`0..1`) via `golden_references/spectral_profiles.json` (0 PyTorch).
+> - **Genres sans batterie (`has_drums=false` / `classical_ambient`)** : Passer `--no-drums` ou `--blueprint song_blueprint.json` (`"has_drums": false`) ; le gate désactive l'exigence `dynamic_arc` et filtre les résonances inter-harmoniques.
+> - **Topologie Buses (`setup_standard_buses`)** : `BUS Drums (17)` · `BUS Bass (18)` · `BUS Music (19)` · `FX Room (20)` · `Master (0)` configurés via **`scripts/gl_dsl.py`** (carte → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md)).
 
 ---
 
-## Chapitre 1 — Profils de Mix & Quality Gate Multi-Genres (`--profile`)
+## Chapitre 1 — Profils de Mix, Spatialisation & Pente Rose (`--profile`)
 
 Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses()` s'adaptent au profil choisi dans `song_blueprint.json` :
 
@@ -61,72 +61,63 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 
 ---
 
-## Chapitre 2 — Topologie des Buses (`studio_lib.setup_standard_buses`)
+## Chapitre 2 — Topologie des Buses (`gl_dsl` + `studio_lib.setup_standard_buses`)
 
-`setup_standard_buses(mcp, bpm=..., profile=..., valence=...)` crée automatiquement les pistes mixeur manquantes (au-delà de `0..16`) et configure :
-1. **`BUS Drums` (Insert `17` → `Master 0`)** : `gl.eq` (`HPF 34 Hz`, shelf `10 kHz` selon profil/valence) + `gl.comp` doux (`Ratio 2.2`).
-2. **`BUS Bass` (Insert `18` → `Master 0`)** : `gl.stereo` (`Width = 0.0`) + `gl.comp` sidechain (`Detector input = 1`, alimenté par Kick `sidechain=True, preFader=True` ; **`Ratio 2.4`, `Threshold -18 dB`, `Release 65 ms`** en `trap_rap` pour préserver le corps 808 ; `5:1` en `edm_club` ; `3:1` en `pop_rnb`/`rock_metal`/`lofi_chill` ; `1.5:1` en acoustique) + `gl.eq` (`HPF 30 Hz`). *(Ajouter `gl.dist Soft` uniquement si besoin d'audibilité sur petits HP en Trap/EDM/Rock).*
-3. **`BUS Music` (Insert `19` → `Master 0`)** :
-   * **Slot 1 `gl.dist`** (`Mode = 0 Soft`, `Mix = 0.0` en acoustique/classique, `0.06–0.10` max en moderne/lo-fi, `Tone <= 7500 Hz`, `Remove DC = 1`, `Oversampling = 2`).
-   * **Slot 2 `gl.eq`** (`HPF 90–135 Hz`, **`LPF 8.5–13.5 kHz`** selon profil/valence, + `Band 6 type = 6 Peak`, `-2.0 dB @ 3200 Hz`, **`Band 6 width = 0.39`** *≈ Q 1.4* si `valence < -0.2`) → coupe proprement toutes les harmoniques générées par la saturation.
-   * **Slot 3 `gl.comp`** Glue (**`Threshold = -13.5 dB`**, `Ratio 1.8`, `Makeup 1.5` — ne jamais descendre à `-19 dB` sous peine d'écraser l'arc Intro/Refrain).
-   * **Slot 4 `gl.comp`** micro-ducking Kick (`Detector input = 1`, `Ratio 1.2–2.2`).
-4. **`FX Room` (Insert `20` → `Master 0`)** : `gl.reverb` (`Model = 1`, `Dry = 0`, `Dry (full) = 0`, `Low cut (full) = 350..480 Hz`, `Decay (full)` en **décisecondes**). Sends : mélodiques `8–20 %`, Snare `3–8 %`, **Kick/Sub/Hats `0 %`**. Couper par automation à `0` sur les temps d'arrêt/pivots.
-5. **`Master 0`** : `gl.eq` (`Quality = 1`, `HPF 28 Hz`, `LPF 17 kHz`) → `gl.comp` (`Ratio 1.6`, `Threshold -10.5..-8.5 dB`) → `gl.limiter` (**`Attack (look-ahead) = 0.002 s`**, `Ceiling = -2.6..-2.1 dB`, `0.2 dB safety = 1`).
+`setup_standard_buses(mcp, bpm=..., profile=..., valence=...)` crée les pistes manquantes jusqu'à `20` et configure via `gl_dsl` :
+1. **`BUS Drums` (Insert `17`)** : `gl.eq` (`HPF 34 Hz`, shelf `10 kHz` selon profil/valence) + `gl.comp` (`2.2:1`).
+2. **`BUS Bass` (Insert `18`)** : `gl.stereo` (`Width = 0.0`) + `gl.comp` sidechain (`1`, preFader Kick ; `2.4:1 / -18 dB / 65 ms` en `trap_rap`, `5:1` `edm_club`, `3:1` pop/rock/lofi, `1.5:1` acoustique) + `gl.eq` (`HPF 30 Hz`).
+3. **`BUS Music` (Insert `19`)** : `gl.dist` (`Mix=0.0` acoustique/classique, `0.06–0.10` moderne, `Tone<=7500`, `Remove DC=1`) → `gl.eq` (`HPF 90–135`, `LPF 8.5–13.5 kHz`, Peak `-2 dB @ 3.2k` si `V<-0.2`) → `gl.comp` glue (`Threshold=-13.5 dB`, préserve l'arc) → `gl.comp` ducking (`Detector=1`).
+4. **`FX Room` (Insert `20`)** : `gl.reverb` via `gl_dsl.reverb_room()` (`Dry=0`, `Dry (full)=0`, `Decay <= T_noire` rythmique ou `0.7–1.1 s` acoustique/ambient ; jamais de send sur Kick/Sub/Hats).
+5. **`Master` (`0`)** : `gl.eq` (`Quality=1`, `HPF 28`, `LPF 17k`) → `gl.comp` (`1.6:1`) → `gl.limiter` via `gl_dsl.limiter_master()` (`Attack=0.002`, `0.2 dB safety=1`, `Ceiling=-2.6..-2.1`).
 
 ---
 
-## Chapitre 3 — Quality Gate Bloquant & Table Symptôme → Action Unique Exacte
+## Chapitre 3 — Quality Gate Conditionnel, Stems, Référence Spectrale & Auto-Fix
 
-### 3.1 Les 12 Critères `render_and_audit.py` & Checklists Pré-Rendu (Modules 1 & 2)
-* **Checklist Structure & Mix (Module 1)** : (1) **Spectre** `100 % Mono < 120 Hz` · (2) **Rythme** aucune note `< 100 Hz` de durée `< 1/8` (sauf `Release < 50 ms`) · (3) **Densité** `1 à 8` pistes jouant simultanément dans une même mesure (distinct du nombre total de pistes du projet) · (4) **Hiérarchie** 1 seul Lead actif dominant l'harmonie de `>= +3 dB` · (5) **Structure** aucune boucle de 8 mesures répétée à l'identique · (6) **Isolation « 1 sonorité = 1 piste »** chaque sonorité dispose de son propre canal, insert mixeur dédié, pattern dédié et piste Playlist nommée.
-* **Checklist Timbrale & Micro-Timing (Module 2)** : (1) **Anti-agressivité** aucun pic étroit isolé `> +4 dB` dans `2,5–4,5 kHz` · (2) **Enveloppes aiguës** attaque `>= 1 ms` et aucune queue chevauchant la frappe suivante (`T_decay < 0,8 × T_note`) · (3) **Variation** écart-type vélocité `> 0` sur tout motif rapide (`>= 1/16`) · (4) **Pente rose** FFT refrain entre `-3` et `-5 dB/oct` sur `60 Hz–12 kHz` · (5) **Séparation transitoires** au moins 2 familles d'instruments (ex. Kick/Basse ou Snare/Hi-hat) avec décalage `>= 5 ms` sur les temps forts.
+### 3.1 Critères `render_and_audit.py` + `analyze_stem_hierarchy` + `spectral_match_score`
+* **Checklist Structure & Timbre Pré-Rendu** : `100 % Mono < 120 Hz` · aucune note `< 100 Hz` plus courte que `1/8` (`Release < 50 ms`) · `1–8` pistes simultanées par mesure · Lead dominant de `>= +3 dB` · aucune boucle de 8 mesures identique · isolation strictement `1 sonorité = 1 piste` · aucun pic isolé `> +4 dB` dans `2,5–4,5 kHz` · pente rose `-3..-5 dB/oct` · transitoires décalés `>= 5 ms` (`groove_lib`).
+* **12 critères Quality Gate** : (1) `clipped == 0`, (2) `true_peak <= -1.0`, (3) `|lufs - target| <= 1.2`, (4) `low_end_corr >= 0.50`, (5) `low_mid_corr >= 0.55`, (6) `sharpness < max`, (7) `micro_glitches == 0`, (8) `resonances == []`, (9) `low_mids <= max %`, (10) `air >= min %`, (11) `|tuning_offset| <= 6.5 ct`, (12) `dynamic_arc >= min dB`.
+* **Garde-fou sans batterie (`has_drums == False` ou `classical_ambient`)** : passer `--no-drums` ou `--blueprint song_blueprint.json` ; désactive l'obligation `dynamic_arc` (adapté aux crescendos continus sans drops batterie) et filtre les faux positifs inter-harmoniques sous `150 Hz` ou `> 6 kHz` (l'analyse tiers d'octave exclut aussi les pentes monotones).
+* **Hiérarchie des Stems (`render_project_stems` + `analyze_stem_hierarchy`)** : vérifie `lead_vs_harmony_db >= 2.0`, `kick_bass_transient_overlap <= 0.15` et `pink_slope_db_per_oct` (`-3..-6.5 dB/oct`).
+* **Référence Spectrale (`scripts/bootstrap_golden_refs.py`)** : `golden_references/spectral_profiles.json` compare la distribution Bark 24 bandes au profil cible via `spectral_match_score` (`0..1`, 0 PyTorch).
 
-1. `clipped_samples == 0` · 2. `true_peak_dbtp <= -1.0` · 3. `|lufs - target_lufs| <= 1.2` · 4. `low_end_corr >= 0.50` (optimal `>= 0.75`) · 5. `low_mid_corr >= 0.55` (optimal `>= 0.65`) · 6. `sharpness < profil_max` · 7. `micro_glitches == 0` · 8. `resonances == []` · 9. `low_mids <= profil_max` · 10. `air >= profil_min` · 11. `|tuning_offset| <= 6.5 ct` · 12. `dynamic_arc >= profil_min`.
+### 3.2 Boucle `--auto-fix --max-passes 2` & Table Symptôme → Action Unique
+En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique automatiquement les fixes déterministes (`gl_dsl.eq_band` Peak `-3.5..-4.5 dB` sur résonances/`280 Hz`, ajustement `Master Gain`, abaissement `Limiter Ceiling`), re-rend et journalise chaque passe dans **`renders/autofix_history.json`**.
 
-### 3.2 Table de Décision Déterministe (Corriger en 1 Passe, Zéro Tâtonnement !)
-
-| Symptôme (`quality_gate.failures`) | Cause Probable | Action Unique Exacte dans Gridline / Python |
-| :--- | :--- | :--- |
-| **`clipped_samples > 0` ou `true_peak > -1.0`** | Gain limiteur trop fort ou Attack trop lent | `Master slot 3 (gl.limiter)` : vérifier `Attack (look-ahead) = 0.002`, `0.2 dB safety = 1`, baisser `Ceiling` de `-0.4 dB` (vers `-2.35..-2.6 dB`). |
-| **`lufs` trop bas (`< target - 1.2`)** | Gain limiteur insuffisant ou mix trop faible | Augmenter `Master slot 3 Gain` de `+Δ` dB (`Δ = target - lufs`, plafonné à `+4 dB`/passe) sans dépasser `-1.2 dBTP`. |
-| **`lufs` trop haut (`> target + 1.2`)** | Mix surcompressé ou Gain limiteur trop haut | Baisser `Master slot 3 Gain` de `Δ` dB et vérifier que `BUS Music` ne clippe pas. |
-| **`low_end_corr < 0.50`** | Basse/Kick stéréo ou réverbe sur grave | Vérifier `BUS Bass` `gl.stereo Width = 0.0`, Kick `pan = 0`, send `FX Room = 0` sur Kick & Basse, `HPF >= 120 Hz` sur `BUS Music`. |
-| **`low_mid_corr < 0.55`** | Pad/Chords/Boucle hors phase `200–800 Hz` | Appliquer `studio_lib.stabilize_stereo_low_mid()` sur le sample fautif ou rétrécir `mixer/N/stereo = -0.35` + réduire `FX Room` send/width. |
-| **`sharpness >= max`** | Lead trop aigu (`> MIDI 74`) ou aigus agressifs (`2.5–6 kHz`) | **Action n°1** : vérifier d'abord que le Lead ne dépasse pas `MIDI 74` (sinon baisser de `-12 st`), puis abaisser le LPF du synthé/insert Lead vers `5–7 kHz` et poser `gl.eq` **`Band type = 6 (Peak)`** `-3.5 dB @ 3200 Hz`, **`Band N width = 0.39`** *(≈ Q 1.4)*. |
-| **`micro_glitches > 0`** | Clics d'attaque/fin de sample ou hats Nyquist | Lancer `audit_project_sources.py --prepare-samples`, ajouter `fade_in >= 2 ms` / `fade_out >= 12 ms`, `LPF 12–14.5 kHz` sur hats/snare, `gl.limiter Attack = 0.002`. |
-| **`resonances = [F Hz]`** | Empilement harmonique ou pic étroit à `F Hz` | Sur la piste dominante (`Chords`/`Pad`/`BUS Music`), poser `gl.eq` **`Band type = 6 (Peak)`** à `F Hz`, `Gain = -4.0 dB`, **`Band N width = 0.22`** *(≈ Q 2.8)* (ou baisser l'octave du Lead, **jamais au-dessus de `MIDI 74`**). |
-| **`low_mids > max %`** | Boue `250–500 Hz` sur Chords/Pad/Basse | Sur `BUS Music slot 2 (gl.eq)`, `HPF = 140 Hz` + **`Band type = 6 (Peak)`** `-3.5 dB @ 280 Hz`, **`Band N width = 0.45`** *(≈ Q 1.2)*. |
-| **`air < min %`** | Mix étouffé (LPF trop bas, hats faibles ou mauvais seuil sombre) | **Si `valence >= 0`** : relever `BUS Drums slot 1` `Band 7 (High shelf)` `+1.5 dB @ 10 kHz` ou ouvrir `BUS Music` `LPF` vers `12–13.5 kHz`. **Si `valence < 0`** : ne pas éclaircir les synthés ; ajuster légèrement le niveau des hi-hats/shakers (`+1 dB`) ou vérifier que le seuil `air min` du profil sombre (`1.2 %`) est bien utilisé (`--dark` / `song_blueprint.json`). |
-| **`tuning_offset > 6.5 ct`** | Sample désaccordé (≠ `440 Hz`) | Relire `audit_project_sources.py` → corriger `Root note` + `Fine tune` dans `gl.sampler` sur le sample fautif. |
-| **`dynamic_arc < min dB`** | Toutes les sections ont la même densité ou compresseur écrase l'Intro | Retirer Basse/Drums de l'Intro & Pont (Matrice Facette 3 §1.3), vérifier `BUS Music gl.comp Threshold >= -13.5 dB`, automatiser `BUS Music` volume (`-2.5 dB` Intro/Pont, `+1.0 dB` Climax). |
-| **Qualité perceptuelle `PQ < 6.5` ou fin coupée** | Timbre synthétique sec ou coupure brutale | Vérifier l'équilibre des 3 couches, l'humanisation des vélocités, et ajouter un fade-out / résolution tenue sur les 2 dernières mesures. |
+| Symptôme (`failures`) | Action Unique (`gl_dsl` / Python) |
+| :--- | :--- |
+| **`clipped > 0` / `true_peak > -1.0`** | `limiter_master(gain, ceiling - 0.4)` (`Attack=0.002`, `safety=1`). |
+| **`lufs` trop bas / haut** | Ajuster `Master slot 3 Gain` de `±Δ` (`|Δ| <= 4 dB`/passe, plafond `-1.2 dBTP`). |
+| **`low_end_corr < 0.50`** | `BUS Bass Width=0.0`, Kick `pan=0`, `fx_send=0` sur Kick/Basse, `BUS Music HPF >= 120`. |
+| **`low_mid_corr < 0.55`** | `stabilize_stereo_low_mid()` sur le sample ou `mixer/N/stereo = -0.35`. |
+| **`sharpness >= max`** | Vérifier Lead `<= MIDI 74`, LPF synthé `5–7 kHz`, Peak `-3.5 dB @ 3.2 kHz` (`q=1.4`). |
+| **`micro_glitches > 0`** | `audit_project_sources.py --prepare-samples`, `fade_in >= 2 ms`, hats `Attack >= 4 ms`, `LPF 13 kHz`. |
+| **`resonances = [F]`** | `eq_band(slot, "peak", F, -4.0, q=2.4)` sur l'insert dominant (`Chords`/`Bass`/`HiHat`/`BUS Music`). |
+| **`low_mids > max %`** | `BUS Music slot 2` : `HPF 140 Hz` + Peak `-4.0 dB @ 280–330 Hz` (`q=1.2`). |
+| **`air < min %`** | Si `V >= 0` : `BUS Drums` `+1.5 dB @ 10 kHz` / ouvrir LPF · Si `V < 0` : passer `valence`/`--dark` et relever hats `+1 dB`. |
+| **`tuning_offset > 6.5 ct`** | Recalibrer `Root note` + `Fine tune` (`measure_fft_tuning()`) ou annuler detune/chorus excessif. |
+| **`dynamic_arc < min dB`** | Alléger Intro/Pont (`Matrice 1.3`), `BUS Music comp Threshold >= -13.5`, `transitions_lib.section_gain_arc`. |
 
 ---
 
-## Chapitre 4 — Playbook des Pièges Techniques Vérifiés & Solutions
+## Chapitre 4 — Playbook des Pièges Techniques Vérifiés (Ce qu'il faut retenir)
 
-| Piège Vérifié | Symptôme Observé | Solution Définitive |
+*(Les erreurs manuelles de Q `Band N width`, `gl.reverb (full)`, `gl.limiter Attack`, `sidechain`, `db_to_auto` et enveloppes `gl.*` sont désormais éliminées automatiquement par **`scripts/gl_dsl.py`**.)*
+
+| Piège Vérifié | Conséquence | Règle Définitive |
 | :--- | :--- | :--- |
-| **`gl.eq` `Band type = 4` & `Q` ignoré** | Trou $-\infty\text{ dB}$ (`4` = `Notch`), ou paramètre `Band N Q (legacy)` ignoré en mode `Reference` par défaut (`Band model = 1`). | Toujours utiliser **`6` (`Peak`)** pour toute cloche EQ et régler la largeur via **`Band N width`** (`0.45` ≈ Q 1.2, `0.39` ≈ Q 1.4, `0.35` ≈ Q 1.6, `0.22` ≈ Q 2.8). |
-| **`gl.reverb` paramètres `(full)` & unités** | Audio sec qui fuit malgré `Dry = 0`, ou erreur de plage sur `Decay (full)`. | Régler `Dry (full) = 0`, `Low cut (full) >= 350–480`, **`Decay (full)` en décisecondes (`1..200`, ex. `4` = `0.4 s`)**, `Early reflections (full) <= 24`, `Wet (full) = 45..64`. |
-| **`TEMPLATE_EMPTY_MIXER` pistes `0..16`** | Crash `no mixer track 17` si on ajoute des plugins sur `17..20`. | `setup_standard_buses()` appelle désormais `add_mixer_track` automatiquement avant d'ajouter les plugins. |
-| **`set_send` sans `sidechain=True`** | Le audio brut du Kick passe dans `BUS Bass`/`BUS Music` et sature. | Toujours passer `{"sidechain": True, "preFader": True}`. |
-| **`gl.multisampler` (`.sfz`) en GUI** | Silencieux (`-144 LUFS`) dans `gridline-app --attach`. | Utiliser **`gl.sampler`** avec WAV 24-bit calibré `440 Hz` (`Voices = 12`) ou `gl.keys`/`gl.warmsynth`. |
-| **`patch` `mixerTrack`** | Route sur le mauvais bus (`id` interne ≠ index piste). | Utiliser exclusivement `add_channel(..., mixer=M)` ou `edit_channel(channel=N, mixer=M)`. |
-| **`gl.limiter` `Attack = 0.005 s`** | Overshoots True Peak et micro-clics sur hats. | Toujours fixer **`Attack (look-ahead) = 0.002`**, `Ceiling <= -2.15 dB`, `0.2 dB safety = 1`. |
-| **`librosa.effects.pitch_shift` sur 808** | Dérive `-35 ct` et attaque sub ramollie. | Régler nativement `Root note` + `Fine tune` dans `gl.sampler`. |
-| **`loudnorm` sur one-shots `< 2.5 s`** | Écrasement des transitoires Kick/Snare/Clap. | Peak norm `-1.0 dBFS` + micro-fades (`2 ms / 15 ms`) via `clean_audio_sample`. |
-| **Collision `_infer_roles()` MIDI** | `"Vocal"` fusionné avec `Lead`, ou `"Piano"` arpégé pris pour `Lead`. | Respecter la table Facette 3 §5.2 (`Bass`, `Chords Piano`, `Lead`, `Counter Harmony`). |
-| **Timeout `select_best_samples`** | Indexation CLAP CPU synchrone si `sample_index.json` absent. | Utiliser `search_samples` (`samples.db`) + `analyze_sample_dsp`, ou pré-indexer en CLI `--no-clap`. |
-| **Empilement `400–630 Hz`** | Résonance 1/3 oct malgré MIDI propre. | Creuser `Chords/Pad` (`gl.eq Peak = 6`, `-3.5 dB @ 450 Hz`, **`Band N width = 0.39`** *≈ Q 1.4*) ou répartir les voicings d'accords plus bas (`low_midi=48`), sans jamais monter le Lead au-dessus de `MIDI 74`. |
-| **808 artificielles / mitraillées** | 3+ attaques courtes/mesure + sidechain `5:1` + coupe `-15 dB @ 50 Hz` transforment la 808 en clics secs sans corps. | En instrumentale Rap, espacer à **`1–2` notes tenues/mesure** (`2.25–3.65 beats`, `< 1` frappe/s) avec sidechain doux (`Ratio 2.4`, `Threshold -18 dB`, `Release 65 ms` — configuré par défaut par `setup_standard_buses` en profil `trap_rap`). |
-| **Infra-sub `< 42 Hz` sur 808** | Fondamentales `< 42 Hz` (ex. `Eb1 = 38.9 Hz`) saturent `gl.limiter` tout en restant faibles en LUFS (`-13.5 LUFS`, `sub > 25 %`). | Privilégier **`MIDI 31–48`** (`G1–C3`, `>= 49 Hz`, et Octave 2 `MIDI 36–42` pour les tonalités `C..F#`), et répartir le lissage `50 Hz` entre `Kick` (`-8 à -10 dB @ 53 Hz`), `BUS Bass` et `Master`. |
-| **Phase dégradée après `pitch_shift`** | `low_mid_corr` chute (`0.09–0.65`) après `librosa.effects.pitch_shift` stéréo sur guitares/pads. | Appliquer `stabilize_stereo_low_mid(..., cutoff_hz=700)` **après** tout `pitch_shift`. |
-| **Cloche `mono_oneshot` depuis FX** | Un FX rééchantillonné en entier garde des lobes latéraux faux (`-15 ct`). | Rééchantillonner (varispeed) uniquement le **noyau tonal stable** (ex. `0.14–0.39 s`) + décroissance exponentielle → `mono_oneshot` juste (`+1 ct`). |
-| **Pièges d'accordage (`glissando` & FX)** | Attaque vocale/lead glissée (`-195..-15 ct` sur `0.13 s`) ou FX non accordé (`B6 -44 ct`) dans la fenêtre peak `12 s` fausse le diapason global (`-17 ct`). | Couper tout glissando d'attaque sur les one-shots mélodiques et accorder **aussi** les FX tonaux dans la gamme du morceau. |
-| **`gl.sampler` signe `Fine tune`** | Un offset `Fine tune` appliqué à l'envers désaccorde de `2×` l'écart (`±18 ct`). | **`Fine tune = +X` monte le pitch (`+X ct`), `-X` le baisse (`-X ct`)**. Utiliser `sample_prep_lib.measure_fft_tuning()` → `recommended_gl_fine_tune_ct` (mesure FFT steady-state + harmonique, car `f0` brute sur pads/boucles peut capter un sous-murmure grave). |
-| **Espace Rap & Collage pré-limiteur** | Pistes vocales résiduelles ou transitoires secs (`Lead Bell`, `Clap`) bloquent le limiteur Master vers `-13 LUFS`. | Zéro vox en instru Rap, creux `1–2.5 kHz` (`-3.5 dB`) sur `Chords/Pad/Guitars`, `30–45 %` de silences sur le Lead, et collage doux (`2.2:1`) sur `BUS Music` & `Master` avant `gl.limiter`. |
+| **`gl.multisampler` (`.sfz`) en GUI** | Silencieux (`-144 LUFS`). | Utiliser `gl.sampler` WAV 24-bit (`440 Hz`) ou `gl.*` natif. |
+| **`patch mixerTrack` / `set_song bpm`** | Mauvais routage / tempo ignoré. | Utiliser `song_builder.py` (`edit_channel`, `set_song tempo`). |
+| **`loudnorm` sur one-shots `< 2.5 s`** | Écrase transitoires Kick/Snare. | `clean_audio_sample` (peak `-1.0 dBFS`, fades `2/15 ms`). |
+| **`pitch_shift` sur 808 `< 80 Hz`** | Dérive `-35 ct`, attaque molle. | Régler `Root note` + `Fine tune` dans `gl.sampler` (`+X` monte de `+X ct`). |
+| **808 mitraillées / infra-sub `< 42 Hz`** | Pics saturation & `-13.5 LUFS`. | `1–2` notes tenues/mes. (`>= MIDI 31`, `36–42` en `C..F#`), `Release 50 ms`, `enforce_frequency_inertia`. |
+| **Phase dégradée post-`pitch_shift`** | `low_mid_corr` chute (`0.09`). | `stabilize_stereo_low_mid(..., cutoff_hz=700)` après `pitch_shift`. |
+| **Cloche `mono_oneshot` depuis FX** | Un FX rééchantillonné garde des lobes faux (`-15 ct`). | Varispeed sur le noyau tonal stable seul (`0.14–0.39 s`) + decay exponentiel. |
+| **Glissando d'attaque / FX faux** | Fausse le diapason global (`-17 ct`). | Couper glissando d'attaque et accorder aussi les FX tonaux (`440 Hz`). |
+| **`gl.sampler` signe `Fine tune`** | Offset inversé double l'erreur (`±18 ct`). | `+X` monte (`+X ct`), `-X` baisse (`-X ct`) ; utiliser `measure_fft_tuning()`. |
+| **Espace Rap & Collage pré-limiteur** | Pistes vocales / transitoires bloquent `-13 LUFS`. | Zéro vox en instru Rap, creux `1–2.5 kHz` (`-3.5 dB`) sur `Chords/Pad`, `30–45 %` silences Lead. |
+| **`add_automation` sans `"track"`** | Automation créée non placée (`0` clips). | Toujours passer `"track": <idx_playlist>` (`transitions_lib.py` le gère). |
+| **Collision `_infer_roles()` MIDI** | `"Vocal"` fusionné avec `Lead`, `"Piano"` arpégé pris pour `Lead`. | Respecter la table Facette 3 §5.2 (`Bass`, `Chords Piano`, `Lead`, `Counter Harmony`). |
 
 ---
 

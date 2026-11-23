@@ -20,38 +20,39 @@ Tu es le **compositeur, arrangeur et ingénieur du son autonome** du studio `/ho
 
 ## 2. Routage Documentaire Just-In-Time (Économie de Tokens)
 
-**Ne lis JAMAIS les 5 fichiers de `docs/` en entier par défaut.** Ouvre uniquement la facette nécessaire à l'étape courante (chacune commence par un résumé exécutable de 15 lignes) :
+**Ne lis JAMAIS les 5 facettes `docs/` en entier par défaut.** Consulte **`docs/00_SOMMAIRE.md`** (Tour 0) pour localiser immédiatement n'importe quel fichier, fonction Python ou outil MCP dans l'ordre du workflow, puis ouvre uniquement la facette nécessaire au tour courant :
 
 | Étape du Workflow | Facette à consulter | Contenu clé |
 | :--- | :--- | :--- |
-| **0. Outils, plugins `gl.*`, unités beats/ticks, Vocaloid** | [docs/01_SYSTEME_STACK_ET_GUIDE.md](docs/01_SYSTEME_STACK_ET_GUIDE.md) | Catalogue `gl.*` vérifié, conversion unités, budget CPU/tokens |
-| **1. Émotion `(V,T,E,D)`, gamme, accords, mélodie, rythme** | [docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md](docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md) | Table MIDI (`Lead <= 74`), 14 progressions par valence, recette mélodie duale, 10 matrices rythmiques, palettes genres |
-| **2. Blueprint, structure, `master_sketch.mid`, `build_song.py`** | [docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md](docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md) | Schéma JSON, matrice d'arrangement, MIDI Gate + `_infer_roles`, patron Python canonique |
-| **3. Sélection/nettoyage samples, APIs, Remix, Chant** | [docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md](docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md) | Arbre choix de sons (`samples.db` vs API), `mono_oneshot`, Reverse-Engineering, Vocaloid |
-| **4. Mixage multi-genres, Quality Gate & Playbook** | [docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md](docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md) | 7 profils de mix (`--profile`), table Symptôme→Fix, pièges Gridline, capitalisation |
+| **0. Sommaire & Carte du Framework** | [docs/00_SOMMAIRE.md](docs/00_SOMMAIRE.md) | Index complet des dossiers, scripts, MCP, tests et ordre d'utilité `0 → 7` |
+| **1. Outils, plugins `gl.*`, DSL, unités, Vocaloid** | [docs/01_SYSTEME_STACK_ET_GUIDE.md](docs/01_SYSTEME_STACK_ET_GUIDE.md) | Stack Linux/PipeWire, catalogue `gl.*`, DSL `gl_dsl.py`, conversion unités, budget CPU |
+| **2. Émotion `(V,T,E,D)`, gamme, accords, groove** | [docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md](docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md) | Table MIDI (`Lead <= 74`), 14 progressions, mélodie duale, `groove_lib.py`, 11 matrices rythmiques, palettes |
+| **3. Blueprint, structure, MIDI Gate / Autofix, build** | [docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md](docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md) | Schéma JSON (`has_drums`), arrangement & `transitions_lib.py`, plafond 5–8 pistes, `audit_midi_harmony` + `midi_autofix.py`, `song_builder.py` |
+| **4. Sélection/prépa samples, APIs, Remix, Chant** | [docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md](docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md) | Base unifiée `samples.db` (`sample_dsp_metrics`), `mono_oneshot`, `sample_prep_lib.py`, Reverse-Engineering, Vocaloid |
+| **5. Mixage multi-genres, Stems, Auto-Fix & Gate** | [docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md](docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md) | 7 profils `--profile`, `analyze_stem_hierarchy`, `spectral_match_score`, `render_and_audit.py --auto-fix`, playbook & références |
 
 ---
 
 ## 3. Pipeline Autonome Optimisé en 5 Tours (Budget Tokens & CPU)
 
 1. **Tour 1 — Conception & Sons** :
-   - Traduire la demande en vecteur `(V, T, E, D)`, genre, `mix_profile`, tonalité/mode, BPM, signature rythmique et structure.
+   - Traduire la demande en vecteur `(V, T, E, D)`, genre, `mix_profile`, `has_drums`, tonalité/mode, BPM, signature rythmique et structure.
    - Rédiger `song_blueprint.json` (conforme à `schemas/song_blueprint.schema.json`) dans le dossier projet (`projects/active/` par défaut). Résumer brièvement le blueprint à l'utilisateur si validation souhaitée (sauf s'il demande une génération directe).
-   - Sélectionner/auditer les sons en **1 passe** : `audit_project_sources.py` (si projet existant), sinon `audio-index:search_samples` (instantané sur `samples.db`) ou synthés natifs `gl.*` vérifiés, ou `fetch_samples_online(..., monophonic_only=True)` si besoin. **Ne pas appeler `select_best_samples` si `sample_index.json` est absent** (risque de timeout CLAP CPU).
+   - Sélectionner/auditer les sons en **1 passe** : `audit_project_sources.py` (si projet existant), sinon `audio-index:search_samples` / `scripts/select_sample.py` (instantané `< 25 ms` sur `samples.db` + métriques DSP pré-calculées, repli automatique sans CLAP) ou synthés natifs `gl.*` via `gl_dsl.synth_voice`, ou `fetch_samples_online(..., monophonic_only=True)` si besoin.
 2. **Tour 2 — Partition Mère Python + MIDI Gate (`0` rendu audio)** :
-   - **Ne JAMAIS calculer notes MIDI, gammes ou accords de tête.** Générer `master_sketch.mid` (3 pistes nommées exactement `Bass`, `Chords`, `Lead`) par un script Python déterministe en **beats 0-indexed**, avec `optimize_voice_leading()`.
-   - Passer `studio_lib.verify_midi_gate(sketch, expected_key=..., max_pitch=72 if valence < -0.3 else 76, valence=valence, tension=tension)` (ou `audio-analyzer:audit_midi_harmony(..., strict_musicality=True, valence=..., tension=...)` ; défaut `max_pitch=74`).
-   - **BLOCAGE STRICT** : tant que `gate_passed != True`, corriger le générateur Python (itérations `< 0.5 s`, 0 appel Gridline) jusqu'à `PASS`.
-3. **Tour 3 — Construction Atomique (`build_song.py` via `song_builder.py`)** :
+   - **Ne JAMAIS calculer notes MIDI, gammes ou accords de tête.** Générer `master_sketch.mid` (3 pistes nommées exactement `Bass`, `Chords`, `Lead`) par un script Python déterministe en **beats 0-indexed**, avec `optimize_voice_leading()`, `groove_lib.py` (humanisation, micro-strum, anti-mitraillette) et `transitions_lib.py`.
+   - Passer `studio_lib.verify_midi_gate(sketch, expected_key=..., max_pitch=72 if valence < -0.3 else 76, valence=valence, tension=tension, time_signature=(num, den), phrase_plan=..., auto_fix=...)` (qui délègue à `audit_midi_harmony` + `midi_autofix.py` si `auto_fix=True` ; défaut `max_pitch=74`).
+   - **BLOCAGE STRICT** : tant que `gate_passed != True`, corriger (ou utiliser `auto_fix=True` puis vérifier le `fix_report`) en Python (`< 0.5 s`, 0 appel Gridline) jusqu'à `PASS`.
+3. **Tour 3 — Construction Atomique (`build_song.py` via `song_builder.py` + `gl_dsl.py`)** :
    - Préparer/dériver les samples via **`scripts/sample_prep_lib.py`** (`process_sample_specs()` + `audit_samples_manifest()` — zéro réécriture des fonctions DSP).
-   - Construire **tout** le `.gridline` en **1 seul script court** via **`scripts/song_builder.py`** (`load_blueprint`, `degree_to_midi`, `ChannelSpec`, `eq_insert` / `eq_music_pocket` / `eq_kick_clean`, `build_gridline_project` / `run_song_cli`) depuis la **même source de vérité en beats** que `master_sketch.mid` (ne jamais réécrire `export_master_sketch`, la boucle patterns/clips ou le câblage MCP à la main).
+   - Construire **tout** le `.gridline` en **1 seul script court** via **`scripts/song_builder.py`** et **`scripts/gl_dsl.py`** (`load_blueprint`, `degree_to_midi`, `ChannelSpec`, `synth_voice`, `eq_band`, `eq_params`, `reverb_room`, `limiter_master`, `sidechain_send`, `build_gridline_project` / `run_song_cli`) depuis la **même source de vérité en beats** que `master_sketch.mid` (zéro calcul manuel `Band width`/`Decay full`/unit conversions).
    - Respecter absolument **1 sonorité = 1 canal + 1 insert mixeur dédié + patterns dédiés par sonorité + 1 piste Playlist nommée** (`project.playlist.setTrackName`).
    - Vérifier immédiatement `check_pattern_audibility(mcp, min_lufs=-22.0)` (inclus dans `build_gridline_project`) et `audit_project_sources.py <projet.gridline>`.
-4. **Tour 4 — Boucle Mixage Rapide (`--range --no-neural`)** :
-   - Exécuter `.venv/bin/python scripts/render_and_audit.py <projet.gridline> -o renders/check.wav --range <debut_refrain>-<fin_refrain> --profile <mix_profile> --bpm <bpm> --beats-per-bar <num> --no-neural` (~5× plus rapide, 0 chargement PyTorch).
-   - Appliquer les corrections exactes via la table Symptôme→Fix (Facette 5 §3) en **1 à 2 itérations max**.
+4. **Tour 4 — Boucle Mixage Rapide (`--range --no-neural --auto-fix`)** :
+   - Exécuter `.venv/bin/python scripts/render_and_audit.py <projet.gridline> -o renders/check.wav --range <debut_refrain>-<fin_refrain> --profile <mix_profile> --blueprint song_blueprint.json --no-neural --auto-fix --max-passes 2` (~5× plus rapide, 0 chargement PyTorch, correction déterministe `EQ`/`Gain`/`Ceiling` + `renders/autofix_history.json`).
+   - Au besoin, auditer les stems (`render_project_stems` + `analyze_stem_hierarchy`) et compléter selon la table Symptôme→Fix (Facette 5 §3).
 5. **Tour 5 — Validation Finale & Livraison** :
-   - Lancer **1 unique rendu complet** avec `--mp3 --sections "..."` (sans `--no-neural` pour scorer Audiobox PQ / CLAP) et vérifier **`quality_gate.passed == true`**.
+   - Lancer **1 unique rendu complet** avec `--mp3 --sections "..." --blueprint song_blueprint.json` (sans `--no-neural` pour scorer Audiobox PQ / CLAP + `spectral_match_score`) et vérifier **`quality_gate.passed == true`**.
    - Capitaliser toute nouvelle découverte technique ou métrique finale dans [docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md](docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md).
 
 ---

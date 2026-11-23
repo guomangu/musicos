@@ -1,50 +1,29 @@
-# Facette 2 — Composition Universelle, Émotion `(V, T, E, D)`, Harmonie, Mélodie & Rythmes Multi-Genres
+# Facette 2 — Composition Universelle, Émotion `(V, T, E, D)`, Harmonie, Mélodie & Groove
 
-> **Cheatsheet IA (L'essentiel en 14 lignes)**
-> - **Règle n°1 anti-erreur LLM** : Ne **JAMAIS** calculer une note MIDI, une gamme ou un accord de tête. Utiliser la **formule Python (§1)** à partir du pitch-class (`C=0..B=11`) et des intervalles ci-dessous.
-> - **Émotion → Paramètres** : Extraire `(V, T, E, D)` du prompt → choisir **Mode** (selon `V, T`), **Progression éprouvée (§4)**, **BPM & Matrice Rythmique (§6)**, **Palette d'instruments (§7)**.
-> - **Mélodie agréable garantie (§5)** : 1 motif court de **3 à 5 notes** répété et varié sur 4 mesures (`A - A' - A'' [Apex <= 74] - B [Silence]` si `V >= 0`, ou courbe descendante/hypnotique si `V < 0`), `>= 65 %` pas conjoints (`<= 4 st`), `20–50 %` de silence réel, notes de l'accord sur temps forts (`>= 80 %` consonant, `>= 65 %` sombre/tendu), vélocités en courbe (jamais plates), **micro-strum 10–25 ms** sur accords piano/guitare.
-> - **5 Anti-Patterns LLM interdits** : (1) note sur chaque croche sans respiration, (2) arpège mécanique 1-3-5-8 en boucle, (3) vélocité uniforme `100` partout, (4) sauts erratiques non compensés, (5) même boucle de 4 mesures répétée sans variation jusqu'à la fin.
-> - **Cohérence universelle** : 1 seule idée mélodique forte + max 3 couches hors batterie + registre séparé par instrument (Basse/808 **`31–48`** `G1–C3` `>= 49 Hz`, en `C..F#` jouer en Octave 2 `36–42` ; Accords `48–67` ; Lead `55–72`, Apex absolu `<= 74` ; `75–81` réservé aux timbres doux si `V > +0.3`).
+> **Cheatsheet IA (L'essentiel v2.0)**
+> - **Règle n°1** : Ne **jamais** calculer notes MIDI, gammes ou accords de tête — importer `SCALES`, `degree_to_midi` (`song_builder.py`) et `optimize_voice_leading` (`musicality_metrics.py`). Carte fichiers → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md).
+> - **Émotion `(V, T, E, D)`** : Choisir **Mode** (§2), **Progression éprouvée (§4)**, **BPM & Matrice Rythmique (§6)**, **Palette (§7)**.
+> - **Mélodie (§5)** : Motif de **3 à 5 notes** varié sur 4 mesures (`A - A' - A'' [Apex <= 74] - B [Silence]` si `V >= 0`, ou courbe descendante/hypnotique si `V < 0`) ; `>= 65 %` pas conjoints (`<= 4 st`), `20–50 %` silence (`[0, 0.92]` en `free_ambient`), temps forts sur accord (`>= 80 %` consonant / `>= 65 %` sombre), **zéro** note sur chaque croche, **zéro** arpège 1-3-5-8 plat ou vélocité constante.
+> - **Humanisation automatique** : Appeler **`scripts/groove_lib.py`** (`apply_micro_strum`, `apply_haas_pocket`, `apply_anti_machine_gun`, `enforce_frequency_inertia`) au lieu de coder les décalages à la main.
+> - **Registres stricts** : Basse/808 **`31–48`** (`>= 49 Hz`, en `C..F#` jouer `36–42`), Accords `48–67`, Lead `55–72` (Apex `<= 74` ; `75–81` réservé aux timbres doux si `V > +0.3`).
 
 ---
 
-## Chapitre 1 — Table MIDI Universelle & Calcul Déterministe Python
+## Chapitre 1 — Table MIDI Universelle & Helper Déterministe
 
-> **Interdiction absolue** de convertir notes ↔ numéros MIDI de tête (les LLM se trompent sur les dièses/bémols et les octaves). Toujours utiliser cette table et ce helper Python dans `build_song.py`.
+> **Interdiction** de convertir notes ↔ numéros MIDI de tête : utiliser `song_builder.SCALES` et `song_builder.degree_to_midi(tonic_midi, mode, degree_0idx, oct_shift=0)`.
 
 | Note | C | C#/Db | D | D#/Eb | E | F | F#/Gb | G | G#/Ab | A | A#/Bb | B |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Pitch Class (`pc`)** | `0` | `1` | `2` | `3` | `4` | `5` | `6` | `7` | `8` | `9` | `10` | `11` |
-| **Octave 1 (`31–35` Sub/808 ; ⚠️ `24–30` infra-sub `< 47 Hz`)** | `24`⚠️ | `25`⚠️ | `26`⚠️ | `27`⚠️ | `28`⚠️ | `29`⚠️ | `30`⚠️ | **`31`** | **`32`** | **`33`** | **`34`** | **`35`** |
-| **Octave 2 (Basse / 808 en `C..F#`)** | `36` | `37` | `38` | `39` | `40` | `41` | `42` | `43` | `44` | `45` | `46` | `47` |
-| **Octave 3 (Accords `48–67`)** | `48` | `49` | `50` | `51` | `52` | `53` | `54` | `55` | `56` | `57` | `58` | `59` |
-| **Octave 4 (Lead `55–72`, C4=60)** | `60` | `61` | `62` | `63` | `64` | `65` | `66` | `67` | `68` | `69` (`440Hz`) | `70` | `71` |
-| **Octave 5 (Apex `<= 74` ; `75–81` doux `V>+0.3`)** | `72` | `73` | `74` | `75` | `76` | `77` | `78` | `79` | `80` | `81` | `82` | `83` |
+| **`pc`** | `0` | `1` | `2` | `3` | `4` | `5` | `6` | `7` | `8` | `9` | `10` | `11` |
+| **Oct 1** | `24`⚠️ | `25`⚠️ | `26`⚠️ | `27`⚠️ | `28`⚠️ | `29`⚠️ | `30`⚠️ | **`31`** | **`32`** | **`33`** | **`34`** | **`35`** |
+| **Oct 2** *(Basse)* | `36` | `37` | `38` | `39` | `40` | `41` | `42` | `43` | `44` | `45` | `46` | `47` |
+| **Oct 3** *(Chords)* | `48` | `49` | `50` | `51` | `52` | `53` | `54` | `55` | `56` | `57` | `58` | `59` |
+| **Oct 4** *(Lead)* | `60` | `61` | `62` | `63` | `64` | `65` | `66` | `67` | `68` | `69` (`440Hz`) | `70` | `71` |
+| **Oct 5** *(Apex)* | `72` | `73` | `74` | `75` | `76` | `77` | `78` | `79` | `80` | `81` | `82` | `83` |
 
-> **Plages de Registres MIDI par Défaut (Anti-Stridence & Anti-Infra-Sub)** :
-> - **Basse / 808** : **`MIDI 31–48` (`G1–C3`, `>= 49 Hz`)**. *Règle anti-infra-sub* : pour les tonalités `C`, `C#`, `D`, `D#`, `E`, `F`, `F#`, écrire la fondamentale 808 en **Octave 2 (`MIDI 36–42`)** plutôt qu'en Octave 1 (`< 42 Hz`, zone infra-sub qui sature `gl.limiter` tout en bridant le LUFS).
-> - **Accords (`Chords`)** : `MIDI 48–67` (`C3–G4`).
-> - **Lead / Motif** : **`MIDI 55–72` (`G3–C5`)** par défaut, **Apex absolu `<= MIDI 74` (`D5`)**.
-> - *Exception* : La zone `MIDI 75–81` est réservée exclusivement aux timbres très doux/sinusoïdaux (flûte douce, cordes légato avec LPF `<= 5 kHz`) sur des morceaux lumineux (`valence > +0.3`). **Interdite** sur synthés riches, cloches FM ou morceaux sombres.
-
-```python
-SCALES = {
-    "ionian": [0, 2, 4, 5, 7, 9, 11], "major": [0, 2, 4, 5, 7, 9, 11],
-    "dorian": [0, 2, 3, 5, 7, 9, 10], "phrygian": [0, 1, 3, 5, 7, 8, 10],
-    "lydian": [0, 2, 4, 6, 7, 9, 11], "mixolydian": [0, 2, 4, 5, 7, 9, 10],
-    "aeolian": [0, 2, 3, 5, 7, 8, 10], "minor": [0, 2, 3, 5, 7, 8, 10],
-    "harmonic_minor": [0, 2, 3, 5, 7, 8, 11], "phrygian_dominant": [0, 1, 4, 5, 7, 8, 10],
-    "locrian": [0, 1, 3, 5, 6, 8, 10],
-    "pentatonic_minor": [0, 3, 5, 7, 10], "pentatonic_major": [0, 2, 4, 7, 9],
-    "blues": [0, 3, 5, 6, 7, 10],
-}
-def degree_to_midi(tonic_midi: int, mode: str, degree_0idx: int, oct_shift: int = 0) -> int:
-    sc = SCALES[mode]
-    oct_add, idx = divmod(degree_0idx, len(sc))
-    return tonic_midi + 12 * (oct_add + oct_shift) + sc[idx]
-```
-*(Ex. en `C minor` avec `tonic_midi=60` : degré 0=`C4(60)`, degré 2=`Eb4(63)`, degré 4=`G4(67)`, degré 5=`Ab4(68)` — 0 erreur de gamme possible !)*
+* **Bornes obligatoires** : Basse/808 **`MIDI 31–48`** (en `C..F#`, privilégier Octave 2 `36–42` contre l'infra-sub `< 42 Hz`) · Accords **`48–67`** · Lead **`55–72`** (`<= 74` par défaut ; `75–81` uniquement timbres doux + `V > +0.3`).
+* Gammes couvertes par `song_builder.SCALES` : `ionian`/`major`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `aeolian`/`minor`, `harmonic_minor`, `melodic_minor`, `phrygian_dominant`, `locrian`, `pentatonic_minor`, `pentatonic_major`, `blues`.
 
 ---
 
@@ -134,74 +113,25 @@ Toute demande utilisateur se traduit en 4 axes mesurables :
 
 ---
 
-## Chapitre 5 — Recette Pas-à-Pas : Générer une Mélodie Agréable (Anti-Chaos LLM)
+## Chapitre 5 — Recette Mélodique, Relais Basse & Expressivité (`scripts/groove_lib.py`)
 
-Pour qu'une IA textuelle crée une mélodie **chantable, émotive et immédiatement agréable** (validant le MIDI Gate dès le 1er essai), appliquer exactement ces **4 étapes** :
+### 5.1 Générer une Mélodie Agréable sur 4 Mesures (`V >= 0` vs `V < 0`)
+1. **Cellule `A` (Mesure 1)** : `3–5` notes sur `4` beats avec `>= 0.75–1.5` beat de silence, ancrée sur l'accord 1, `>= 65 %` pas conjoints (`<= 4 st`, sinon retour inverse de `1–3 st` *Gap-Fill*). Ex. en `Cm7` (`C=0, Eb=2, G=4, Ab=5`) : beats `[0.0, 1.0, 1.5, 2.5]` → `[G4, Ab4, G4, Eb4]`.
+2. **Développement selon Valence (`V`)** :
+   * **`V >= 0` (`A - A' - A'' [Apex <= 74] - B [Silence]`)** : `A'` adapte le même rythme à l'accord 2 + respiration ; `A''` atteint l'apex unique (`+2..+5 st`, `<= 74`) puis redescend ; `B` résout sur tierce/tonique puis **silence sur beats `2.5..4.0`**.
+   * **`V < 0` (Sombre / Hypnotique)** : `A` descendant (`b6 -> 5` ou `b3 -> 2 -> 1`, `MIDI 58–67`) ; `A'` répétition obsédante `-1..-2` degrés ; `A''` appoggiature `b6->5` / `b2->1` (sans apex joyeux) ; `B` retombée grave + `1.5–2.0` beats de silence.
+3. **Sculpting & Contre-chant** : varier les vélocités (temps `0.0`: `92–104`, temps `2.0`: `84–94`, contretemps: `68–82`, apex/tension `+6..10`, fin `-10..-15`), légato `0.90–0.98×` / pluck `0.45–0.70×`, mouvement Basse/Lead contraire ou oblique (`>= 55 %`), contre-chant uniquement dans les silences du Lead (`overlap <= 15 %`).
 
-### Étape 1 — Créer UNE Cellule Motivique Courte (Mesure 1 = `A`)
-* **3 à 5 notes maximum** sur 1 mesure (4 beats), en laissant au moins `0.75 à 1.5 beat` de silence.
-* Choisir les hauteurs parmi les **degrés de la gamme** (jamais hors gamme), avec la 1re note (temps `0.0` ou anacrouse `0.5`) appartenant à **l'accord 1** (fondamentale, tierce ou quinte).
-* Privilégier des mouvements **conjoints** (`±1` ou `±2` degrés de gamme, soit `1–4 st`). Si on fait un saut expressif (`+5` à `+8 st`), **revenir immédiatement de `1–3 st` en sens inverse** (*Gap-Fill*).
-* *Exemple concret en `C minor` (accord `Cm7`, degrés 0-indexed `0=C, 2=Eb, 3=F, 4=G, 5=Ab, 6=Bb`)* :
-  * `A` (mes. 1, beats `[0.0, 1.0, 1.5, 2.5]`, durées `[0.9, 0.45, 0.9, 0.9]`, degrés `[4, 5, 4, 2]` → `G4, Ab4, G4, Eb4`, silence `3.4..4.0`).
+### 5.2 Loi d'Inertie, Haas & Expressivité Automatisée (`groove_lib.py`)
+* **Inertie fréquentielle** : `< 100 Hz` toujours long (`>= 1/2` Sub `20–60 Hz`, `>= 1/8` Basse `60–250 Hz` sauf `Release < 50 ms`) ; subdivisions rapides (`1/16`, `1/32`) réservées aux aigus `> 800 Hz`. Imposer automatiquement via **`enforce_frequency_inertia(notes)`**.
+* **Humanisation déterministe (`scripts/groove_lib.py`)** :
+  * **`apply_micro_strum(chords, step_ms=15.0, bpm=...)`** : décale chaque voix ascendante (`+10–25 ms`) et atténue les voix internes.
+  * **`apply_haas_pocket(tracks, bpm=..., profile=...)`** : Kick = `0 ms` (ancrage), Snare/Clap `+0..+10 ms` (urgent `-5 ms`), Hats `+5..+18 ms`, Basse `+10..+20 ms` (préserve l'attaque Kick et le headroom).
+  * **`apply_anti_machine_gun(notes)`** : humanise vélo/longueur sur motifs rapides (`>= 1/16`) sans jamais répéter deux frappes identiques.
 
-### Étape 2 — Développer sur 4 Mesures selon `(V, T)` (2 Plans Distincts)
+### 5.3 Bibliothèque Universelle de 11 Matrices Rythmiques Exactes (Beats 0-Indexed)
 
-Choisir obligatoirement le plan adapté à la Valence `V` :
-
-* **Plan 1 — Courbe Ascendante (`V >= 0`, Pop / Lumineux / Épique)** : `A - A' - A'' [Apex <= MIDI 74] - B [Cadence + Silence]` :
-  * **Mesure 1 (`A`)** : Exposé clair de la cellule (`MIDI 58–70`).
-  * **Mesure 2 (`A'`)** : **Même squelette rythmique**, adapté aux notes de l'accord 2 (décalé de `±1` ou `±2` degrés) + silence fin de mesure (`3.0..4.0`).
-  * **Mesure 3 (`A''` — Apex Unique)** : Monter vers **le point culminant unique** de la phrase (`+2` à `+5 st` au-dessus de `A`, **`<= MIDI 74`** par défaut), puis redescendre d'un pas conjoint (`1–3 st`).
-  * **Mesure 4 (`B` — Cadence & Respiration)** : Redescendre doucement vers la tierce ou la tonique (`beat 0.0` et `1.5`), puis **silence complet sur beats `2.5..4.0`** (place pour la batterie, le fill ou un bref écho du contre-chant).
-
-* **Plan 2 — Courbe Sombre / Mélancolique / Hypnotique (`V < 0`)** :
-  * **Mesure 1 (`A`)** : Motif court (3–4 notes) centré sur la quinte/tierce mineure (`MIDI 58–67`), mouvement **descendant** (ex. soupir `b6 -> 5` ou `b3 -> 2 -> 1`).
-  * **Mesure 2 (`A'`)** : Répétition presque identique ou légèrement abaissée (`-1` à `-2` degrés) pour créer un effet hypnotique/obsédant + silence en fin de mesure.
-  * **Mesure 3 (`A''`)** : **Pas d'apex joyeux obligatoire**. Option A : tension sombre sur `b6` ou `b2` résolvant vers le bas (`b6 -> 5` ou `b2 -> 1`). Option B : maintien bas/statique avec variation rythmique subtile.
-  * **Mesure 4 (`B`)** : Retombée grave vers la tonique `1` ou la quinte inférieure, suivie de **1.5 à 2.0 beats de silence réel**.
-
-### Étape 3 — Sculpting Expressif (Vélocité, Durée/Gate, Micro-Strum)
-* **Hiérarchie de vélocité** (ne jamais écrire `vel=100` partout) :
-  * Temps fort (`0.0`) : `92–104` · Temps 3 (`2.0`) : `84–94` · Contretemps (`0.5, 1.5, 2.5`) : `68–82` · Note d'Apex mes. 3 (`V >= 0`) ou appoggiature `b6`/`b2` (`V < 0`) : `+6 à +10` · Fin de phrase (`B`) : `-10 à -15`.
-* **Articulation (*Gate Length*)** :
-  * Légato / Chant / Cordes / Pad : `0.90–0.98 × écart` (éviter chevauchement involontaire en mono).
-  * Pluck / Guitare / Funk / Pizzicato : `0.45–0.70 × écart`.
-* **Micro-Strum sur Accords Piano / Guitare / Harpe** : décaler chaque note d'un accord ascendant de `+0.015 à +0.035 beat` (`10–25 ms`) et réduire la vélocité des voix internes (`-8` par rapport à la note haute) → supprime instantanément le son "MIDI robotique".
-
-### Étape 4 — Relais Basse & Contre-Chant
-* **Mouvement contraire/oblique** : quand la basse monte d'un accord à l'autre, faire descendre ou tenir le Lead (garantit `contrary_or_oblique_ratio >= 0.55`).
-* **Contre-chant** : placer ses 2–3 notes **uniquement dans les silences du Lead** (ex. beats `3.0–3.75` de mes. 2 et `2.5–3.75` de mes. 4), à une octave ou timbre distinct → `lead_overlap_conflict <= 0.15`.
-
----
-
-## Chapitre 6 — Loi de l'Inertie Fréquentielle & 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
-
-### 6.1 Loi de l'Inertie Fréquentielle (Relation Hauteur / Durée)
-> **Règle physique absolue** : Plus un son est grave, plus ses notes doivent être longues et espacées ; plus il est aigu, plus ses subdivisions peuvent être courtes. Une onde de $40\text{ Hz}$ a une période de $25\text{ ms}$ et requiert plusieurs cycles pour que sa hauteur soit perçue sans clic ni boue (*mud*). **Interdiction de toute figure $\le 1/16$ sous $100\text{ Hz}$** pour les sons maintenus (exception staccato Funk/Trap : imposer **`Release < 50 ms`** ou Gate complet avant la note suivante).
-
-| Registre | Bande Fréquentielle | Valeurs Rythmiques Recommandées | Enveloppe ADSR Type | Instruments |
-| :--- | :---: | :--- | :--- | :--- |
-| **Sub-Basse** | `20–60 Hz` | Rondes, Blanches (`>= 1/2`) | Attaque lente/moyenne, Sustain élevé, Release contrôlé | Sine Sub, 808 tenue |
-| **Basse** | `60–250 Hz` | Blanches, Noires, Croches pointées | Attaque nette, Decay moyen (`Release < 50 ms` si rapide) | Kick, Basse élec., Synth Bass |
-| **Bas-Médiums** | `250–800 Hz` | Noires, Croches | Sustain moyen (accords) ou court (rythmique) | Pads, Piano MG, Guitare |
-| **Hauts-Médiums** | `800 Hz–4 kHz` | Croches, Double-croches | Attaque précise, articulation dynamique | Voix, Lead synthé, Snare, Cuivres |
-| **Aigus / Air** | `4–20 kHz` | Double-croches, Triple-croches, Triolets | Attaque instantanée, Decay & Release très courts | Hi-hats, Shakers, Cymbales |
-
-### 6.2 Micro-Timing, Humanisation (Effet Haas) & Loi Anti-Mitraillette
-* **Effet de précédence (Effet Haas)** : si Kick + Basse + Hi-hat frappent à `0.0 ms` exact, leurs crêtes s'additionnent (perte de *headroom*) et masquent les attaques. Un décalage de **`5 ms à 15 ms`** sépare chaque attaque tout en conservant un impact perçu comme unique.
-* **Loi Anti-Mitraillette (motifs rapides `>= 1/16`)** : aucune frappe consécutive ne doit être identique — varier **vélocité** (ex. temps fort `100 %`, contretemps `65 %`, subdivisions `40 %`, **`±5 %`** aléatoire), **hauteur** (**`±5` à `±15 ct`**) et **filtre LPF** (coupure proportionnelle à la vélocité).
-
-| Élément | Décalage par rapport à la grille | Effet Musical Produit |
-| :--- | :---: | :--- |
-| **Kick (Grosse caisse)** | **`0 ms`** (Ancrage absolu) | Référence temporelle fixe pour l'auditeur. |
-| **Snare / Clap** | **`-5 ms` à `+10 ms`** | En avance (`-5 ms`) = urgent/nerveux · En retard (`+10 ms`) = lourd/*groovie*. |
-| **Hi-hats / "Tics"** | **`+5 ms` à `+20 ms`** (ou Swing `52–58 %`) | Dégage l'attaque Kick/Snare et crée un balancement naturel. |
-| **Basse / 808** | **`+10 ms` à `+25 ms`** | Laisse passer le transitoire initial du Kick avant l'arrivée de l'énergie grave. |
-
-### 6.3 Bibliothèque Universelle de 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
-
-> Chaque mesure 4/4 vaut `4.0` beats (`0.00` à `3.75` par pas de `0.25`). Pour éviter tout groove cassé, partir de la matrice du genre cible puis ajouter des variations mineures en fin de bloc (mes. 4 et 8).
+> Chaque mesure 4/4 vaut `4.0` beats (`0.00`..`3.75` par `0.25`). Choisir la matrice du genre cible et appliquer `groove_lib` + variations en mes. 4 et 8.
 
 | Style / Genre | BPM | Feel | Kick (beats) | Snare / Clap (beats) | Hi-Hat / Ride / Perc (beats & vélocités) | Swing / Micro-timing |
 | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
@@ -219,9 +149,9 @@ Choisir obligatoirement le plan adapté à la Valence `V` :
 
 ---
 
-## Chapitre 7 — Palettes d'Instrumentation Cohérentes par Genre
+## Chapitre 6 — Palettes d'Instrumentation Cohérentes par Genre
 
-Choisir une palette où les instruments **appartiennent au même univers acoustique** et occupent des **registres MIDI disjoints** :
+Registres MIDI disjoints et instruments `gl.*` natifs compatibles GUI + headless :
 
 | Famille de Genre | Profil Mix (`--profile`) | Basse / 808 (`MIDI 31–48`, `>= 49 Hz`) | Harmonie (`MIDI 48–67`) | Lead / Motif (`MIDI 55–72`, Apex `<= 74`) | Percussions / Texture |
 | :--- | :--- | :--- | :--- | :--- | :--- |

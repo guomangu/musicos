@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
+import json
 import os
 import re
 import sqlite3
 import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +26,10 @@ import numpy as np
 import soundfile as sf
 
 STUDIO_DIR = os.environ.get("AI_STUDIO_DIR") or str(Path(__file__).resolve().parents[2])
+SCRIPTS_DIR = os.path.join(STUDIO_DIR, "scripts")
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
 DEFAULT_SAMPLES_DIR = os.path.join(STUDIO_DIR, "samples")
 DEFAULT_DB_PATH = os.path.join(STUDIO_DIR, "mcp-servers/audio-index/samples.db")
 AUDIO_EXTS = {".wav", ".ogg", ".flac", ".mp3", ".aiff", ".aif"}
@@ -60,10 +68,11 @@ NOTE_TO_PC = {
 
 
 def init_db(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS samples (
@@ -90,7 +99,55 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
             attack_ms REAL,
             decay_profile TEXT,
             tags TEXT NOT NULL,
-            clap_embedding BLOB
+            clap_embedding BLOB,
+            clap_updated_at REAL
+        )
+        """
+    )
+    # Migrate existing samples table if clap_updated_at column is absent
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(samples)").fetchall()}
+    if "clap_updated_at" not in existing_cols:
+        conn.execute("ALTER TABLE samples ADD COLUMN clap_updated_at REAL;")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sample_dsp_metrics (
+            sample_id INTEGER PRIMARY KEY REFERENCES samples(id) ON DELETE CASCADE,
+            sample_nature TEXT,
+            playable_chromatically INTEGER NOT NULL DEFAULT 0,
+            f0_hz REAL,
+            recommended_root_midi INTEGER,
+            recommended_fine_tune_ct INTEGER NOT NULL DEFAULT 0,
+            detected_note TEXT,
+            centroid_hz REAL,
+            r_harsh REAL,
+            peak_harsh_db REAL,
+            roughness REAL,
+            sfm REAL,
+            r_harm REAL,
+            spectral_flux REAL,
+            hnr_db REAL,
+            low_mid_corr REAL,
+            phase_corr REAL,
+            crest_factor_db REAL,
+            attack_ms REAL,
+            peak_dbfs REAL,
+            duration_s REAL,
+            f0_std_semitones REAL,
+            onset_count INTEGER,
+            polyphony_ratio REAL,
+            needs_fade INTEGER NOT NULL DEFAULT 0,
+            hard_reject INTEGER NOT NULL DEFAULT 0,
+            reject_reasons TEXT,
+            band_sub REAL,
+            band_bass REAL,
+            band_lowmid REAL,
+            band_mid REAL,
+            band_harsh REAL,
+            band_air REAL,
+            bark_24_json TEXT,
+            inharmonic_warnings_json TEXT,
+            updated_at REAL
         )
         """
     )
@@ -98,6 +155,12 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_bpm ON samples(bpm);")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_key ON samples(musical_key);")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_loop ON samples(is_loop);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dsp_playable ON sample_dsp_metrics(playable_chromatically);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dsp_nature ON sample_dsp_metrics(sample_nature);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dsp_centroid ON sample_dsp_metrics(centroid_hz);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dsp_r_harsh ON sample_dsp_metrics(r_harsh);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dsp_low_mid_corr ON sample_dsp_metrics(low_mid_corr);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dsp_hard_reject ON sample_dsp_metrics(hard_reject);")
     conn.commit()
     return conn
 
@@ -351,7 +414,117 @@ def _iter_media_files(samples_dir: str) -> list[tuple[str, str]]:
     return results
 
 
-def _compute_clap_embeddings(conn: sqlite3.Connection, batch_limit: int = 0, batch_size: int = 32) -> int:
+def _compute_dsp_worker(task: tuple[int, str, float | None]) -> tuple[int, dict[str, Any] | None]:
+    """Worker computing deterministic DSP metrics (`sample_dsp_metrics` row) without CLAP."""
+    sample_id, path, peak_db = task
+    try:
+        from audio_metrics import analyze_single_file
+
+        entry, _ = analyze_single_file(path, with_clap=False, max_seconds=8.0)
+        dsp = entry["dsp"]
+        bands = dsp.get("bands") or {}
+        return sample_id, {
+            "sample_id": sample_id,
+            "sample_nature": dsp.get("sample_nature"),
+            "playable_chromatically": 1 if dsp.get("playable_chromatically") else 0,
+            "f0_hz": dsp.get("detected_f0_hz"),
+            "recommended_root_midi": dsp.get("midi_root"),
+            "recommended_fine_tune_ct": int(dsp.get("recommended_fine_tune_ct") or 0),
+            "detected_note": dsp.get("detected_note"),
+            "centroid_hz": dsp.get("spectral_centroid_hz"),
+            "r_harsh": dsp.get("r_harsh"),
+            "peak_harsh_db": dsp.get("peak_harsh_db"),
+            "roughness": dsp.get("roughness"),
+            "sfm": dsp.get("sfm"),
+            "r_harm": dsp.get("r_harm"),
+            "spectral_flux": dsp.get("spectral_flux"),
+            "hnr_db": dsp.get("hnr_db"),
+            "low_mid_corr": dsp.get("low_mid_corr"),
+            "phase_corr": dsp.get("phase_corr"),
+            "crest_factor_db": dsp.get("crest_factor_db"),
+            "attack_ms": dsp.get("attack_ms"),
+            "peak_dbfs": peak_db,
+            "duration_s": entry.get("duration_sec"),
+            "f0_std_semitones": dsp.get("f0_std_semitones"),
+            "onset_count": dsp.get("onset_count"),
+            "polyphony_ratio": dsp.get("polyphony_ratio"),
+            "needs_fade": 1 if entry.get("needs_fade") else 0,
+            "hard_reject": 1 if entry.get("hard_reject") else 0,
+            "reject_reasons": json.dumps(entry.get("reject_reasons") or []),
+            "band_sub": float(bands.get("sub", 0.0)),
+            "band_bass": float(bands.get("bass", 0.0)),
+            "band_lowmid": float(bands.get("lowmid", 0.0)),
+            "band_mid": float(bands.get("mid", 0.0)),
+            "band_harsh": float(bands.get("harsh", 0.0)),
+            "band_air": float(bands.get("air", 0.0)),
+            "bark_24_json": json.dumps(dsp.get("bark_24") or []),
+            "inharmonic_warnings_json": json.dumps(dsp.get("inharmonic_warnings") or []),
+            "updated_at": time.time(),
+        }
+    except Exception:
+        return sample_id, None
+
+
+def upsert_dsp_metrics(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
+    cols = ", ".join(row.keys())
+    placeholders = ", ".join(f":{k}" for k in row.keys())
+    updates = ", ".join(f"{k}=excluded.{k}" for k in row.keys() if k != "sample_id")
+    conn.execute(
+        f"INSERT INTO sample_dsp_metrics ({cols}) VALUES ({placeholders}) "
+        f"ON CONFLICT(sample_id) DO UPDATE SET {updates}",
+        row,
+    )
+
+
+def populate_dsp_metrics(
+    conn: sqlite3.Connection,
+    force: bool = False,
+    limit: int = 0,
+    workers: int = 4,
+) -> dict[str, int]:
+    """Populate `sample_dsp_metrics` incrementally for audio rows missing DSP analysis."""
+    if force:
+        sql = "SELECT id, path, peak_db FROM samples WHERE ext != '.mid' AND ext != '.midi'"
+    else:
+        sql = (
+            "SELECT s.id, s.path, s.peak_db FROM samples s "
+            "LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id "
+            "WHERE s.ext != '.mid' AND s.ext != '.midi' "
+            "AND (d.sample_id IS NULL OR d.updated_at < s.file_mtime)"
+        )
+    if limit > 0:
+        sql += f" LIMIT {int(limit)}"
+    tasks = [(int(r["id"]), r["path"], r["peak_db"]) for r in conn.execute(sql).fetchall() if os.path.isfile(r["path"])]
+    if not tasks:
+        return {"dsp_indexed": 0, "dsp_errors": 0}
+
+    dsp_ok = 0
+    dsp_err = 0
+    if workers > 1 and len(tasks) > 4:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+            for _, row in pool.map(_compute_dsp_worker, tasks, chunksize=8):
+                if row is not None:
+                    upsert_dsp_metrics(conn, row)
+                    dsp_ok += 1
+                    if dsp_ok % 50 == 0:
+                        conn.commit()
+                else:
+                    dsp_err += 1
+    else:
+        for t in tasks:
+            _, row = _compute_dsp_worker(t)
+            if row is not None:
+                upsert_dsp_metrics(conn, row)
+                dsp_ok += 1
+                if dsp_ok % 50 == 0:
+                    conn.commit()
+            else:
+                dsp_err += 1
+    conn.commit()
+    return {"dsp_indexed": dsp_ok, "dsp_errors": dsp_err}
+
+
+def _compute_clap_embeddings(conn: sqlite3.Connection, batch_limit: int = 0, batch_size: int = 64) -> int:
     """Calcule les embeddings audio CLAP par lots (laion/clap-htsat-unfused) pour les samples manquants."""
     import torch
     from transformers import ClapModel, ClapProcessor
@@ -396,11 +569,29 @@ def _compute_clap_embeddings(conn: sqlite3.Connection, batch_limit: int = 0, bat
                 feats = getattr(feats, "pooler_output", getattr(feats, "last_hidden_state", feats[0]))
             feats = feats / feats.norm(dim=-1, keepdim=True)
         vecs = feats.cpu().numpy().astype(np.float32)
+        now_ts = time.time()
         for sid, vec in zip(valid_ids, vecs):
-            conn.execute("UPDATE samples SET clap_embedding = ? WHERE id = ?", (vec.tobytes(), sid))
+            conn.execute(
+                "UPDATE samples SET clap_embedding = ?, clap_updated_at = ? WHERE id = ?",
+                (vec.tobytes(), now_ts, sid),
+            )
             updated += 1
         conn.commit()
     return updated
+
+
+def enrich_clap_embeddings(
+    db_path: str = DEFAULT_DB_PATH,
+    batch_size: int = 64,
+    batch_limit: int = 0,
+) -> dict[str, int]:
+    """Standalone incremental CLAP enrichment for CLI usage (`scripts/index_samples.py --enrich-clap`)."""
+    conn = init_db(db_path)
+    embedded = _compute_clap_embeddings(conn, batch_limit=batch_limit, batch_size=batch_size)
+    total = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
+    clap_total = conn.execute("SELECT COUNT(*) FROM samples WHERE clap_embedding IS NOT NULL").fetchone()[0]
+    conn.close()
+    return {"total": total, "clap_embedded_now": embedded, "clap_total": clap_total}
 
 
 def index_directory(
@@ -408,14 +599,19 @@ def index_directory(
     db_path: str = DEFAULT_DB_PATH,
     force: bool = False,
     with_clap: bool = False,
+    with_dsp: bool = True,
+    limit: int = 0,
+    workers: int = 4,
 ) -> dict[str, int]:
-    """Indexe tous les samples du dossier dans SQLite (incrémental par mtime/size)."""
+    """Indexe tous les samples du dossier dans SQLite unifié (incrémental par mtime/size, hors `sfz/`)."""
     conn = init_db(db_path)
     existing = {
         r["path"]: (r["file_mtime"], r["file_size"])
         for r in conn.execute("SELECT path, file_mtime, file_size FROM samples")
     }
     files = _iter_media_files(samples_dir)
+    if limit > 0:
+        files = files[:limit]
     indexed = 0
     skipped = 0
     errors = 0
@@ -443,10 +639,21 @@ def index_directory(
             errors += 1
     conn.commit()
 
+    dsp_stats = populate_dsp_metrics(conn, force=force, limit=limit, workers=workers) if with_dsp else {"dsp_indexed": 0, "dsp_errors": 0}
     clap_count = _compute_clap_embeddings(conn) if with_clap else 0
     total = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
+    dsp_total = conn.execute("SELECT COUNT(*) FROM sample_dsp_metrics").fetchone()[0]
     conn.close()
-    return {"total": total, "indexed": indexed, "skipped": skipped, "errors": errors, "clap_embedded": clap_count}
+    return {
+        "total": total,
+        "indexed": indexed,
+        "skipped": skipped,
+        "errors": errors,
+        "dsp_indexed": dsp_stats["dsp_indexed"],
+        "dsp_errors": dsp_stats["dsp_errors"],
+        "dsp_total": dsp_total,
+        "clap_embedded": clap_count,
+    }
 
 
 if __name__ == "__main__":
@@ -455,6 +662,15 @@ if __name__ == "__main__":
     parser.add_argument("--db-path", default=DEFAULT_DB_PATH)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--with-clap", action="store_true")
+    parser.add_argument("--no-dsp", action="store_true")
+    parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
-    stats = index_directory(args.samples_dir, args.db_path, force=args.force, with_clap=args.with_clap)
+    stats = index_directory(
+        args.samples_dir,
+        args.db_path,
+        force=args.force,
+        with_clap=args.with_clap,
+        with_dsp=not args.no_dsp,
+        workers=args.workers,
+    )
     print(stats)

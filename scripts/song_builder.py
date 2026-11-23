@@ -29,6 +29,29 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
+from gl_dsl import (  # noqa: F401 (re-exported for song scripts)
+    EQ_KIND_TO_INT,
+    INT_TO_EQ_KIND,
+    SYNTH_REGISTRY,
+    SynthVoiceConfig,
+    db_to_auto,
+    eq_band as _dsl_eq_band,
+    eq_params,
+    limiter_master,
+    mixer_gain_to_auto,
+    q_to_width,
+    reverb_room,
+    sidechain_send,
+    synth_voice,
+    to_mixer_params,
+)
+from groove_lib import (  # noqa: F401 (re-exported for song scripts)
+    apply_anti_machine_gun,
+    apply_haas_pocket,
+    apply_micro_strum,
+    enforce_frequency_inertia,
+    ms_to_beats,
+)
 from musicality_metrics import optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
 from studio_lib import (
     TEMPLATE_EMPTY_MIXER,
@@ -36,6 +59,12 @@ from studio_lib import (
     check_pattern_audibility,
     setup_standard_buses,
     verify_midi_gate,
+)
+from transitions_lib import (  # noqa: F401 (re-exported for song scripts)
+    beat4_dropout,
+    filter_sweep,
+    outro_fade,
+    section_gain_arc,
 )
 
 SCHEMA_PATH = os.path.join(ROOT, "schemas", "song_blueprint.schema.json")
@@ -78,12 +107,16 @@ def load_blueprint(blueprint_path: str, validate: bool = True) -> tuple[dict[str
         jsonschema.validate(bp, schema)
 
     ev = bp.get("emotion_vector") or {}
+    hc = bp.get("harmonic_core") or {}
+    profile = bp.get("mix_profile", "trap_rap")
     meta = {
         "bpm": float(bp["bpm"]),
         "beats_per_bar": int(bp["time_signature"]["numerator"]),
         "denominator": int(bp["time_signature"]["denominator"]),
         "key": bp["key"],
-        "mix_profile": bp.get("mix_profile", "trap_rap"),
+        "mix_profile": profile,
+        "has_drums": bool(bp["has_drums"]) if "has_drums" in bp else (profile != "classical_ambient"),
+        "phrase_plan": str(hc.get("phrase_plan", "")),
         "valence": float(ev.get("valence", 0.0)),
         "tension": float(ev.get("tension", 0.3)),
         "energy": float(ev.get("energy", 0.7)),
@@ -116,50 +149,80 @@ class ChannelSpec:
     remove_dc: int = 1
     lpf_hz: float | None = None
     resonance: float = 0.08
-    # Native gl.* extra params
+    # Native gl.* extra params & semantic synth_voice support
     plugin_params: dict[str, Any] = field(default_factory=dict)
+    role: str | None = None
+    valence: float = 0.0
+    cutoff_hz: float | None = None
+    voice: SynthVoiceConfig | None = None
     # Routing & arrangement behavior
     fx_send: float = 0.0
     sidechain_buses: list[tuple[int, float]] = field(default_factory=list)
     single_shot_clips: bool = False  # True for isolated FX triggers (creates 1-bar clip per event)
 
 
-# --- Concise gl.eq builders (Band type: 1=Low cut, 3=High cut, 5=Low shelf, 6=Peak, 7=High shelf) ---
+# --- Semantic + Legacy gl.eq builders (backed by gl_dsl.py) ---
 
 def eq_band(
-    mixer: int,
-    band: int,
-    btype: int,
-    freq: float,
-    gain: float = 0.0,
+    first: int,
+    second: int | str,
+    third: int | float,
+    fourth: float = 0.0,
+    fifth: float | None = None,
     width: float | None = None,
     slot: int = 1,
-) -> list[tuple[str, Any]]:
-    """Build `(path, value)` pairs for one `gl.eq` band (`Peak=6`, width via `Band N width`)."""
-    prefix = f"mixer/{mixer}/slot/{slot}/Band {band}"
-    out: list[tuple[str, Any]] = [(f"{prefix} type", int(btype)), (f"{prefix} freq", float(freq))]
-    if btype in (5, 6, 7):
-        out.append((f"{prefix} gain", float(gain)))
-    if width is not None and btype in (2, 6):
-        out.append((f"{prefix} width", float(width)))
-    return out
-
-
-def eq_insert(mixer: int, bands: list[tuple[Any, ...]], slot: int = 1) -> list[tuple[str, Any]]:
+) -> dict[str, Any] | list[tuple[str, Any]]:
     """
-    Expand a list of compact band tuples into `gl.eq` parameters:
-      (band_idx, type_int, freq_hz)
-      (band_idx, type_int, freq_hz, gain_db)
-      (band_idx, type_int, freq_hz, gain_db, width)
+    Dual-mode `gl.eq` band builder backed by `gl_dsl`:
+      - Semantic (new): `eq_band(band_idx, kind_str, freq_hz, gain_db=0.0, q=1.4)` -> dict
+      - Legacy (compat): `eq_band(mixer, band, btype_int, freq, gain=0.0, width=None, slot=1)` -> list[(path, val)]
+    """
+    if isinstance(second, str):
+        q_val = 1.4 if fifth is None else float(fifth)
+        return _dsl_eq_band(int(first), second, float(third), float(fourth), q=q_val)  # type: ignore[arg-type]
+
+    mixer = int(first)
+    band = int(second)
+    btype = int(third)
+    freq = float(fourth)
+    gain = 0.0 if fifth is None else float(fifth)
+    kind = INT_TO_EQ_KIND.get(btype)
+    if kind is None:
+        raise ValueError(f"Invalid gl.eq Band type int: {btype}")
+    band_dict = _dsl_eq_band(band, kind, freq, gain_db=gain)
+    if btype in (2, 6):
+        if width is not None:
+            band_dict[f"Band {band} width"] = float(width)
+        else:
+            band_dict.pop(f"Band {band} width", None)
+    return to_mixer_params(mixer, slot, band_dict)
+
+
+def eq_insert(mixer: int, bands: list[tuple[Any, ...] | dict[str, Any]], slot: int = 1) -> list[tuple[str, Any]]:
+    """
+    Expand a list of compact band tuples OR `gl_dsl.eq_band(...)` dicts into `gl.eq` parameters:
+      - dict from `gl_dsl.eq_band(...)`
+      - (band_idx, type_int_or_kind, freq_hz)
+      - (band_idx, type_int_or_kind, freq_hz, gain_db)
+      - (band_idx, type_int_or_kind, freq_hz, gain_db, width)
     """
     out: list[tuple[str, Any]] = []
     for item in bands:
+        if isinstance(item, dict):
+            out.extend(to_mixer_params(mixer, slot, item))
+            continue
         b = int(item[0])
-        bt = int(item[1])
+        bt_raw = item[1]
         fr = float(item[2])
         gn = float(item[3]) if len(item) > 3 else 0.0
         wd = float(item[4]) if len(item) > 4 else None
-        out.extend(eq_band(mixer, b, bt, fr, gn, wd, slot=slot))
+        if isinstance(bt_raw, str):
+            d = _dsl_eq_band(b, bt_raw, fr, gain_db=gn)  # type: ignore[arg-type]
+            if wd is not None and f"Band {b} width" in d:
+                d[f"Band {b} width"] = wd
+            out.extend(to_mixer_params(mixer, slot, d))
+        else:
+            out.extend(eq_band(mixer, b, int(bt_raw), fr, gn, width=wd, slot=slot))  # type: ignore[arg-type]
     return out
 
 
@@ -175,20 +238,20 @@ def eq_music_pocket(
 ) -> list[tuple[str, Any]]:
     """Standard anti-mud + Lead/Vocal mirror-pocket EQ for harmonic/pad/loop inserts."""
     return eq_insert(mixer, [
-        (1, 1, hpf_hz),
-        (2, 6, mud_hz, mud_db, 0.45),
-        (3, 6, box_hz, box_db, 0.40),
-        (4, 6, pocket_hz, pocket_db, 0.42),
+        (1, "hpf", hpf_hz),
+        (2, "peak", mud_hz, mud_db, 0.45),
+        (3, "peak", box_hz, box_db, 0.40),
+        (4, "peak", pocket_hz, pocket_db, 0.42),
     ])
 
 
 def eq_kick_clean(mixer: int, hpf_hz: float = 42.0, sub_cut_db: float = -9.5, punch_db: float = 3.0) -> list[tuple[str, Any]]:
     """Standard Trap/Rap kick EQ (removes sub rumble, trims 50 Hz boom, keeps 95 Hz punch)."""
     return eq_insert(mixer, [
-        (1, 1, hpf_hz),
-        (2, 6, 50.0, sub_cut_db, 0.40),
-        (3, 6, 95.0, punch_db, 0.45),
-        (4, 6, 210.0, -4.0, 0.38),
+        (1, "hpf", hpf_hz),
+        (2, "peak", 50.0, sub_cut_db, 0.40),
+        (3, "peak", 95.0, punch_db, 0.45),
+        (4, "peak", 210.0, -4.0, 0.38),
     ])
 
 
@@ -199,9 +262,13 @@ def export_master_sketch(
     bass_keys: list[str],
     chords_key: str = "sketch_chords",
     lead_key: str = "lead_bell",
+    numerator: int = 4,
+    denominator: int = 4,
 ) -> str:
     """Export 3-track `master_sketch.mid` (`Bass`, `Chords`, `Lead`) from 0-indexed beat events."""
     pm = pretty_midi.PrettyMIDI(initial_tempo=float(bpm))
+    if int(numerator) != 4 or int(denominator) != 4:
+        pm.time_signature_changes.append(pretty_midi.TimeSignature(int(numerator), int(denominator), 0.0))
     b2s = 60.0 / float(bpm)
 
     bass_all: list[dict[str, Any]] = []
@@ -211,10 +278,12 @@ def export_master_sketch(
     lead_all = tracks.get(lead_key, [])
 
     for name, evs in [("Bass", bass_all), ("Chords", chords_all), ("Lead", lead_all)]:
+        if not evs:
+            continue
         inst = pretty_midi.Instrument(program=0, name=name)
         for ev in sorted(evs, key=lambda x: x["start"]):
             st = float(ev["start"]) * b2s
-            en = (float(ev["start"]) + float(ev["length"])) * b2s
+            en = (float(ev["start"]) + float(ev.get("length", ev.get("duration", 0.25)))) * b2s
             inst.notes.append(pretty_midi.Note(int(ev["velocity"]), int(ev["pitch"]), st, en))
         pm.instruments.append(inst)
 
@@ -308,7 +377,18 @@ def build_gridline_project(
 
         patches: list[dict[str, Any]] = []
         param_changes: list[tuple[str, Any]] = []
+        auto_insert_lpf_params: list[tuple[str, Any]] = []
+        auto_insert_eq_mixers: list[int] = []
         for idx, ch in enumerate(channels, start=1):
+            voice_cfg: SynthVoiceConfig | None = ch.voice
+            if voice_cfg is None and ch.plugin != "gl.sampler" and ch.role and ch.plugin in SYNTH_REGISTRY:
+                voice_cfg = synth_voice(
+                    ch.plugin,
+                    ch.role,  # type: ignore[arg-type]
+                    valence=ch.valence if ch.valence != 0.0 else valence,
+                    cutoff_hz=ch.lpf_hz if ch.lpf_hz is not None else ch.cutoff_hz,
+                )
+
             if ch.plugin == "gl.sampler":
                 spath = ch.sample_file if os.path.isabs(ch.sample_file) else os.path.join(samples_dir, ch.sample_file)
                 ft_val = ch.fine_tune
@@ -332,6 +412,12 @@ def build_gridline_project(
                         (f"channel/{idx}/Cutoff", ch.lpf_hz),
                         (f"channel/{idx}/Resonance", ch.resonance),
                     ])
+            elif voice_cfg is not None:
+                param_changes.extend(voice_cfg.to_channel_tuples(idx))
+                if voice_cfg.needs_insert_lpf:
+                    auto_insert_eq_mixers.append(ch.mixer)
+                    auto_insert_lpf_params.extend(voice_cfg.to_insert_eq_tuples(ch.mixer, slot=1))
+
             for pname, pval in ch.plugin_params.items():
                 param_changes.append((f"channel/{idx}/{pname}", pval))
 
@@ -360,12 +446,30 @@ def build_gridline_project(
                     if m_id not in (0, 17, 18, 19, 20) and m_id not in seen_m:
                         seen_m.add(m_id)
                         eq_mixers.append(m_id)
+
+        existing_eq_set = set(eq_mixers)
+        existing_band7_mixers = {
+            int(p_str.split("/")[1])
+            for p_str, _ in (insert_eq_params or [])
+            if p_str.startswith("mixer/") and "Band 7 type" in p_str
+        }
+        filtered_auto_lpf: list[tuple[str, Any]] = []
+        for m_auto in auto_insert_eq_mixers:
+            if m_auto not in existing_eq_set:
+                eq_mixers.append(m_auto)
+                existing_eq_set.add(m_auto)
+        for p_str, val in auto_insert_lpf_params:
+            m_id = int(p_str.split("/")[1])
+            if m_id in existing_band7_mixers and "Band 7" in p_str:
+                continue
+            filtered_auto_lpf.append((p_str, val))
+
         if eq_mixers:
             mcp.batch([{"tool": "add_plugin", "arguments": {"mixer": m, "plugin": "gl.eq"}} for m in eq_mixers])
         if extra_plugins:
             mcp.batch([{"tool": "add_plugin", "arguments": {"mixer": int(m), "plugin": str(pl)}} for m, pl in extra_plugins])
 
-        all_eq = list(insert_eq_params or []) + list(bus_eq_params or [])
+        all_eq = list(insert_eq_params or []) + filtered_auto_lpf + list(bus_eq_params or [])
         if all_eq:
             mcp.set_params(all_eq)
 
@@ -375,7 +479,7 @@ def build_gridline_project(
             for sc_bus, sc_lvl in ch.sidechain_buses:
                 sends.append({
                     "tool": "set_send",
-                    "arguments": {"mixer": ch.mixer, "to": sc_bus, "level": sc_lvl, "sidechain": True, "preFader": True},
+                    "arguments": sidechain_send(ch.mixer, sc_bus, sc_lvl),
                 })
             if ch.fx_send > 0.0:
                 sends.append({"tool": "set_send", "arguments": {"mixer": ch.mixer, "to": 20, "level": ch.fx_send}})
@@ -491,7 +595,16 @@ def run_song_cli(
 
     tracks, markers = generate_fn(meta)
     sketch_path = os.path.join(proj_dir, "master_sketch.mid")
-    export_master_sketch(tracks, sketch_path, meta["bpm"], bass_keys=bass_keys, chords_key=chords_key, lead_key=lead_key)
+    export_master_sketch(
+        tracks,
+        sketch_path,
+        meta["bpm"],
+        bass_keys=bass_keys,
+        chords_key=chords_key,
+        lead_key=lead_key,
+        numerator=int(meta.get("beats_per_bar", 4)),
+        denominator=int(meta.get("denominator", 4)),
+    )
 
     max_pitch = 72 if meta["valence"] < -0.3 else 76
     res = verify_midi_gate(
@@ -500,6 +613,8 @@ def run_song_cli(
         max_pitch=max_pitch,
         valence=meta["valence"],
         tension=meta["tension"],
+        time_signature=(int(meta.get("beats_per_bar", 4)), int(meta.get("denominator", 4))),
+        phrase_plan=str(meta.get("phrase_plan", "")),
     )
     print(json.dumps({
         "midi_gate": res.get("gate_passed"),

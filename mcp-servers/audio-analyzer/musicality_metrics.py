@@ -100,12 +100,14 @@ def _infer_roles(pm: pretty_midi.PrettyMIDI) -> Dict[str, List[pretty_midi.Instr
         )
         poly_ratio = overlaps / max(1, len(notes_sorted))
 
-        if any(k in name for k in ("808", "bass", "sub")) or mean_p < 48.0:
+        if any(k in name for k in ("808", "bass", "sub")):
             roles["bass"].append(inst)
         elif any(k in name for k in ("lead", "melody", "topline", "vox", "vocal")):
             roles["lead"].append(inst)
         elif any(k in name for k in ("chord", "pad", "string", "rhodes", "harmony")) or poly_ratio >= 0.45:
             roles["chords"].append(inst)
+        elif mean_p < 48.0:
+            roles["bass"].append(inst)
         elif "piano" in name:
             roles["lead"].append(inst)
         else:
@@ -200,18 +202,112 @@ def _compute_voice_leading(slices: List[Tuple[float, List[int]]]) -> float:
     return round(float(np.mean(distances)), 3) if distances else 0.0
 
 
+def _parse_time_signature(
+    time_signature: Optional[Any],
+) -> Optional[tuple[int, int]]:
+    """Normalise une signature temporelle (`(3, 4)` ou `'3/4'`) en tuple `(num, den)`."""
+    if time_signature is None or time_signature == "":
+        return None
+    if isinstance(time_signature, str):
+        raw = time_signature.strip()
+        if "/" in raw:
+            parts = raw.split("/", 1)
+            return int(parts[0]), int(parts[1])
+        return None
+    if isinstance(time_signature, (tuple, list)) and len(time_signature) == 2:
+        return int(time_signature[0]), int(time_signature[1])
+    return None
+
+
+def _resolve_time_signature(
+    pm: pretty_midi.PrettyMIDI,
+    time_signature: Optional[Any] = None,
+) -> tuple[int, int]:
+    """Lit `(numerator, denominator)` depuis l'argument explicite ou les méta-événements MIDI."""
+    parsed = _parse_time_signature(time_signature)
+    if parsed is not None and parsed[0] > 0 and parsed[1] > 0:
+        return parsed
+    if pm.time_signature_changes:
+        ts = pm.time_signature_changes[0]
+        if ts.numerator > 0 and ts.denominator > 0:
+            return int(ts.numerator), int(ts.denominator)
+    return 4, 4
+
+
+def _bar_quarters(num: int, den: int) -> float:
+    """Longueur d'une mesure en noires (quarter notes)."""
+    return float(max(1, num)) * (4.0 / float(max(1, den)))
+
+
+def _strong_beat_offsets_quarters(num: int, den: int) -> tuple[float, ...]:
+    """Positions des temps forts intra-mesure exprimées en noires (0-indexed)."""
+    if (num, den) == (4, 4):
+        return (0.0, 2.0)
+    if (num, den) in ((3, 4), (2, 4)):
+        return (0.0,)
+    if (num, den) == (6, 8):
+        return (0.0, 1.5)
+    if (num, den) == (9, 8):
+        return (0.0, 1.5, 3.0)
+    if (num, den) == (12, 8):
+        return (0.0, 1.5, 3.0, 4.5)
+    if (num, den) == (5, 4):
+        return (0.0, 3.0)
+    if (num, den) == (7, 8):
+        return (0.0, 1.0, 2.0)
+    if den == 8 and num >= 6 and num % 3 == 0:
+        return tuple(i * 1.5 for i in range(num // 3))
+    if num >= 4 and den == 4:
+        return (0.0, 2.0)
+    return (0.0,)
+
+
+def _strong_beat_times(
+    pm: pretty_midi.PrettyMIDI,
+    num: int,
+    den: int,
+    total_dur: Optional[float] = None,
+) -> np.ndarray:
+    """Génère les timestamps exacts (en secondes) de tous les temps forts du morceau."""
+    end_t = float(total_dur if total_dur is not None else pm.get_end_time())
+    if end_t <= 0.0:
+        return np.array([0.0], dtype=float)
+    ppq = float(pm.resolution or 480)
+    end_q = float(pm.time_to_tick(end_t)) / ppq
+    bar_q = _bar_quarters(num, den)
+    offsets_q = _strong_beat_offsets_quarters(num, den)
+
+    times: List[float] = []
+    bar_idx = 0
+    while True:
+        bar_start_q = bar_idx * bar_q
+        if bar_start_q > end_q + 1e-6:
+            break
+        for off_q in offsets_q:
+            q = bar_start_q + off_q
+            if q > end_q + 1e-6:
+                break
+            tick = int(round(q * ppq))
+            t = float(pm.tick_to_time(tick))
+            if t <= end_t + 1e-6:
+                times.append(t)
+        bar_idx += 1
+    return np.asarray(times if times else [0.0], dtype=float)
+
+
 def _compute_strong_beat_chord_tone_ratio(
     pm: pretty_midi.PrettyMIDI,
     topline: List[pretty_midi.Note],
     chord_notes: List[pretty_midi.Note],
     bass_notes: List[pretty_midi.Note],
+    time_signature: Optional[Any] = None,
 ) -> float:
     if not topline or (not chord_notes and not bass_notes):
         return 1.0
-    beats = pm.get_beats()
-    if len(beats) < 2:
+    num, den = _resolve_time_signature(pm, time_signature)
+    strong_beats = _strong_beat_times(pm, num, den)
+    if len(strong_beats) == 0:
         return 1.0
-    strong_beats = beats[::2]
 
     strong_notes = [
         n for n in topline if np.min(np.abs(strong_beats - n.start)) <= 0.09
@@ -255,9 +351,9 @@ def _compute_lead_overlap_conflict(
 
 def _compute_contrary_oblique_ratio(
     topline: List[pretty_midi.Note], bass_notes: List[pretty_midi.Note]
-) -> float:
+) -> Optional[float]:
     if len(topline) < 2 or len(bass_notes) < 2:
-        return 1.0
+        return None
     bass_sorted = sorted(bass_notes, key=lambda n: n.start)
 
     def bass_at(t: float) -> Optional[int]:
@@ -277,22 +373,21 @@ def _compute_contrary_oblique_ratio(
         total += 1
         if (dm * db) <= 0:
             good += 1
-    return round(good / total, 3) if total > 0 else 1.0
+    return round(good / total, 3) if total > 0 else None
 
 
-def _beat_block_4bars(pm: pretty_midi.PrettyMIDI, time_s: float) -> int:
-    """Map a timestamp (seconds) to its 0-indexed 4-measure block."""
-    beats = pm.get_beats()
-    num = pm.time_signature_changes[0].numerator if pm.time_signature_changes else 4
-    bars_beats = max(1, 4 * int(num))
-    if len(beats) >= 2:
-        step = float(beats[-1] - beats[-2])
-        if time_s <= beats[-1]:
-            beat_pos = float(np.interp(time_s, beats, np.arange(len(beats), dtype=float)))
-        else:
-            beat_pos = (len(beats) - 1) + (time_s - float(beats[-1])) / max(step, 1e-4)
-        return int(max(0.0, beat_pos) // bars_beats)
-    return 0
+def _beat_block_4bars(
+    pm: pretty_midi.PrettyMIDI,
+    time_s: float,
+    time_signature: Optional[Any] = None,
+) -> int:
+    """Map a timestamp (seconds) to its 0-indexed 4-measure block across any time signature."""
+    num, den = _resolve_time_signature(pm, time_signature)
+    bar_q = _bar_quarters(num, den)
+    ppq = float(pm.resolution or 480)
+    q = float(pm.time_to_tick(max(0.0, float(time_s)))) / ppq
+    bar_idx = int((q + 1e-6) // max(bar_q, 1e-4))
+    return max(0, bar_idx // 4)
 
 
 def _infer_allowed_pcs_from_midi(midi_path: str) -> Optional[set[int]]:
@@ -312,6 +407,7 @@ def detect_minor_2nd_clashes(
     allowed_pcs: Optional[set[int]] = None,
     valence: float = 0.0,
     tension: float = 0.3,
+    time_signature: Optional[Any] = None,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Detect inter-track minor 2nd (1 st) / minor 9th (13 st) clashes.
@@ -350,7 +446,7 @@ def detect_minor_2nd_clashes(
                 and (p1 % 12) in allowed_pcs
                 and (p2 % 12) in allowed_pcs
             )
-            block_idx = _beat_block_4bars(pm, s2)
+            block_idx = _beat_block_4bars(pm, s2, time_signature=time_signature)
             entry = {
                 "time_s": round(float(s2), 3),
                 "block_4bars": block_idx,
@@ -377,16 +473,23 @@ def evaluate_midi_musicality(
     valence: float = 0.0,
     tension: float = 0.3,
     allowed_pcs: Optional[set[int]] = None,
+    time_signature: Optional[Any] = None,
+    phrase_plan: str = "",
 ) -> Dict[str, Any]:
     """Point d'entrée principal à appeler depuis audit_midi_harmony."""
     dark_tense = (valence < -0.3) or (tension >= 0.5)
+    is_free_ambient = (phrase_plan or "").strip().lower() == "free_ambient"
     if thresholds is not None:
         th = thresholds
     else:
         th = MusicalityThresholds(
-            strong_beat_chord_ratio_min=0.65 if dark_tense else 0.80
+            strong_beat_chord_ratio_min=0.65 if (dark_tense or is_free_ambient) else 0.80,
+            rest_ratio_min=0.0 if is_free_ambient else 0.20,
+            rest_ratio_max=0.92 if is_free_ambient else 0.50,
         )
     pm = pretty_midi.PrettyMIDI(midi_path)
+    num, den = _resolve_time_signature(pm, time_signature)
+    eff_ts = (num, den)
     total_dur = pm.get_end_time()
     roles = _infer_roles(pm)
 
@@ -395,37 +498,51 @@ def evaluate_midi_musicality(
     bass_notes = [n for inst in roles["bass"] for n in inst.notes]
     topline = _extract_monophonic_topline(lead_notes)
 
+    has_bass = bool(roles["bass"]) and len(bass_notes) >= 2
+    has_explicit_lead = bool(roles["lead"]) and any(
+        inst not in roles["chords"] for inst in roles["lead"]
+    )
+
     stepwise_ratio, gap_fill, ambitus = _compute_stepwise_and_gap_fill(topline)
     rest_ratio = _compute_rest_ratio(topline, total_dur)
     slices = _extract_chord_slices(chord_notes)
     vl_avg = _compute_voice_leading(slices)
-    strong_beat_ratio = _compute_strong_beat_chord_tone_ratio(pm, topline, chord_notes, bass_notes)
+    strong_beat_ratio = _compute_strong_beat_chord_tone_ratio(
+        pm, topline, chord_notes, bass_notes, time_signature=eff_ts
+    )
     overlap_conflict = _compute_lead_overlap_conflict(roles["lead"], roles["counter"])
-    contrary_ratio = _compute_contrary_oblique_ratio(topline, bass_notes)
+    contrary_ratio = (
+        _compute_contrary_oblique_ratio(topline, bass_notes)
+        if (has_bass and has_explicit_lead)
+        else None
+    )
 
     eff_allowed = allowed_pcs
     if eff_allowed is None and dark_tense:
-        raw_clashes, _ = detect_minor_2nd_clashes(pm, allowed_pcs=None, valence=valence, tension=tension)
+        raw_clashes, _ = detect_minor_2nd_clashes(
+            pm, allowed_pcs=None, valence=valence, tension=tension, time_signature=eff_ts
+        )
         if raw_clashes:
             eff_allowed = _infer_allowed_pcs_from_midi(midi_path)
     all_clashes, blocking_clashes = detect_minor_2nd_clashes(
-        pm, allowed_pcs=eff_allowed, valence=valence, tension=tension
+        pm, allowed_pcs=eff_allowed, valence=valence, tension=tension, time_signature=eff_ts
     )
 
     failures: List[str] = []
-    if stepwise_ratio < th.stepwise_ratio_min:
-        failures.append(f"stepwise_ratio={stepwise_ratio} < {th.stepwise_ratio_min} (mélodie trop sautillante)")
-    if gap_fill < th.gap_fill_min:
-        failures.append(f"gap_fill_compliance={gap_fill} < {th.gap_fill_min} (sauts non résolus en sens inverse)")
-    if not (th.rest_ratio_min <= rest_ratio <= th.rest_ratio_max):
-        failures.append(f"melody_rest_ratio={rest_ratio} hors [{th.rest_ratio_min}, {th.rest_ratio_max}]")
-    if strong_beat_ratio < th.strong_beat_chord_ratio_min:
-        failures.append(f"strong_beat_chord_tone_ratio={strong_beat_ratio} < {th.strong_beat_chord_ratio_min}")
+    if has_explicit_lead:
+        if not is_free_ambient and stepwise_ratio < th.stepwise_ratio_min:
+            failures.append(f"stepwise_ratio={stepwise_ratio} < {th.stepwise_ratio_min} (mélodie trop sautillante)")
+        if not is_free_ambient and gap_fill < th.gap_fill_min:
+            failures.append(f"gap_fill_compliance={gap_fill} < {th.gap_fill_min} (sauts non résolus en sens inverse)")
+        if not (th.rest_ratio_min <= rest_ratio <= th.rest_ratio_max):
+            failures.append(f"melody_rest_ratio={rest_ratio} hors [{th.rest_ratio_min}, {th.rest_ratio_max}]")
+        if strong_beat_ratio < th.strong_beat_chord_ratio_min:
+            failures.append(f"strong_beat_chord_tone_ratio={strong_beat_ratio} < {th.strong_beat_chord_ratio_min}")
     if vl_avg > th.voice_leading_max_st:
         failures.append(f"voice_leading_avg_semitones={vl_avg} > {th.voice_leading_max_st} (accords en blocs)")
     if overlap_conflict > th.lead_overlap_max:
         failures.append(f"lead_overlap_conflict={overlap_conflict} > {th.lead_overlap_max} (cafouillis d'attaques)")
-    if contrary_ratio < th.contrary_oblique_min:
+    if contrary_ratio is not None and not is_free_ambient and contrary_ratio < th.contrary_oblique_min:
         failures.append(f"contrary_or_oblique_ratio={contrary_ratio} < {th.contrary_oblique_min}")
     if blocking_clashes:
         failures.append(
@@ -436,6 +553,10 @@ def evaluate_midi_musicality(
     return {
         "musicality_verdict": "PASS" if not failures else "FAIL",
         "emotion_mode": "dark_tense" if dark_tense else "consonant",
+        "time_signature": f"{num}/{den}",
+        "phrase_plan": phrase_plan or "standard",
+        "has_bass": has_bass,
+        "has_lead": has_explicit_lead,
         "metrics": {
             "stepwise_ratio": stepwise_ratio,
             "gap_fill_compliance": gap_fill,

@@ -18,6 +18,18 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from gl_dsl import (
+    eq_band as dsl_eq_band,
+    eq_params as dsl_eq_params,
+    limiter_master,
+    reverb_room,
+    to_mixer_params,
+)
+
 ROOT = "/home/gamo/Bureau/musicos"
 TEMPLATE_EMPTY_MIXER = "/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline"
 
@@ -97,8 +109,12 @@ class GridlineMCP:
             self.call("set_parameters", {"changes": chunk})
 
     def close(self) -> None:
-        if self.proc.stdin:
-            self.proc.stdin.close()
+        for stream in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
+            if stream:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
         self.proc.wait(timeout=15)
 
 
@@ -276,13 +292,22 @@ def verify_midi_gate(
     valence: float = 0.0,
     tension: float = 0.3,
     min_pitch: int = 31,
+    auto_fix: bool = False,
+    time_signature: tuple[int, int] | str | None = None,
+    phrase_plan: str = "",
+    fixed_out_path: str | None = None,
 ) -> dict[str, Any]:
     """
-    Run strict 7-metric musicality gate via audio-analyzer and raise on FAIL.
+    Run strict musicality gate via audio-analyzer and raise on FAIL.
+    When `auto_fix=True`, delegates deterministic repairs to `scripts/midi_autofix.py`
+    before raising on remaining structural errors.
     `min_pitch` defaults to 31 (G1 = 49 Hz) to prevent < 42 Hz infra-sub 808s;
     pass `min_pitch=28` explicitly if an acoustic/electric bass legitimately uses E1..F#1.
     """
-    sys.path.insert(0, f"{ROOT}/mcp-servers/audio-analyzer")
+    if f"{ROOT}/mcp-servers/audio-analyzer" not in sys.path:
+        sys.path.insert(0, f"{ROOT}/mcp-servers/audio-analyzer")
+    if f"{ROOT}/scripts" not in sys.path:
+        sys.path.insert(0, f"{ROOT}/scripts")
     from deep_diagnostics import audit_midi_file
 
     res = audit_midi_file(
@@ -293,12 +318,41 @@ def verify_midi_gate(
         strict_musicality=True,
         valence=valence,
         tension=tension,
+        time_signature=time_signature,
+        phrase_plan=phrase_plan,
     )
+    if not res.get("gate_passed") and auto_fix:
+        from midi_autofix import autofix_midi
+
+        fix_report = autofix_midi(
+            midi_path=midi_path,
+            expected_key=expected_key,
+            min_pitch=min_pitch,
+            max_pitch=max_pitch,
+            strict_musicality=True,
+            valence=valence,
+            tension=tension,
+            time_signature=time_signature,
+            phrase_plan=phrase_plan,
+            out_path=fixed_out_path or midi_path,
+            in_place=(fixed_out_path is None),
+        )
+        post_res = dict(fix_report.get("post_audit") or res)
+        post_res["fix_report"] = {
+            "fixed_midi_path": fix_report.get("fixed_midi_path"),
+            "counts_by_rule": fix_report.get("counts_by_rule"),
+            "total_changes": fix_report.get("total_changes"),
+            "changes": fix_report.get("changes"),
+            "remaining_structural_failures": fix_report.get("remaining_structural_failures"),
+        }
+        res = post_res
+
     if not res.get("gate_passed"):
         raise RuntimeError(
             f"MIDI GATE FAILED ({midi_path}): failures={res.get('musicality_failures')} "
             f"too_high={res.get('too_high_count')} "
             f"too_low={res.get('too_low_count')} "
+            f"out_of_scale={res.get('out_of_scale_notes')} "
             f"blocking_clashes={res.get('blocking_minor_2nd_clashes')} "
             f"sub_collisions={res.get('low_end_simultaneous_collisions')}"
         )
@@ -335,7 +389,6 @@ def setup_standard_buses(
     lofi_mode = profile == "lofi_chill"
     dark_mode = valence < -0.2
     rt60 = round(min(1.10 if acoustic_mode else 0.42, max(0.18, t_noire_s * (1.2 if acoustic_mode else 0.65))), 3)
-    rt60_ds = max(1, min(200, int(round(rt60 * 10.0))))
 
     # Ensure mixer tracks up to max bus index exist (Empty template only has 0..16)
     mixer_info = mcp.call("get_mixer", {})
@@ -388,19 +441,19 @@ def setup_standard_buses(
     master_comp_thresh = -8.5 if acoustic_mode else -10.5
     master_comp_makeup = 0.5 if acoustic_mode else 1.5
 
-    changes = [
+    changes: list[tuple[str, Any]] = [
         # Master (look-ahead 0.002s avoids True Peak overshoots & hi-hat micro-glitches)
-        ("mixer/0/slot/1/Quality", 1),
-        ("mixer/0/slot/1/Band 1 type", 1), ("mixer/0/slot/1/Band 1 freq", 28),
-        ("mixer/0/slot/1/Band 7 type", 3), ("mixer/0/slot/1/Band 7 freq", 17000),
+        *dsl_eq_params(0, [dsl_eq_band(1, "hpf", 28), dsl_eq_band(7, "lpf", 17000)], slot=1, quality=1),
         ("mixer/0/slot/2/Threshold", master_comp_thresh), ("mixer/0/slot/2/Ratio", 1.6),
         ("mixer/0/slot/2/Attack", 0.025), ("mixer/0/slot/2/Release", 0.110),
         ("mixer/0/slot/2/Makeup", master_comp_makeup), ("mixer/0/slot/2/Detector high-pass", 95),
-        ("mixer/0/slot/3/Gain", limiter_gain_db), ("mixer/0/slot/3/Ceiling", limiter_ceiling_db),
-        ("mixer/0/slot/3/Attack (look-ahead)", 0.002), ("mixer/0/slot/3/0.2 dB safety", 1),
+        *to_mixer_params(0, 3, limiter_master(limiter_gain_db, limiter_ceiling_db)),
         # BUS Drums
-        (f"mixer/{bus_drums}/slot/1/Band 1 type", 1), (f"mixer/{bus_drums}/slot/1/Band 1 freq", 34),
-        (f"mixer/{bus_drums}/slot/1/Band 7 type", 7), (f"mixer/{bus_drums}/slot/1/Band 7 freq", 10000), (f"mixer/{bus_drums}/slot/1/Band 7 gain", drums_air_gain),
+        *dsl_eq_params(
+            bus_drums,
+            [dsl_eq_band(1, "hpf", 34), dsl_eq_band(7, "high_shelf", 10000, drums_air_gain)],
+            slot=1,
+        ),
         (f"mixer/{bus_drums}/slot/2/Threshold", -15.0), (f"mixer/{bus_drums}/slot/2/Ratio", 2.2),
         (f"mixer/{bus_drums}/slot/2/Attack", 0.015), (f"mixer/{bus_drums}/slot/2/Release", 0.085), (f"mixer/{bus_drums}/slot/2/Makeup", 2.0),
         # BUS Bass / 808
@@ -408,21 +461,25 @@ def setup_standard_buses(
         (f"mixer/{bus_808}/slot/2/Detector input", 1),
         (f"mixer/{bus_808}/slot/2/Threshold", sc_thresh_bass), (f"mixer/{bus_808}/slot/2/Ratio", sc_ratio_bass),
         (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", sc_release_bass), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
-        (f"mixer/{bus_808}/slot/3/Band 1 type", 1), (f"mixer/{bus_808}/slot/3/Band 1 freq", 30),
+        *dsl_eq_params(bus_808, [dsl_eq_band(1, "hpf", 30)], slot=3),
         # BUS Music: Slot 1 gl.dist (Tone <= 7500 Hz) -> Slot 2 gl.eq (HPF + LPF) -> Slot 3 Glue -> Slot 4 Duck
         (f"mixer/{bus_music}/slot/1/Mode", 0), (f"mixer/{bus_music}/slot/1/Drive", 3.5),
         (f"mixer/{bus_music}/slot/1/Tone", music_dist_tone), (f"mixer/{bus_music}/slot/1/Mix", music_dist_mix),
         (f"mixer/{bus_music}/slot/1/Output", 0.0), (f"mixer/{bus_music}/slot/1/Oversampling", 2), (f"mixer/{bus_music}/slot/1/Remove DC", 1),
-        (f"mixer/{bus_music}/slot/2/Band 1 type", 1), (f"mixer/{bus_music}/slot/2/Band 1 freq", music_hpf),
-        (f"mixer/{bus_music}/slot/2/Band 7 type", 3), (f"mixer/{bus_music}/slot/2/Band 7 freq", music_lpf),
+        *dsl_eq_params(bus_music, [dsl_eq_band(1, "hpf", music_hpf), dsl_eq_band(7, "lpf", music_lpf)], slot=2),
     ]
     if dark_mode:
-        changes.extend([
-            (f"mixer/{bus_music}/slot/2/Band 6 type", 6),
-            (f"mixer/{bus_music}/slot/2/Band 6 freq", 3200),
-            (f"mixer/{bus_music}/slot/2/Band 6 gain", -2.0),
-            (f"mixer/{bus_music}/slot/2/Band 6 width", 0.39),
-        ])
+        changes.extend(to_mixer_params(bus_music, 2, dsl_eq_band(6, "peak", 3200, -2.0, q=1.4)))
+    fx_room_params = reverb_room(
+        decay_sec=rt60,
+        hpf_hz=350.0 if acoustic_mode else 480.0,
+        lpf_hz=6800.0,
+        wet_pct=45.0,
+        er_pct=11.0 if acoustic_mode else 8.0,
+        pre_delay_ms=12.0,
+        room_size=0.45 if acoustic_mode else 0.24,
+    )
+    fx_room_params.update({"High damping": 4200, "Width": 0.80})
     changes.extend([
         (f"mixer/{bus_music}/slot/3/Threshold", -13.5), (f"mixer/{bus_music}/slot/3/Ratio", 1.8),
         (f"mixer/{bus_music}/slot/3/Attack", 0.022), (f"mixer/{bus_music}/slot/3/Release", 0.110), (f"mixer/{bus_music}/slot/3/Makeup", 1.5),
@@ -430,14 +487,7 @@ def setup_standard_buses(
         (f"mixer/{bus_music}/slot/4/Threshold", -21.0), (f"mixer/{bus_music}/slot/4/Ratio", sc_ratio_music),
         (f"mixer/{bus_music}/slot/4/Attack", 0.005), (f"mixer/{bus_music}/slot/4/Release", 0.085), (f"mixer/{bus_music}/slot/4/Lookahead", 1),
         # FX Room (Dry=0, Dry full=0, Decay <= T_noire for rhythmic genres)
-        (f"mixer/{fx_room}/slot/1/Model", 1),
-        (f"mixer/{fx_room}/slot/1/Pre-delay", 12), (f"mixer/{fx_room}/slot/1/Room size", 0.45 if acoustic_mode else 0.24),
-        (f"mixer/{fx_room}/slot/1/Decay time", rt60),
-        (f"mixer/{fx_room}/slot/1/Low cut", 350 if acoustic_mode else 480), (f"mixer/{fx_room}/slot/1/High cut", 6800), (f"mixer/{fx_room}/slot/1/High damping", 4200),
-        (f"mixer/{fx_room}/slot/1/Dry", 0), (f"mixer/{fx_room}/slot/1/Wet", 0.45), (f"mixer/{fx_room}/slot/1/Width", 0.80),
-        (f"mixer/{fx_room}/slot/1/Low cut (full)", 350 if acoustic_mode else 480), (f"mixer/{fx_room}/slot/1/Decay (full)", rt60_ds),
-        (f"mixer/{fx_room}/slot/1/Dry (full)", 0), (f"mixer/{fx_room}/slot/1/Early reflections (full)", 14 if acoustic_mode else 10),
-        (f"mixer/{fx_room}/slot/1/Wet (full)", 58),
+        *to_mixer_params(fx_room, 1, fx_room_params),
     ])
     mcp.set_params(changes)
     mcp.batch([

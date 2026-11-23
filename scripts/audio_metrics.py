@@ -711,11 +711,13 @@ def extract_dsp_metrics(
     sfm_arr = librosa.feature.spectral_flatness(S=power + 1e-12)[0]
     sfm = round(float(np.mean(sfm_arr)), 4)
 
-    # HPSS harmonic ratio R_harm
+    # HPSS harmonic ratio R_harm (directly on active STFT slice, max ~4s for speed)
     if len(mono_norm) >= int(0.12 * sr):
-        y_harm, y_perc = librosa.effects.hpss(mono_norm)
-        eh = float(np.sum(y_harm ** 2))
-        ep = float(np.sum(y_perc ** 2))
+        max_hpss_frames = max(8, int(4.0 * sr / 512))
+        mag_slice = mag[:, :max_hpss_frames]
+        mag_h, mag_p = librosa.decompose.hpss(mag_slice)
+        eh = float(np.sum(mag_h ** 2))
+        ep = float(np.sum(mag_p ** 2))
         r_harm = round(eh / (eh + ep + 1e-12), 4)
     else:
         # Ultra-short percussive transient fallback via SFM/tonality
@@ -1167,9 +1169,10 @@ def analyze_single_file(
     filepath: str,
     embedder: ClapEmbedder | None = None,
     with_clap: bool = True,
+    max_seconds: float = 30.0,
 ) -> tuple[dict[str, Any], np.ndarray | None]:
     """Analyze one audio file and return (index_entry_dict, clap_vec_or_None)."""
-    loaded = load_and_normalize_audio(filepath)
+    loaded = load_and_normalize_audio(filepath, max_seconds=max_seconds)
     hard = check_hard_rejects(
         loaded["y_stereo"],
         loaded["mono_raw_44k"],

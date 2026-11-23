@@ -143,7 +143,20 @@ def _expand_query_tokens(query: str) -> list[str]:
     return list(dict.fromkeys(expanded))
 
 
+ROLE_TO_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "kick": ("kick",),
+    "bass_sub": ("808", "bass"),
+    "snare_clap": ("snare", "clap"),
+    "hihat_perc": ("hat", "open_hat", "perc"),
+    "lead_melody": ("synth", "piano", "guitar", "vocal", "loop", "fx", "other"),
+    "pad_atmosphere": ("synth", "piano", "guitar", "loop", "fx", "other"),
+    "chord_keys": ("piano", "guitar", "synth", "loop", "other"),
+}
+
+
 def _row_to_dict(row: sqlite3.Row, score: float | None = None) -> dict[str, Any]:
+    keys = row.keys()
+    centroid = row["dsp_centroid_hz"] if "dsp_centroid_hz" in keys and row["dsp_centroid_hz"] is not None else row["spectral_centroid_hz"]
     out = {
         "path": row["path"],
         "filename": row["filename"],
@@ -153,62 +166,129 @@ def _row_to_dict(row: sqlite3.Row, score: float | None = None) -> dict[str, Any]
         "duration_sec": row["duration_sec"],
         "bpm": row["bpm"],
         "musical_key": row["musical_key"],
-        "spectral_centroid_hz": row["spectral_centroid_hz"],
+        "spectral_centroid_hz": centroid,
         "brightness_band": row["brightness_band"],
         "decay_profile": row["decay_profile"],
         "peak_db": row["peak_db"],
         "gridline_plugin_hint": "gl.seltmann" if row["is_loop"] else "gl.sampler",
     }
+    for col in (
+        "sample_nature",
+        "playable_chromatically",
+        "f0_hz",
+        "recommended_root_midi",
+        "recommended_fine_tune_ct",
+        "r_harsh",
+        "hnr_db",
+        "low_mid_corr",
+    ):
+        if col in keys and row[col] is not None:
+            out[col] = bool(row[col]) if col == "playable_chromatically" else row[col]
     if score is not None:
         out["score"] = round(score, 4)
     return out
 
 
-def _get_conn() -> sqlite3.Connection:
-    if not os.path.isfile(DEFAULT_DB_PATH):
-        index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH)
-    return init_db(DEFAULT_DB_PATH)
+def _get_conn(db_path: str = "") -> sqlite3.Connection:
+    target = os.path.abspath(os.path.expanduser(db_path)) if db_path.strip() else DEFAULT_DB_PATH
+    if target == DEFAULT_DB_PATH and not os.path.isfile(DEFAULT_DB_PATH) and os.path.isdir(DEFAULT_SAMPLES_DIR):
+        index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH, with_clap=False, with_dsp=True)
+    return init_db(target)
 
 
 @mcp.tool()
 def search_samples(
     query: str = "",
     category: str = "",
+    role: str = "",
     bpm: float | None = None,
     bpm_tolerance: float = 8.0,
+    bpm_min: float | None = None,
+    bpm_max: float | None = None,
     musical_key: str = "",
     is_loop: bool | None = None,
     brightness: str = "",
+    playable_chromatically: bool | None = None,
+    max_centroid_hz: float | None = None,
+    max_r_harsh: float | None = None,
+    min_low_mid_corr: float | None = None,
     use_clap: bool = True,
     limit: int = 10,
+    db_path: str = "",
 ) -> str:
     """
-    Recherche intelligente de samples par description sémantique (FR/EN + CLAP),
-    catégorie (kick, snare, clap, hat, 808, guitar, piano, synth, vocal, fx, loop),
-    BPM, tonalité et brillance spectrale.
+    Recherche hybride instantanée sur SQLite unifié (`samples.db` + `sample_dsp_metrics`) :
+    filtre SQL multi-critères (`role`, `playable_chromatically`, `max_centroid_hz`,
+    `max_r_harsh`, `min_low_mid_corr`, `musical_key`, `bpm` / `bpm_min..bpm_max`) et
+    scoring CLAP optionnel si les embeddings sont déjà en cache (zéro timeout CPU).
     """
-    conn = _get_conn()
-    clauses = ["ext != '.mid' AND ext != '.midi'"]
+    conn = _get_conn(db_path)
+    has_dsp = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_dsp_metrics'").fetchone() is not None
+    clauses = ["s.ext != '.mid' AND s.ext != '.midi'"]
     params: list[Any] = []
 
     if category:
-        clauses.append("category = ?")
+        clauses.append("s.category = ?")
         params.append(category.lower().strip())
+    elif role and role.strip().lower() in ROLE_TO_CATEGORIES:
+        cats = ROLE_TO_CATEGORIES[role.strip().lower()]
+        placeholders = ",".join("?" for _ in cats)
+        clauses.append(f"s.category IN ({placeholders})")
+        params.extend(cats)
+
     if is_loop is not None:
-        clauses.append("is_loop = ?")
+        clauses.append("s.is_loop = ?")
         params.append(1 if is_loop else 0)
     if brightness:
         b_norm = BRIGHTNESS_ALIASES.get(brightness.lower().strip(), brightness.lower().strip())
-        clauses.append("brightness_band = ?")
+        clauses.append("s.brightness_band = ?")
         params.append(b_norm)
+    if bpm_min is not None:
+        clauses.append("s.bpm IS NOT NULL AND s.bpm >= ?")
+        params.append(float(bpm_min))
+    if bpm_max is not None:
+        clauses.append("s.bpm IS NOT NULL AND s.bpm <= ?")
+        params.append(float(bpm_max))
+
+    if has_dsp:
+        clauses.append("COALESCE(d.hard_reject, 0) = 0")
+        if playable_chromatically is True:
+            clauses.append("d.playable_chromatically = 1")
+        elif playable_chromatically is False:
+            clauses.append("d.playable_chromatically = 0")
+        if max_centroid_hz is not None:
+            clauses.append("COALESCE(d.centroid_hz, s.spectral_centroid_hz, 0.0) <= ?")
+            params.append(float(max_centroid_hz))
+        if max_r_harsh is not None:
+            clauses.append("COALESCE(d.r_harsh, 0.0) <= ?")
+            params.append(float(max_r_harsh))
+        if min_low_mid_corr is not None:
+            clauses.append("COALESCE(d.low_mid_corr, 1.0) >= ?")
+            params.append(float(min_low_mid_corr))
+        select_cols = (
+            "s.*, d.sample_nature, d.playable_chromatically, d.f0_hz, "
+            "d.recommended_root_midi, d.recommended_fine_tune_ct, "
+            "d.centroid_hz AS dsp_centroid_hz, d.r_harsh, d.hnr_db, d.low_mid_corr"
+        )
+        join_sql = "LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id"
+    else:
+        if max_centroid_hz is not None:
+            clauses.append("COALESCE(s.spectral_centroid_hz, 0.0) <= ?")
+            params.append(float(max_centroid_hz))
+        select_cols = "s.*"
+        join_sql = ""
 
     where_sql = " AND ".join(clauses)
-    rows = conn.execute(f"SELECT * FROM samples WHERE {where_sql}", params).fetchall()
+    rows = conn.execute(f"SELECT {select_cols} FROM samples s {join_sql} WHERE {where_sql}", params).fetchall()
     conn.close()
 
     tokens = _expand_query_tokens(query)
+    has_clap_vecs = any(r["clap_embedding"] is not None for r in rows)
+    warning: str | None = None
     clap_text_vec: np.ndarray | None = None
-    if use_clap and query.strip() and any(r["clap_embedding"] is not None for r in rows):
+    if use_clap and not has_clap_vecs:
+        warning = "clap_index_missing_fallback_dsp"
+    elif use_clap and query.strip() and has_clap_vecs:
         enc = _get_clap_text_encoder()
         if enc is not None:
             processor, text_model, torch = enc
@@ -228,7 +308,6 @@ def search_samples(
 
         key_s = _key_compatibility_score(r["musical_key"], musical_key) if musical_key else 0.0
         if musical_key and r["musical_key"] and key_s == 0.0:
-            # Pénalise sans exclure complètement les samples non-tonals (drums)
             if r["category"] not in ("kick", "snare", "clap", "hat", "open_hat", "perc", "fx"):
                 key_s = -0.35
 
@@ -253,7 +332,10 @@ def search_samples(
 
     scored.sort(key=lambda item: item[0], reverse=True)
     top = [_row_to_dict(r, score=s) for s, r in scored[: max(1, min(limit, 50))]]
-    return json.dumps({"count": len(top), "results": top}, ensure_ascii=False, indent=2)
+    payload: dict[str, Any] = {"count": len(top), "results": top}
+    if warning:
+        payload["warning"] = warning
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -279,10 +361,16 @@ def find_compatible_samples(
 
 @mcp.tool()
 def get_sample_info(path: str) -> str:
-    """Retourne les caractéristiques détaillées d'un sample indexé."""
+    """Retourne les caractéristiques détaillées (métadonnées + DSP) d'un sample indexé."""
     abs_path = os.path.abspath(os.path.expanduser(path))
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM samples WHERE path = ?", (abs_path,)).fetchone()
+    row = conn.execute(
+        "SELECT s.*, d.sample_nature, d.playable_chromatically, d.f0_hz, "
+        "d.recommended_root_midi, d.recommended_fine_tune_ct, "
+        "d.centroid_hz AS dsp_centroid_hz, d.r_harsh, d.hnr_db, d.low_mid_corr "
+        "FROM samples s LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id WHERE s.path = ?",
+        (abs_path,),
+    ).fetchone()
     conn.close()
     if row is None:
         return json.dumps({"error": f"Sample non indexé : {abs_path}"}, ensure_ascii=False)
@@ -291,10 +379,11 @@ def get_sample_info(path: str) -> str:
 
 @mcp.tool()
 def list_sample_packs() -> str:
-    """Résume les packs de samples indexés, leurs catégories et le nombre d'embeddings CLAP."""
+    """Résume les packs de samples indexés, leurs catégories, métriques DSP et embeddings CLAP."""
     conn = _get_conn()
     total = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
     clap_count = conn.execute("SELECT COUNT(*) FROM samples WHERE clap_embedding IS NOT NULL").fetchone()[0]
+    dsp_count = conn.execute("SELECT COUNT(*) FROM sample_dsp_metrics").fetchone()[0]
     packs = [
         dict(r)
         for r in conn.execute(
@@ -313,6 +402,7 @@ def list_sample_packs() -> str:
             "samples_dir": DEFAULT_SAMPLES_DIR,
             "db_path": DEFAULT_DB_PATH,
             "total_files": total,
+            "dsp_metrics_count": dsp_count,
             "clap_embeddings": clap_count,
             "packs": packs,
             "categories": cats,
@@ -324,8 +414,10 @@ def list_sample_packs() -> str:
 
 @mcp.tool()
 def reindex_samples(force: bool = False, with_clap: bool = False) -> str:
-    """Ré-indexe les samples du dossier samples/ dans la base SQLite locale."""
-    stats = index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH, force=force, with_clap=with_clap)
+    """Ré-indexe les samples du dossier samples/ dans la base SQLite unifiée (DSP pur, zéro timeout CLAP)."""
+    stats = index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH, force=force, with_clap=False, with_dsp=True)
+    if with_clap:
+        stats["warning"] = "clap_indexing_disabled_in_mcp_use_cli: .venv/bin/python scripts/index_samples.py --enrich-clap --batch-size 64"
     return json.dumps(stats, ensure_ascii=False, indent=2)
 
 
@@ -430,24 +522,23 @@ def evaluate_sample_quality(
     mix_path: str = "",
     target_key: str = "",
     top_k: int = 10,
-    with_clap: bool = True,
+    with_clap: bool = False,
     monophonic_only: bool = False,
 ) -> str:
     """
-    Évalue un sample ou tout un dossier de samples avec l'entonnoir psychoacoustique à 4 couches :
-    Hard Filter (clipping, phase, silence, clics), Confort Auditif (dureté 2-5kHz, rugosité Plomp-Levelt),
-    Pureté mono-note vs séquence/polyphonie (Praat HNR + YIN + pics FFT),
-    Adéquation au rôle (kick, bass_sub, snare_clap, hihat_perc, lead_melody, pad_atmosphere, chord_keys),
-    Esthétique LAION-CLAP et Masquage Bark vis-à-vis de mix_path.
+    Évalue un sample ou un dossier de samples en DSP déterministe (0 timeout CLAP synchrone).
+    Si `with_clap=True`, utilise exclusivement les embeddings CLAP pré-calculés dans `samples.db`
+    et bascule immédiatement sur le scoring DSP pur avec `warning="clap_index_missing_fallback_dsp"`
+    si aucun embedding n'est en cache.
     """
     from audio_metrics import (
-        ClapEmbedder,
         VALID_ROLES,
         analyze_single_file,
         extract_dsp_metrics,
         load_and_normalize_audio,
         score_candidate,
     )
+    from select_sample import DEFAULT_REFS_PATH
 
     role_id = role if role in VALID_ROLES else "lead_melody"
     abs_target = os.path.abspath(os.path.expanduser(path_or_dir))
@@ -468,21 +559,44 @@ def evaluate_sample_quality(
         ml = load_and_normalize_audio(mix_path)
         mix_bark = extract_dsp_metrics(ml["y_stereo"], ml["mono_norm"], sr=ml["sr"])["bark_24"]
 
-    embedder = ClapEmbedder(device="cpu") if with_clap else None
+    cached_clap: dict[str, np.ndarray] = {}
+    if with_clap and os.path.isfile(DEFAULT_DB_PATH):
+        try:
+            conn = sqlite3.connect(DEFAULT_DB_PATH)
+            for row in conn.execute("SELECT path, clap_embedding FROM samples WHERE clap_embedding IS NOT NULL").fetchall():
+                cached_clap[row[0]] = np.frombuffer(row[1], dtype=np.float32)
+            conn.close()
+        except Exception:
+            pass
+
+    ref_matrix: np.ndarray | None = None
+    if with_clap and cached_clap and os.path.isfile(DEFAULT_REFS_PATH):
+        try:
+            rz = np.load(DEFAULT_REFS_PATH)
+            if role_id in rz:
+                ref_matrix = rz[role_id]
+        except Exception:
+            ref_matrix = None
+
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    missing_clap = False
 
     for fp in files:
         try:
-            entry, vec = analyze_single_file(fp, embedder=embedder, with_clap=with_clap)
+            entry, _ = analyze_single_file(fp, embedder=None, with_clap=False)
             if entry["hard_reject"]:
                 rejected.append({"filepath": fp, "reasons": entry["reject_reasons"]})
                 continue
+            c_vec = cached_clap.get(os.path.abspath(fp))
+            if with_clap and c_vec is None:
+                missing_clap = True
             scored = score_candidate(
                 entry,
                 role_id=role_id,
-                clap_vec=vec,
-                embedder=embedder,
+                clap_vec=c_vec,
+                embedder=None,
+                ref_matrix=ref_matrix,
                 mix_bark=mix_bark,
                 target_key=target_key or None,
                 monophonic_only=monophonic_only,
@@ -498,18 +612,17 @@ def evaluate_sample_quality(
     for i, item in enumerate(accepted[: max(1, top_k)], start=1):
         item["rank"] = i
 
-    return json.dumps(
-        {
-            "role": role_id,
-            "total_evaluated": len(files),
-            "passed_count": len(accepted),
-            "rejected_count": len(rejected),
-            "recommendations": accepted[: max(1, top_k)],
-            "rejected_samples": rejected[:10],
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
+    out_payload: dict[str, Any] = {
+        "role": role_id,
+        "total_evaluated": len(files),
+        "passed_count": len(accepted),
+        "rejected_count": len(rejected),
+        "recommendations": accepted[: max(1, top_k)],
+        "rejected_samples": rejected[:10],
+    }
+    if with_clap and missing_clap:
+        out_payload["warning"] = "clap_index_missing_fallback_dsp"
+    return json.dumps(out_payload, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -523,20 +636,25 @@ def select_best_samples(
     min_score: float = 0.55,
     auto_fetch: bool = False,
     monophonic_only: bool = False,
+    playable_chromatically: bool | None = None,
+    max_centroid_hz: float | None = None,
+    max_r_harsh: float | None = None,
+    min_low_mid_corr: float | None = None,
+    bpm_min: float | None = None,
+    bpm_max: float | None = None,
+    use_clap: bool = True,
+    valence: float | None = None,
 ) -> str:
     """
-    Sélectionne les meilleurs samples depuis l'index psychoacoustique (sample_index.json + golden_embeddings.npz)
-    pour un rôle donné (kick, bass_sub, snare_clap, hihat_perc, lead_melody, pad_atmosphere, chord_keys).
-    Si monophonic_only=True, n'accepte que les one-shots mono-note jouables chromatiquement en MIDI.
-    Si auto_fetch=True et qu'aucun candidat local n'atteint 0.70, interroge automatiquement les API en ligne.
+    Sélectionne les meilleurs samples depuis la base unifiée `samples.db` (+ `sample_dsp_metrics`)
+    sans jamais déclencher d'indexation CLAP CPU synchrone.
+    Si `use_clap=True` et que `clap_embedding IS NULL`, bascule immédiatement sur le scoring DSP pur
+    et retourne `warning="clap_index_missing_fallback_dsp"`.
     """
-    from index_samples import DEFAULT_OUT_DB, index_directory_psychoacoustic
     from select_sample import DEFAULT_REFS_PATH, select_best_from_db
 
-    target_db = db_path.strip() or DEFAULT_OUT_DB
-    if not os.path.isfile(target_db):
-        index_directory_psychoacoustic(DEFAULT_SAMPLES_DIR, target_db, device="cpu", with_clap=True)
-
+    target_db = db_path.strip() or DEFAULT_DB_PATH
+    bpm_range = (bpm_min, bpm_max) if (bpm_min is not None and bpm_max is not None) else None
     res = select_best_from_db(
         db_path=target_db,
         role=role,
@@ -547,8 +665,14 @@ def select_best_samples(
         min_score=min_score,
         query_filter=query,
         auto_fetch=auto_fetch,
-        with_clap=True,
+        with_clap=use_clap,
         monophonic_only=monophonic_only,
+        playable_chromatically=playable_chromatically,
+        max_centroid_hz=max_centroid_hz,
+        max_r_harsh=max_r_harsh,
+        min_low_mid_corr=min_low_mid_corr,
+        bpm_range=bpm_range,
+        valence=valence,
     )
     return json.dumps(res, ensure_ascii=False, indent=2)
 
@@ -571,8 +695,8 @@ def fetch_samples_online(
 ) -> str:
     """
     Récupère des samples à la volée via Freesound API v2 et/ou Lots of Sounds API,
-    les normalise en WAV 24-bit/44.1kHz, applique le filtre psychoacoustique (Hard Filter + Confort + Role + CLAP + Bark),
-    indexe les samples retenus et renvoie les candidats classés prêts pour gl.sampler.
+    les normalise en WAV 24-bit/44.1kHz, applique le filtre psychoacoustique DSP pur (zéro timeout CLAP),
+    indexe les samples retenus dans `samples.db` et renvoie les candidats classés prêts pour gl.sampler.
     """
     from fetch_samples_api import DEFAULT_OUT_DIR, fetch_and_filter_samples
 
@@ -589,13 +713,13 @@ def fetch_samples_online(
         mix_path=mix_path,
         target_key=target_key,
         min_score=min_score,
-        with_clap=True,
+        with_clap=False,
         similar_to_fs_id=similar_to_fs_id,
         monophonic_only=monophonic_only,
     )
     if res.get("accepted") and dst.startswith(os.path.abspath(DEFAULT_SAMPLES_DIR)):
         try:
-            index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH, force=False, with_clap=True)
+            index_directory(DEFAULT_SAMPLES_DIR, DEFAULT_DB_PATH, force=False, with_clap=False, with_dsp=True)
         except Exception:
             pass
     return json.dumps(res, ensure_ascii=False, indent=2)

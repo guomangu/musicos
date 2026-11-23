@@ -13,6 +13,7 @@
       "enum": ["trap_rap", "pop_rnb", "edm_club", "rock_metal", "lofi_chill", "jazz_acoustic", "classical_ambient"],
       "default": "trap_rap"
     },
+    "has_drums": { "type": "boolean", "default": true },
     "emotion_vector": {
       "type": "object",
       "properties": {

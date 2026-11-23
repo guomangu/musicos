@@ -55,6 +55,9 @@ def _third_octave_profile(mono: np.ndarray, sr: int) -> list[dict[str, float]]:
         neighbors = np.delete(dbs[w_lo:w_hi], i - w_lo)
         baseline = float(np.median(neighbors)) if len(neighbors) else dbs[i]
         b["local_excess_db"] = round(float(dbs[i] - baseline), 2)
+        left_ok = i == 0 or dbs[i] >= dbs[i - 1] - 0.5
+        right_ok = i == len(dbs) - 1 or dbs[i] >= dbs[i + 1] - 0.5
+        b["is_local_peak"] = bool(left_ok and right_ok)
     return bands
 
 
@@ -370,7 +373,7 @@ def run_deep_audit(
     """Assemble le diagnostic complet multi-domaines d'un rendu audio."""
     mono = np.mean(data, axis=1).astype(np.float32)
     third_oct = _third_octave_profile(mono, sr)
-    resonances = [b for b in third_oct if b["local_excess_db"] >= 5.0]
+    resonances = [b for b in third_oct if b["local_excess_db"] >= 5.0 and b.get("is_local_peak", True)]
     notches = [b for b in third_oct if b["local_excess_db"] <= -6.0]
     room = _analyze_transients_and_roominess(data, mono, sr)
     glitches = _scan_glitches_and_crackle(mono, sr)
@@ -448,6 +451,41 @@ def run_deep_audit(
     }
 
 
+def resolve_allowed_pcs(ref_key_str: str) -> set[int]:
+    """Résout l'ensemble des pitch classes (0..11) autorisées pour une tonalité donnée."""
+    import music21
+
+    parts = (ref_key_str or "C minor").strip().split()
+    tonic_raw = parts[0].replace("b", "-") if parts else "C"
+    mode_raw = " ".join(parts[1:]).lower().replace("-", "_") if len(parts) > 1 else "minor"
+    tonic_pc = music21.pitch.Pitch(tonic_raw).pitchClass
+    if "phrygian_dominant" in mode_raw or "phrygian dominant" in mode_raw:
+        return {(tonic_pc + iv) % 12 for iv in (0, 1, 4, 5, 7, 8, 10)}
+    if "blues" in mode_raw:
+        return {(tonic_pc + iv) % 12 for iv in (0, 3, 5, 6, 7, 10)}
+    if "pentatonic" in mode_raw and ("min" in mode_raw or "aeolian" in mode_raw):
+        return {(tonic_pc + iv) % 12 for iv in (0, 3, 5, 7, 10)}
+    if "pentatonic" in mode_raw:
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 7, 9)}
+    if "harmonic" in mode_raw:
+        return {p.pitchClass for p in music21.scale.HarmonicMinorScale(tonic_raw).getPitches()}
+    if "melodic" in mode_raw:
+        return {p.pitchClass for p in music21.scale.MelodicMinorScale(tonic_raw).getPitches()}
+    if "dorian" in mode_raw:
+        return {p.pitchClass for p in music21.scale.DorianScale(tonic_raw).getPitches()}
+    if "phrygian" in mode_raw:
+        return {p.pitchClass for p in music21.scale.PhrygianScale(tonic_raw).getPitches()}
+    if "lydian" in mode_raw:
+        return {p.pitchClass for p in music21.scale.LydianScale(tonic_raw).getPitches()}
+    if "mixolydian" in mode_raw:
+        return {p.pitchClass for p in music21.scale.MixolydianScale(tonic_raw).getPitches()}
+    if "locrian" in mode_raw:
+        return {p.pitchClass for p in music21.scale.LocrianScale(tonic_raw).getPitches()}
+    if "min" in mode_raw or "aeolian" in mode_raw:
+        return {p.pitchClass for p in music21.scale.MinorScale(tonic_raw).getPitches()}
+    return {p.pitchClass for p in music21.scale.MajorScale(tonic_raw).getPitches()}
+
+
 def audit_midi_file(
     midi_path: str,
     expected_key: str = "",
@@ -456,6 +494,8 @@ def audit_midi_file(
     strict_musicality: bool = True,
     valence: float = 0.0,
     tension: float = 0.3,
+    time_signature: tuple[int, int] | str | None = None,
+    phrase_plan: str = "",
 ) -> dict[str, Any]:
     """Audite la justesse harmonique, la tessiture (notes trop aiguës), les clashs MIDI et les métriques de musicalité."""
     import music21
@@ -472,36 +512,7 @@ def audit_midi_file(
     detected_key_str = f"{est_key.tonic.name.replace('-', 'b')} {est_key.mode}"
 
     ref_key_str = expected_key.strip() or detected_key_str
-    parts = ref_key_str.split()
-    tonic_raw = parts[0].replace("b", "-") if parts else "C"
-    mode_raw = " ".join(parts[1:]).lower().replace("-", "_") if len(parts) > 1 else "minor"
-    tonic_pc = music21.pitch.Pitch(tonic_raw).pitchClass
-    if "phrygian_dominant" in mode_raw or "phrygian dominant" in mode_raw:
-        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 1, 4, 5, 7, 8, 10)}
-    elif "blues" in mode_raw:
-        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 3, 5, 6, 7, 10)}
-    elif "pentatonic" in mode_raw and ("min" in mode_raw or "aeolian" in mode_raw):
-        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 3, 5, 7, 10)}
-    elif "pentatonic" in mode_raw:
-        allowed_pcs = {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 7, 9)}
-    elif "harmonic" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.HarmonicMinorScale(tonic_raw).getPitches()}
-    elif "melodic" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.MelodicMinorScale(tonic_raw).getPitches()}
-    elif "dorian" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.DorianScale(tonic_raw).getPitches()}
-    elif "phrygian" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.PhrygianScale(tonic_raw).getPitches()}
-    elif "lydian" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.LydianScale(tonic_raw).getPitches()}
-    elif "mixolydian" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.MixolydianScale(tonic_raw).getPitches()}
-    elif "locrian" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.LocrianScale(tonic_raw).getPitches()}
-    elif "min" in mode_raw or "aeolian" in mode_raw:
-        allowed_pcs = {p.pitchClass for p in music21.scale.MinorScale(tonic_raw).getPitches()}
-    else:
-        allowed_pcs = {p.pitchClass for p in music21.scale.MajorScale(tonic_raw).getPitches()}
+    allowed_pcs = resolve_allowed_pcs(ref_key_str)
 
     track_reports: list[dict[str, Any]] = []
     melodic_notes: list[tuple[float, float, int, str]] = []
@@ -557,6 +568,8 @@ def audit_midi_file(
         valence=valence,
         tension=tension,
         allowed_pcs=allowed_pcs,
+        time_signature=time_signature,
+        phrase_plan=phrase_plan,
     )
     clashes = musicality.get("minor_2nd_clashes", [])
     blocking_clashes = musicality.get("blocking_minor_2nd_clashes", clashes)
@@ -577,11 +590,14 @@ def audit_midi_file(
         "detected_key": detected_key_str,
         "expected_key": ref_key_str,
         "key_matches_expected": detected_key_str.lower() == ref_key_str.lower(),
+        "time_signature": musicality.get("time_signature", "4/4"),
+        "phrase_plan": musicality.get("phrase_plan", phrase_plan or "standard"),
         "strict_musicality": strict_musicality,
         "emotion_mode": musicality.get("emotion_mode", "consonant"),
         "valence": valence,
         "tension": tension,
         "max_pitch_limit": max_pitch,
+        "out_of_scale_notes": out_of_scale_total,
         "too_high_count": too_high_total,
         "too_low_count": too_low_total,
         "musicality_verdict": musicality["musicality_verdict"],
@@ -710,6 +726,244 @@ def render_stems_and_audit(project_path: str, output_dir: str = "", mode: str = 
         )
 
     return {"project_path": abs_proj, "output_dir": out_dir, "mode": mode, "stems": stem_reports}
+
+
+def compute_pink_slope_db_per_oct(mono: np.ndarray, sr: int) -> float:
+    """Calcule la pente spectrale moyenne (dB/octave) entre 60 Hz et 12 kHz par régression log2."""
+    if len(mono) < 256 or sr < 16000:
+        return 0.0
+    nperseg = min(len(mono), 16384)
+    freqs, psd = signal.welch(mono.astype(np.float64), fs=sr, nperseg=nperseg, scaling="density")
+    hi_hz = min(12000.0, 0.45 * float(sr))
+    mask = (freqs >= 60.0) & (freqs <= hi_hz) & (psd > 0.0)
+    if np.sum(mask) < 4:
+        return 0.0
+    f_sub = freqs[mask]
+    p_sub = psd[mask]
+    log_grid = np.linspace(np.log2(60.0), np.log2(hi_hz), 96)
+    f_grid = np.power(2.0, log_grid)
+    p_grid = np.interp(f_grid, f_sub, p_sub)
+    psd_db = 10.0 * np.log10(np.maximum(p_grid, 1e-18))
+    slope, _ = np.polyfit(log_grid, psd_db, 1)
+    return round(float(slope), 3)
+
+
+def _load_and_sum_stems(paths: list[Path], target_sr: int | None = None, target_len: int | None = None) -> tuple[np.ndarray, int]:
+    acc: np.ndarray | None = None
+    out_sr = int(target_sr or 44100)
+    for p in paths:
+        data, sr = sf.read(str(p), always_2d=True, dtype="float64")
+        mono = np.mean(data, axis=1)
+        if target_sr is None:
+            out_sr = sr
+        elif sr != target_sr:
+            g = math.gcd(int(sr), int(target_sr))
+            mono = signal.resample_poly(mono, int(target_sr) // g, int(sr) // g)
+            out_sr = int(target_sr)
+        if acc is None:
+            n_target = int(target_len or len(mono))
+            acc = np.zeros(n_target, dtype=np.float64)
+        n_copy = min(len(acc), len(mono))
+        acc[:n_copy] += mono[:n_copy]
+    if acc is None:
+        return np.zeros(int(target_len or 0), dtype=np.float64), out_sr
+    return acc, out_sr
+
+
+def analyze_stem_hierarchy(
+    project_path: str = "",
+    range_bars: str = "",
+    stems_dir: str = "",
+    has_drums: bool = True,
+    out_dir: str = "",
+) -> dict[str, Any]:
+    """
+    Audit hiérarchique inter-stems (Axe 4 §1) :
+      - `lead_vs_harmony_db` (800 Hz - 3.5 kHz sur fenêtres Lead actives, cible >= +2.5 dB)
+      - `kick_bass_transient_overlap` (corrélation d'enveloppe < 150 Hz aux attaques Kick)
+      - `pink_slope_db_per_oct` (régression log-freq 60 Hz - 12 kHz, cible -3.0 .. -5.0 dB/oct)
+    """
+    abs_proj = os.path.abspath(os.path.expanduser(project_path)) if project_path.strip() else ""
+    target_dir = (
+        os.path.abspath(os.path.expanduser(stems_dir))
+        if stems_dir.strip()
+        else (
+            os.path.abspath(os.path.expanduser(out_dir))
+            if out_dir.strip()
+            else os.path.join(os.path.dirname(abs_proj), "renders", "stems_hierarchy")
+        )
+    )
+
+    wavs = sorted(Path(target_dir).glob("*.wav")) if os.path.isdir(target_dir) else []
+    if not wavs:
+        if not abs_proj or not os.path.isfile(abs_proj):
+            return {"error": f"Projet ou dossier stems introuvable : proj={abs_proj!r} stems={target_dir!r}"}
+        os.makedirs(target_dir, exist_ok=True)
+        cmd = ["gridline", "render", abs_proj, "-o", target_dir.rstrip("/") + "/", "--stems"]
+        if range_bars.strip():
+            rng = range_bars.strip()
+            if not rng.startswith("range:"):
+                rng = f"range:{rng}"
+            cmd.extend(["--scope", rng])
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if proc.returncode != 0:
+            return {"error": f"Échec gridline render --stems ({proc.returncode}): {proc.stderr or proc.stdout}"}
+        wavs = sorted(Path(target_dir).glob("*.wav"))
+
+    if not wavs:
+        return {"error": f"Aucun WAV généré dans {target_dir}"}
+
+    master_paths: list[Path] = []
+    bus_drums_paths: list[Path] = []
+    kick_paths: list[Path] = []
+    bus_bass_paths: list[Path] = []
+    bass_track_paths: list[Path] = []
+    bus_music_paths: list[Path] = []
+    fx_room_paths: list[Path] = []
+    lead_paths: list[Path] = []
+    harmony_paths: list[Path] = []
+
+    for w in wavs:
+        stem = w.stem
+        if " - " not in stem:
+            master_paths.append(w)
+            continue
+        label = stem.split(" - ", 1)[1].lower()
+        if "bus" in label and "drum" in label:
+            bus_drums_paths.append(w)
+        elif "bus" in label and ("bass" in label or "808" in label):
+            bus_bass_paths.append(w)
+        elif "bus" in label and "music" in label:
+            bus_music_paths.append(w)
+        elif "fx room" in label or "reverb" in label or "fx_room" in label:
+            fx_room_paths.append(w)
+        elif "kick" in label:
+            kick_paths.append(w)
+        elif any(k in label for k in ("lead", "melody", "topline", "vox", "vocal", "solo")):
+            lead_paths.append(w)
+        elif any(k in label for k in ("808", "bass", "sub")):
+            bass_track_paths.append(w)
+        elif any(k in label for k in ("drum", "clap", "snare", "hat", "perc", "crash", "rim")):
+            bus_drums_paths.append(w)
+        elif any(k in label for k in ("chord", "pad", "harmony", "string", "rhodes", "arp", "counter", "keys", "piano", "guitar", "organ", "synth")):
+            harmony_paths.append(w)
+
+    ref_wav = master_paths[0] if master_paths else wavs[0]
+    ref_data, sr = sf.read(str(ref_wav), always_2d=True, dtype="float64")
+    ref_len = len(ref_data)
+    if master_paths:
+        master_mono = np.mean(ref_data, axis=1)
+    else:
+        sum_src = (bus_drums_paths or []) + (bus_bass_paths or bass_track_paths) + (bus_music_paths or harmony_paths + lead_paths) + fx_room_paths
+        master_mono, sr = _load_and_sum_stems(sum_src or wavs, target_sr=sr, target_len=ref_len)
+
+    pink_slope = compute_pink_slope_db_per_oct(master_mono, sr)
+
+    # 1) Lead vs Harmony (800 Hz - 3.5 kHz) on active Lead windows
+    lead_vs_harmony_db: float | None = None
+    lead_active_pct: float | None = None
+    if lead_paths and (harmony_paths or bus_music_paths):
+        lead_mono, _ = _load_and_sum_stems(lead_paths, target_sr=sr, target_len=ref_len)
+        if harmony_paths:
+            harm_mono, _ = _load_and_sum_stems(harmony_paths, target_sr=sr, target_len=ref_len)
+        else:
+            bm_mono, _ = _load_and_sum_stems(bus_music_paths, target_sr=sr, target_len=ref_len)
+            harm_mono = bm_mono - lead_mono
+
+        lead_rms_all = float(np.sqrt(np.mean(lead_mono**2)))
+        harm_rms_all = float(np.sqrt(np.mean(harm_mono**2)))
+        if lead_rms_all > 1e-5 and harm_rms_all > 1e-6:
+            hi_bp = min(3500.0, 0.45 * float(sr))
+            sos_bp = signal.butter(4, [800.0, hi_bp], btype="bandpass", fs=sr, output="sos")
+            lead_bp = signal.sosfiltfilt(sos_bp, lead_mono)
+            harm_bp = signal.sosfiltfilt(sos_bp, harm_mono)
+            win = max(1, int(0.05 * sr))
+            n_frames = len(lead_mono) // win
+            if n_frames >= 2:
+                l_raw_f = lead_mono[: n_frames * win].reshape(n_frames, win)
+                l_bp_f = lead_bp[: n_frames * win].reshape(n_frames, win)
+                h_bp_f = harm_bp[: n_frames * win].reshape(n_frames, win)
+                f_rms = np.sqrt(np.mean(l_raw_f**2, axis=1))
+                thresh = max(1e-4, 0.15 * float(np.max(f_rms)))
+                active = f_rms >= thresh
+                if np.any(active):
+                    l_band = float(np.sqrt(np.mean(l_bp_f[active] ** 2)))
+                    h_band = float(np.sqrt(np.mean(h_bp_f[active] ** 2)))
+                    lead_vs_harmony_db = round(float(20.0 * np.log10((l_band + 1e-9) / (h_band + 1e-9))), 2)
+                    lead_active_pct = round(100.0 * float(np.mean(active)), 1)
+
+    # 2) Kick vs Bass transient overlap (< 150 Hz) during Kick attacks
+    kick_bass_overlap: float | None = None
+    kick_bass_duck_ratio: float | None = None
+    kick_src = kick_paths or bus_drums_paths
+    bass_src = bus_bass_paths or bass_track_paths
+    if has_drums and kick_src and bass_src:
+        kick_mono, _ = _load_and_sum_stems(kick_src, target_sr=sr, target_len=ref_len)
+        bass_mono, _ = _load_and_sum_stems(bass_src, target_sr=sr, target_len=ref_len)
+        if float(np.sqrt(np.mean(kick_mono**2))) > 1e-5 and float(np.sqrt(np.mean(bass_mono**2))) > 1e-5:
+            sos_lp = signal.butter(4, 150.0, btype="lowpass", fs=sr, output="sos")
+            k_sub = signal.sosfiltfilt(sos_lp, kick_mono)
+            b_sub = signal.sosfiltfilt(sos_lp, bass_mono)
+            hop = max(1, int(0.010 * sr))
+            n_f = len(k_sub) // hop
+            if n_f >= 8:
+                env_k = np.sqrt(np.mean(k_sub[: n_f * hop].reshape(n_f, hop) ** 2, axis=1))
+                env_b = np.sqrt(np.mean(b_sub[: n_f * hop].reshape(n_f, hop) ** 2, axis=1))
+                pk_thresh = max(1e-4, 0.25 * float(np.max(env_k)))
+                peaks, _ = signal.find_peaks(env_k, height=pk_thresh, distance=max(1, int(0.12 / 0.010)))
+                mask = np.zeros(n_f, dtype=bool)
+                for pk in peaks:
+                    lo = max(0, int(pk) - 1)
+                    hi = min(n_f, int(pk) + 7)
+                    mask[lo:hi] = True
+                if np.sum(mask) >= 4:
+                    ek = env_k[mask]
+                    eb = env_b[mask]
+                    if float(np.std(ek)) > 1e-9 and float(np.std(eb)) > 1e-9:
+                        kick_bass_overlap = round(float(np.corrcoef(ek, eb)[0, 1]), 3)
+                    else:
+                        kick_bass_overlap = 0.0
+                    kick_bass_duck_ratio = round(float(np.mean(eb) / (float(np.mean(env_b)) + 1e-9)), 3)
+
+    diagnostics: list[str] = []
+    if lead_vs_harmony_db is not None and lead_vs_harmony_db < 2.5:
+        diagnostics.append(
+            f"Lead masqué par l'harmonie dans 800Hz-3.5kHz ({lead_vs_harmony_db:+.2f} dB < +2.5 dB cible) -> creuser 1.5-2.5kHz sur BUS Music ou monter Lead."
+        )
+    if kick_bass_overlap is not None and kick_bass_overlap > 0.35:
+        diagnostics.append(
+            f"Chevauchement Kick/Bass <150Hz détecté (corr={kick_bass_overlap:+.2f} > 0.35, duck_ratio={kick_bass_duck_ratio}) -> vérifier routage sidechain Kick -> BUS Bass gl.comp."
+        )
+    if pink_slope < -5.0 or pink_slope > -3.0:
+        diagnostics.append(
+            f"Pente spectrale hors cible rose ({pink_slope:.2f} dB/oct hors [-5.0, -3.0]) -> {'trop sombre/boomy' if pink_slope < -5.0 else 'trop brillant/harsh'}."
+        )
+
+    return {
+        "project_path": abs_proj or None,
+        "stems_dir": target_dir,
+        "range": range_bars or "full",
+        "metrics": {
+            "lead_vs_harmony_db": lead_vs_harmony_db,
+            "lead_active_pct": lead_active_pct,
+            "kick_bass_transient_overlap": kick_bass_overlap,
+            "kick_bass_ducking_ratio": kick_bass_duck_ratio,
+            "pink_slope_db_per_oct": pink_slope,
+        },
+        "checks": {
+            "lead_hierarchy_ok": True if lead_vs_harmony_db is None else (lead_vs_harmony_db >= 2.5),
+            "kick_bass_separation_ok": True if kick_bass_overlap is None else (kick_bass_overlap <= 0.35),
+            "pink_slope_ok": (-5.0 <= pink_slope <= -3.0),
+        },
+        "stems_detected": {
+            "master": master_paths[0].name if master_paths else None,
+            "kick_ref": [p.name for p in kick_src],
+            "bass_ref": [p.name for p in bass_src],
+            "lead": [p.name for p in lead_paths],
+            "harmony": [p.name for p in harmony_paths],
+        },
+        "diagnostics": diagnostics,
+    }
 
 
 def inspect_pipewire() -> dict[str, Any]:
