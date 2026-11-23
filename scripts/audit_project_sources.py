@@ -62,6 +62,11 @@ def _analyze_808_harmonics(mono: np.ndarray, sr: int) -> dict[str, Any]:
                 inharmonic_warnings.append(f"h{mult} deviates {err_ct:+.1f}ct from {mult}*f0 ({fh:.1f}Hz)")
     if inharmonic_warnings:
         harm_info["inharmonic_warning"] = inharmonic_warnings
+    if f0 < 42.0:
+        harm_info["infra_sub_warning"] = (
+            f"f0={f0:.1f}Hz < 42Hz (infra-sub saturating limiter): keep 808 notes >= MIDI 31 (G1=49Hz), "
+            "or write Octave 2 (MIDI 36-42) for keys C..F#."
+        )
     return harm_info
 
 

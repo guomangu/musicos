@@ -5,7 +5,7 @@
 > - **Émotion → Paramètres** : Extraire `(V, T, E, D)` du prompt → choisir **Mode** (selon `V, T`), **Progression éprouvée (§4)**, **BPM & Matrice Rythmique (§6)**, **Palette d'instruments (§7)**.
 > - **Mélodie agréable garantie (§5)** : 1 motif court de **3 à 5 notes** répété et varié sur 4 mesures (`A - A' - A'' [Apex <= 74] - B [Silence]` si `V >= 0`, ou courbe descendante/hypnotique si `V < 0`), `>= 65 %` pas conjoints (`<= 4 st`), `20–50 %` de silence réel, notes de l'accord sur temps forts (`>= 80 %` consonant, `>= 65 %` sombre/tendu), vélocités en courbe (jamais plates), **micro-strum 10–25 ms** sur accords piano/guitare.
 > - **5 Anti-Patterns LLM interdits** : (1) note sur chaque croche sans respiration, (2) arpège mécanique 1-3-5-8 en boucle, (3) vélocité uniforme `100` partout, (4) sauts erratiques non compensés, (5) même boucle de 4 mesures répétée sans variation jusqu'à la fin.
-> - **Cohérence universelle** : 1 seule idée mélodique forte + max 3 couches hors batterie + registre séparé par instrument (Basse `28–48`, Accords `48–67`, Lead `55–72`, Apex absolu `<= 74` ; `75–81` réservé aux timbres doux si `V > +0.3`).
+> - **Cohérence universelle** : 1 seule idée mélodique forte + max 3 couches hors batterie + registre séparé par instrument (Basse/808 **`31–48`** `G1–C3` `>= 49 Hz`, en `C..F#` jouer en Octave 2 `36–42` ; Accords `48–67` ; Lead `55–72`, Apex absolu `<= 74` ; `75–81` réservé aux timbres doux si `V > +0.3`).
 
 ---
 
@@ -16,14 +16,14 @@
 | Note | C | C#/Db | D | D#/Eb | E | F | F#/Gb | G | G#/Ab | A | A#/Bb | B |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Pitch Class (`pc`)** | `0` | `1` | `2` | `3` | `4` | `5` | `6` | `7` | `8` | `9` | `10` | `11` |
-| **Octave 1 (Sub/808)** | `24` | `25` | `26` | `27` | `28` | `29` | `30` | `31` | `32` | `33` | `34` | `35` |
-| **Octave 2 (Basse)** | `36` | `37` | `38` | `39` | `40` | `41` | `42` | `43` | `44` | `45` | `46` | `47` |
+| **Octave 1 (`31–35` Sub/808 ; ⚠️ `24–30` infra-sub `< 47 Hz`)** | `24`⚠️ | `25`⚠️ | `26`⚠️ | `27`⚠️ | `28`⚠️ | `29`⚠️ | `30`⚠️ | **`31`** | **`32`** | **`33`** | **`34`** | **`35`** |
+| **Octave 2 (Basse / 808 en `C..F#`)** | `36` | `37` | `38` | `39` | `40` | `41` | `42` | `43` | `44` | `45` | `46` | `47` |
 | **Octave 3 (Accords `48–67`)** | `48` | `49` | `50` | `51` | `52` | `53` | `54` | `55` | `56` | `57` | `58` | `59` |
 | **Octave 4 (Lead `55–72`, C4=60)** | `60` | `61` | `62` | `63` | `64` | `65` | `66` | `67` | `68` | `69` (`440Hz`) | `70` | `71` |
 | **Octave 5 (Apex `<= 74` ; `75–81` doux `V>+0.3`)** | `72` | `73` | `74` | `75` | `76` | `77` | `78` | `79` | `80` | `81` | `82` | `83` |
 
-> **Plages de Registres MIDI par Défaut (Anti-Stridence)** :
-> - **Basse / 808** : `MIDI 28–48` (`E1–C3`).
+> **Plages de Registres MIDI par Défaut (Anti-Stridence & Anti-Infra-Sub)** :
+> - **Basse / 808** : **`MIDI 31–48` (`G1–C3`, `>= 49 Hz`)**. *Règle anti-infra-sub* : pour les tonalités `C`, `C#`, `D`, `D#`, `E`, `F`, `F#`, écrire la fondamentale 808 en **Octave 2 (`MIDI 36–42`)** plutôt qu'en Octave 1 (`< 42 Hz`, zone infra-sub qui sature `gl.limiter` tout en bridant le LUFS).
 > - **Accords (`Chords`)** : `MIDI 48–67` (`C3–G4`).
 > - **Lead / Motif** : **`MIDI 55–72` (`G3–C5`)** par défaut, **Apex absolu `<= MIDI 74` (`D5`)**.
 > - *Exception* : La zone `MIDI 75–81` est réservée exclusivement aux timbres très doux/sinusoïdaux (flûte douce, cordes légato avec LPF `<= 5 kHz`) sur des morceaux lumineux (`valence > +0.3`). **Interdite** sur synthés riches, cloches FM ou morceaux sombres.
@@ -223,7 +223,7 @@ Choisir obligatoirement le plan adapté à la Valence `V` :
 
 Choisir une palette où les instruments **appartiennent au même univers acoustique** et occupent des **registres MIDI disjoints** :
 
-| Famille de Genre | Profil Mix (`--profile`) | Basse (`MIDI 28–48`) | Harmonie (`MIDI 48–67`) | Lead / Motif (`MIDI 55–72`, Apex `<= 74`) | Percussions / Texture |
+| Famille de Genre | Profil Mix (`--profile`) | Basse / 808 (`MIDI 31–48`, `>= 49 Hz`) | Harmonie (`MIDI 48–67`) | Lead / Motif (`MIDI 55–72`, Apex `<= 74`) | Percussions / Texture |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Trap / Cloud / Drill** | `trap_rap` | `gl.sampler` 808 mono (`Voices=1`) | `gl.sampler` piano/pad WAV ou `gl.warmsynth` (LPF `<= 5.5 kHz`) | `gl.sampler` bell/pluck/flûte `mono_oneshot` ou `gl.pluck` (LPF `<= 7 kHz`) | Samples Trap (Kick, Clap/Snare, Hats) |
 | **Pop / Synthwave** | `pop_rnb` | `gl.analog` / `gl.fingerbass` (octave bass) | `gl.dcosynth` / `gl.warmsynth` / `gl.keys` (LPF `<= 5.5 kHz`) | `gl.twinva` / `gl.keys` / `gl.plucker` / Voix (LPF `<= 7.5 kHz`) | Kick/Snare punchy + Shaker |
@@ -233,4 +233,4 @@ Choisir une palette où les instruments **appartiennent au même univers acousti
 | **Jazz / R&B / Soul** | `jazz_acoustic` | `gl.fingerbass` (walking/pocket) | `gl.keys` (Rhodes `m7`/`m9`/`Maj9`) | `gl.keys` / `gl.sampler` sax/flûte/guitare | Kit doux / rimshot / ride |
 | **Classique / Cinéma / Ambient** | `classical_ambient` | `gl.string` (contrebasse/cello) / sub doux | `gl.string` / `gl.twinstring` / `gl.warmsynth` (pad lent) | `gl.sampler` piano WAV / `gl.string` / `gl.plucker` | Timbales/percs ciné légères ou aucune |
 
-*(Exception registre : `MIDI 75–81` est réservée exclusivement aux timbres très doux/sinusoïdaux — flûte douce, cordes légato avec LPF `<= 5 kHz` — sur morceaux lumineux `valence > +0.3`. Strictement interdite sur synthés riches, cloches FM ou morceaux sombres.)*
+*(Notes registres : pour les tonalités `C`, `C#`, `D`, `D#`, `E`, `F`, `F#`, écrire la fondamentale 808 en Octave 2 `MIDI 36–42` plutôt qu'en Octave 1 `< 42 Hz`. Côté aigus, `MIDI 75–81` est réservée exclusivement aux timbres très doux/sinusoïdaux — flûte douce, cordes légato avec LPF `<= 5 kHz` — sur morceaux lumineux `valence > +0.3`, et strictement interdite sur synthés riches, cloches FM ou morceaux sombres.)*

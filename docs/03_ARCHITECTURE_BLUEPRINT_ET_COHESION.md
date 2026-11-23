@@ -5,7 +5,7 @@
 > - **Gate MIDI bloquant** : Tant que `verify_midi_gate()` ne retourne pas `PASS`, **0 appel Gridline et 0 rendu audio** — corriger les notes en Python en `< 0.5 s` grâce à la Table de Correction (§5.3).
 > - **Piège `_infer_roles()` (§5.2)** : Nommer exactement `Bass`/`808`, `Chords`/`Pad`, `Lead`/`Melody`, `Counter Harmony`. Ne jamais nommer un contre-chant `"Vocal"` ni un accompagnement arpégé `"Piano"` seul.
 > - **Arrangement vivant** : Max **3 couches** hors batterie · **Matrice Rôles × Sections (§1.3)** · renouvellement toutes les **4–8 mesures** · transition obligatoire (drum fill / beat-4 mute / LPF sweep) · **fin propre** (résolution + extinction naturelle, jamais coupée sec).
-> - **Physique `T_noire = 60/BPM`** : Release 808 `35–55 ms` · Sidechain release `80–110 ms` · `FX Room` Decay `<= T_noire` (genres rythmiques) ou `0.6–1.1 s` (acoustique/ambient).
+> - **Physique `T_noire = 60/BPM`** : Release 808 `35–55 ms` · Sidechain release `65–80 ms` (`trap_rap`, Ratio `2.4–3.0`) ou `80–110 ms` (autres genres) · `FX Room` Decay `<= T_noire` (genres rythmiques) ou `0.6–1.1 s` (acoustique/ambient).
 
 ---
 
@@ -16,7 +16,7 @@ Tout projet commence par `song_blueprint.json` valide :
 * **Métadonnées** : `title`, `genre`, `mood`, **`mix_profile`** (`trap_rap`, `pop_rnb`, `edm_club`, `rock_metal`, `lofi_chill`, `jazz_acoustic`, `classical_ambient`), `emotion_vector` (`valence`, `tension`, `energy`, `depth`), `bpm`, `time_signature` (`numerator`, `denominator`), `key`, `swing`, `target_lufs`.
 * **`harmonic_core` (Obligatoire)** :
   * `key` (ex. `"C"`, `"F#"`), `mode` (tous modes acceptés : `ionian`, `aeolian`, `dorian`, `phrygian`, `phrygian_dominant`, `lydian`, `mixolydian`, `harmonic_minor`, `melodic_minor`, `locrian`, `pentatonic_minor`, `pentatonic_major`, `blues`), `progression_bars` (`1..32`).
-  * `chord_progression` : par mesure `bar`, `symbol`, `bass_midi` (`24–60`), `voicing_midi` (2–6 notes `48–67` recommandées, calculées par `optimize_voice_leading`), `chord_tones_pc` (`0..11`).
+  * `chord_progression` : par mesure `bar`, `symbol`, `bass_midi` (**`31–48` recommandé** pour 808/sub `>= 49 Hz` — en `C..F#`, jouer Octave 2 `36–42` ; bornes schéma `24–60`), `voicing_midi` (2–6 notes `48–67` recommandées, calculées par `optimize_voice_leading`), `chord_tones_pc` (`0..11`).
   * `motif_cell` : `intervals_from_tonic` (`2..12` notes), `rhythm_beats`, `apex_midi` (`55–74` par défaut ; `75–81` timbres très doux si `valence > +0.3`).
   * `phrase_plan` : `A-A'-A''-B`, `A-B-A'-C`, `A-A'-B-B'`, `A-A-B-A` ou `free_ambient`.
 * **`structure`**, **`frequency_plan`**, **`tracks`**, **`vocals`**.
@@ -65,7 +65,7 @@ La macro- et micro-structure reposent sur une grille binaire en multiples de 4 (
 6. **Macro** : contraste réel `section_lufs` selon le profil (Facette 5 §1).
 
 ### Plafond Cognitif & Matrice des 5 Rôles Fonctionnels (Quotas Simultanés)
-Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention** distincts (analyse de scène auditive). Ne jamais activer simultanément plus de **5 à 8 pistes** (entre `1` en Intro/Break et `8` max au Refrain/Climax) :
+Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention** distincts (analyse de scène auditive). Ne jamais faire jouer simultanément plus de **5 à 8 pistes dans une même mesure** (entre `1` en Intro/Break et `8` max au Refrain/Climax). **Clarification importante** : cette limite `5–8` concerne exclusivement les pistes **qui jouent simultanément dans une même mesure**, et **non** le nombre total de pistes du projet Gridline — qui peut librement totaliser `9–14` pistes dédiées pour respecter strictement l'isolation `1 sonorité = 1 piste` (Facette 1 §1.2). *Ne jamais fusionner des percussions ou instruments sur un même canal/pattern pour respecter ce plafond.*
 
 | Catégorie Fonctionnelle | Quota Max Simultané | Bande Prioritaire | Règle d'Exclusion & de Priorité |
 | :--- | :---: | :---: | :--- |
@@ -77,7 +77,7 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 
 * **Calibrage sur `T_noire = 60.0 / BPM`** :
   * Release 808 : `35–55 ms` (mono cut-itself `Voices = 1`).
-  * Release Sidechain : `80–110 ms` (`~1/4` à `1/2` de `T_noire`).
+  * Release Sidechain : **`65–80 ms`** en `trap_rap` (`Ratio 2.4–3.0`, `Threshold -18 dB` pour préserver le corps 808) ; `80–110 ms` (`~1/4` à `1/2` de `T_noire`) pour les autres genres.
   * Decay `FX Room` : `<= 1.0 × T_noire` pour les genres rythmiques (`0.20–0.42 s`, soit `Decay (full) = 2..4 ds`) ; jusqu'à `0.7–1.1 s` (`7..11 ds`) pour Acoustique/Classique/Ambient.
 
 ---
@@ -114,7 +114,7 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 
 | Métrique | Mode Consonant (`V >= -0.3` et `T < 0.5`) | Mode Sombre / Tendu (`V < -0.3` ou `T >= 0.5`) |
 | :--- | :---: | :---: |
-| **`max_pitch` (Lead)** | `<= 76` (`E5`) | **`<= 72–74`** (`C5–D5`) |
+| **`max_pitch` (Lead) / `min_pitch` (808)** | `<= 76` (`E5`) / `>= 31` (`G1 = 49 Hz`) | **`<= 72–74`** (`C5–D5`) / **`>= 31`** (`G1`, éviter infra-sub `< 42 Hz`) |
 | **`strong_beat_chord_tone_ratio`** | `>= 0.80` | **`>= 0.65`** *(autorise les appoggiatures expressives `b6->5`, `4->b3`, `b2->1` sur temps forts)* |
 | **`minor_2nd_clashes`** | `== 0` | **`<= 2` par bloc de 4 mesures** *(si tension diatonique contrôlée `b2/1` en Phrygien ou `b6/5` en Mineur, résolue au pas suivant)* |
 | **`stepwise_ratio`** (`\|Δp\| <= 4 st`) | `>= 0.65` | `>= 0.65` |
@@ -147,6 +147,7 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 | `melody_rest_ratio > 0.50` | Lead trop vide | Allonger légèrement les notes tenues ou ajouter 1–2 notes conjointes en mesure 1 et 3. |
 | `strong_beat_chord_tone_ratio < min` | Trop de notes de passage sur temps forts (`< 0.80` consonant ou `< 0.65` sombre/tendu) | Sur `beat % 2 == 0`, projeter la note sur la pitch-class la plus proche de l'accord courant. |
 | `too_high_count > 0` | Note Lead au-dessus de `max_pitch` (`72–74` sombre, `76` consonant) | Baisser la phrase ou les sommets d'une octave (`-12 st`). |
+| `too_low_count > 0` | Basse / 808 en zone infra-sub (`< MIDI 31`, `< 49 Hz`) | Relever les notes 808 d'une octave (`+12 st`, en Octave 2 `MIDI 36–42` pour `C..F#`) ; ou passer `min_pitch=28` uniquement pour basse électrique/contrebasse acoustique. |
 | `voice_leading_avg_semitones > 2.50` | Accords déplacés en blocs | Passer la suite d'accords dans `optimize_voice_leading(chord_pcs_list, 48, 67)`. |
 | `lead_overlap_conflict > 0.15` | Lead & Counter frappent ensemble | Décaler les attaques du `Counter` dans les silences du `Lead` (ou à `+12 st` / timbre différent). |
 | `contrary_or_oblique_ratio < 0.55` | Basse et Lead montent/descendent ensemble | Inverser la direction d'une mesure sur deux du Lead (ou tenir une note pivot quand la basse change). |
@@ -215,7 +216,7 @@ for name, notes in [("Bass", bass_notes), ("Chords", chord_notes), ("Lead", lead
     pm.instruments.append(inst)
 sketch_path = f"{PROJ_DIR}/master_sketch.mid"
 pm.write(sketch_path)
-max_pitch = 72 if valence < 0 else 76
+max_pitch = 72 if valence < -0.3 else 76
 verify_midi_gate(sketch_path, expected_key=KEY_STR, max_pitch=max_pitch, valence=valence, tension=tension)
 
 # 4. Build Gridline atomique (1 session MCP) — RÈGLE ABSOLUE : 1 sonorité = 1 canal + 1 insert + 1 pattern dédié + 1 piste Playlist nommée
@@ -224,8 +225,8 @@ shutil.copyfile(TEMPLATE_EMPTY_MIXER, proj_path)
 mcp = GridlineMCP(proj_path, f"{PROJ_DIR}/exports")
 mcp.call("set_song", {"tempo": BPM, "numerator": BEATS_PER_BAR, "denominator": 4})
 setup_standard_buses(mcp, bpm=BPM, profile=PROFILE, valence=valence)
-# OBLIGATOIRE : configurer LPF Cutoff sur chaque canal synthé gl.* (ou gl.eq High cut sur son insert)
-# Ex. Pads/Chords LPF 2.5-5.5 kHz ; Lead LPF 4.0-7.5 kHz ; FM/Cloches LPF <= 7.0 kHz + Peak -3dB @ 3200Hz
+# OBLIGATOIRE : configurer LPF Cutoff + enveloppe ADSR sur chaque canal synthé gl.* (ou gl.eq High cut sur son insert)
+# Ex. Pads/Chords LPF 2.5-5.5 kHz (Attack 150-400 ms, Release 400-800 ms) ; Lead LPF 4.0-7.5 kHz (Attack 10-30 ms) ; FM/Cloches LPF <= 7.0 kHz + Peak -3dB @ 3200Hz (Band N width = 0.35)
 # Créer 1 canal + 1 insert dédié + 1 pattern dédié par sonorité (ex. Pat 1=Bass -> Track 1, Pat 2=Chords -> Track 2, Pat 3=Lead -> Track 3)
 # add_channel(..., mixer=N) -> edit_mixer_track(mixer=N, routeTo=17/18/19) -> set_notes (1 canal par pattern !) -> add_clip(pattern=P, track=N, start=0.0)
 # Nommer toutes les pistes Playlist via Lua :

@@ -387,7 +387,7 @@ def run_deep_audit(
                 "category": "boxy_resonance",
                 "severity": "high",
                 "detail": f"Pics bas-médiums détectés à {[r['freq_hz'] for r in boxy]} Hz (+{max(r['local_excess_db'] for r in boxy)} dB).",
-                "fix": "Appliquer un coupe-cloche Q=2.5..4 (-3 à -5 dB) sur les pistes mélodiques/pads dans cette plage et passe-haut >= 140 Hz.",
+                "fix": "Appliquer un coupe-cloche gl.eq Peak=6 (Band N width = 0.20..0.25, ≈ Q 2.5..4 ; -3 à -5 dB) sur les pistes mélodiques/pads dans cette plage et passe-haut >= 140 Hz.",
             }
         )
     shrill = [r for r in resonances if 1800 <= r["freq_hz"] <= 7000]

@@ -1,7 +1,8 @@
 # Facette 4 — DSP Déterministe, Sélection de Samples, APIs Audio, Remix & Chant (Vocaloid)
 
 > **Cheatsheet IA (L'essentiel en 14 lignes)**
-> - **Ordre économique de choix des sons** : (1) Sons déjà présents dans le `.gridline` utilisateur → (2) `audio-index:search_samples` (**< 10 ms** sur `samples.db`) ou synthés natifs `gl.*` vérifiés (Facette 1 §3) → (3) Vérification DSP rapide `audio-index:analyze_sample_dsp` (0 GPU, 0 CLAP) → (4) `audio-index:fetch_samples_online(..., monophonic_only=True)` uniquement si un timbre manque.
+> - **Règle stricte — Samples fournis initialement** : Si des samples sont fournis initialement (dossier `Samples/` ou `.gridline` existant), **interdiction d'ajouter de nouveaux samples** (ni locaux externes, ni APIs). En revanche, il est autorisé de gérer ces samples et de **créer des versions alternatives des samples fournis** (nettoyage, découpage, extraction de one-shots, filtrage, pitch-shift, inversion, saturation) pour les ajouter au morceau.
+> - **Ordre économique de choix des sons** : (1) Samples/sons déjà fournis par l'utilisateur (en créant des versions alternatives si besoin) → (2) `audio-index:search_samples` (**< 10 ms** sur `samples.db`) ou synthés natifs `gl.*` vérifiés (Facette 1 §3) → (3) Vérification DSP rapide `audio-index:analyze_sample_dsp` (0 GPU, 0 CLAP) → (4) `audio-index:fetch_samples_online(..., monophonic_only=True)` uniquement si aucun sample n'est imposé et qu'un timbre manque.
 > - **Attention timeout CPU** : Ne **pas** appeler `select_best_samples` si `mcp-servers/audio-index/sample_index.json` n'existe pas (sinon indexation CLAP CPU complète synchrone). Préférer `search_samples` + `analyze_sample_dsp`, ou `evaluate_sample_quality(..., with_clap=False)`.
 > - **Zéro dissonance chromatique** : Pour tout sample joué en mélodie/accords dans `gl.sampler`, exiger `playable_chromatically == True` (`sample_nature == "mono_oneshot"`). Si le sample est `melodic_sequence` ou `poly_chord_or_dyad` (`DISSONANCE_RISK`), isoler 1 note via `studio_lib.extract_clean_oneshot(...)` ou remplacer.
 > - **Hygiène audio** : Accordage `A4 = 440.0 Hz ± 5 ct` (`Root note` + `Fine tune`, jamais `pitch_shift` sur 808 `< 80 Hz`) · one-shots `< 2.5 s` en **peak norm `-1.0 dBFS`** (jamais `loudnorm`) · boucles `>= 2.5 s` avec `stabilize_stereo_low_mid` si `low_mid_corr < 0.65`.
@@ -14,9 +15,10 @@
 
 Suivre cet ordre exact (s'arrêter dès qu'un son propre est trouvé) :
 
-1. **Projet `.gridline` utilisateur contenant déjà des sons** :
-   - Exécuter en 1 appel `.venv/bin/python scripts/audit_project_sources.py <projet.gridline> --prepare-samples <proj>/samples`.
-   - Ne rien ajouter d'externe ; nettoyer/découper/décliner uniquement les sons fournis.
+1. **Samples ou projet `.gridline` fournis initialement par l'utilisateur** :
+   - Exécuter en 1 appel `.venv/bin/python scripts/audit_project_sources.py <projet.gridline> --prepare-samples <proj>/samples` (ou analyser le dossier `Samples/` fourni).
+   - **Règle impérative** : si des samples sont fournis initialement, **ne pas rajouter de nouveaux samples** (aucun ajout depuis `samples.db`, d'autres dossiers ou des APIs en ligne).
+   - **Versions alternatives autorisées** : il est possible de gérer les samples fournis et d'en **créer des versions alternatives** dans `samples/` (nettoyage, découpage/chops, extraction `mono_oneshot`, filtrage LPF/HPF, EQ, pitch-shift, inversion, saturation douce, étirement) et de les ajouter au morceau.
 2. **Recherche locale instantanée (`samples.db`, `< 10 ms`)** :
    - `audio-index:search_samples(query="warm piano", category="...", musical_key="C minor", limit=8)` ou `find_compatible_samples(bpm=..., musical_key=...)`.
    - Vérifier les 2–3 meilleurs candidats avec `audio-index:analyze_sample_dsp(filepath)` (`< 50 ms`, 0 CLAP).
@@ -65,7 +67,7 @@ Répond en quelques millisecondes à *« Voix ? Chant lent ? Chant continu ? »*
 4. **Esthétique CLAP** (optionnel CPU) + calcul `Root note` / `Fine tune` vers `440.0 Hz`.
 
 * **Nettoyage obligatoire & 4 Lois d'agrément des transitoires rapides ("Tics" / Hi-Hats)** :
-  * **1. Ratio Harmonie/Bruit (`2–6 kHz`)** : spectre large et lisse sans pic isolé (**$Q > 8$** dépassant de **`> 6 dB`** le voisinage spectral) ; si présent, appliquer un EQ soustractif chirurgical (**`-3` à `-6 dB`**, $Q$ étroit).
+  * **1. Ratio Harmonie/Bruit (`2–6 kHz`)** : spectre large et lisse sans pic isolé (**$Q > 8$** dépassant de **`> 6 dB`** le voisinage spectral) ; si présent, appliquer un EQ soustractif chirurgical (`gl.eq Band type = 6 Peak`, **`-3` à `-6 dB`**, **`Band N width = 0.20–0.25`** *Q étroit*).
   * **2. Enveloppe transitoire** : temps d'attaque (**`Attack`) de `1 à 3 ms`** (jamais `0 ms` numérique) et relâchement strictement inférieur à l'écart entre frappes (**$T_{\text{decay}} < 0{,}8 \times T_{\text{note}}$**).
   * **3. Loi Anti-Mitraillette (micro-modulation stochastique)** : varier chaque frappe sur la **vélocité** (ex. temps fort `100 %`, contretemps `65 %`, subdivisions `40 %`, **`±5 %`**), la **hauteur** (**`±5` à `±15 ct`**) et le **filtre LPF** (fréquence de coupure proportionnelle à la vélocité).
   * **4. Ancrage spectral (`>= 1/16`)** : concentrer l'énergie principale entre **`7 kHz et 14 kHz`** avec **HPF `500 Hz – 1 kHz`** minimum pour supprimer tout résidu grave.

@@ -87,7 +87,7 @@
                 "type": "integer",
                 "minimum": 24,
                 "maximum": 60,
-                "description": "Fondamentale basse/808 (MIDI 28-48 pour sub/808, 33-55 pour basse acoustique/électrique)"
+                "description": "Fondamentale basse/808 (MIDI 31-48 / G1-C3 >= 49 Hz pour sub/808 — pour C..F#, écrire en Octave 2 MIDI 36-42 pour éviter l'infra-sub < 42 Hz ; 33-55 pour basse acoustique/électrique)"
               },
               "voicing_midi": {
                 "type": "array",

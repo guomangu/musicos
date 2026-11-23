@@ -4,7 +4,7 @@
 > - **Moteur** : Gridline `0.7.7` (Live `--attach` port `47390` ou Headless `.gridline`). Toujours privilégier les plugins natifs `gl.*` pour 100 % portabilité GUI + CLI.
 > - **Mémoire sonore** : `audio-index:search_samples` interroge `samples.db` (SQLite, **< 10 ms**). `select_best_samples` lit `sample_index.json` (attention : si absent, ne pas l'appeler en MCP — lancer `scripts/index_samples.py --no-clap` en CLI ou utiliser `search_samples` + `analyze_sample_dsp`).
 > - **Unités** : Toujours composer en **beats 0-indexed** dans Python (`0.0, 0.5, 1.0...`) puis convertir automatiquement vers `pretty_midi` (`beat * 60/BPM`), MCP `set_notes` (`beat`), Lua (`int(round(beat * 96))` ticks).
-> - **Pièges Gridline mortels** : `gl.eq Peak = 6` (pas `4`=Notch) · `edit_channel(mixer=M)` (jamais `patch mixerTrack`) · `set_send(..., sidechain=True, preFader=True)` · `gl.reverb Decay (full)` est en **décisecondes (`1..200`, ex. `4` = `0.4 s`)** et `Dry (full) = 0` · `gl.sampler` WAV 24-bit (pas `gl.multisampler` `.sfz` externe, muet en GUI) · Lua toujours dans `function apply() ... end`.
+> - **Pièges Gridline mortels** : `gl.eq Peak = 6` (pas `4`=Notch) et largeur via **`Band N width`** (mode `Reference` par défaut ; `Band N Q (legacy)` est ignoré sans `Band model = 0`) · `set_song` utilise **`"tempo"`** (pas `"bpm"`) · `edit_channel(mixer=M)` (jamais `patch mixerTrack`) · `set_send(..., sidechain=True, preFader=True)` · `gl.reverb Decay (full)` est en **décisecondes (`1..200`, ex. `4` = `0.4 s`)** et `Dry (full) = 0` · `gl.sampler` WAV 24-bit (pas `gl.multisampler` `.sfz` externe, muet en GUI) · Lua toujours dans `function apply() ... end`.
 > - **Économie Tokens & CPU** : 1 seul script `build_song.py` (`GridlineMCP.batch` + `set_params`) ; `--no-clap` pour DSP pur ; `--range <b1>-<b2> --no-neural` pour les itérations mixage ; 1 seul rendu final complet avec `--mp3 --sections`.
 
 ---
@@ -82,13 +82,20 @@ Les serveurs Python utilisent `mcp 2.3.0` (`MCPServer`, transport `stdio`). Tout
 > **Règle Anti-Stridence (LPF par défaut selon le rôle)** :
 > - **Pads / Accords (`Chords`)** : LPF strict entre **`2.5 kHz` et `5.5 kHz`** (plus bas si `valence < 0`).
 > - **Leads / Mélodies** : LPF entre **`4.0 kHz` et `7.5 kHz`** (interdiction de laisser un synthé *saw/FM* ouvert jusqu'à `20 kHz`).
-> - **Cloches / FM / Métallique (`gl.fm`, `gl.alloy`, `gl.matrixfm`)** : LPF `<= 7.0 kHz` + creux `gl.eq` (`Band type = 6 Peak`, `-3.0 dB @ 3200 Hz`, `Q = 1.6`).
+> - **Cloches / FM / Métallique (`gl.fm`, `gl.alloy`, `gl.matrixfm`)** : LPF `<= 7.0 kHz` + creux `gl.eq` (`Band type = 6 Peak`, `-3.0 dB @ 3200 Hz`, `Band N width = 0.35` *≈ Q 1.6*).
 > - **`gl.sampler` (mélodique ou hats brillants)** : Exploiter nativement les paramètres `Filter` (`1=Low pass`, `2=Low pass 24`) / `Cutoff` / `Resonance` du sampler si le sample est trop brillant.
+
+> **Règle d'Enveloppes ADSR sur Synthés `gl.*` (Anti-Rendu « Orgue Statique »)** :
+> Ne jamais laisser un synthé `gl.*` sur son enveloppe *init* (`Attack = 0`, `Sustain = 100 %`, `Release = 0`) ; sculpter l'enveloppe selon le rôle dès la création :
+> - **Pads / Nappes** : `Attack` lent (**`150–400 ms`**), `Release` ample (**`400–800 ms`**).
+> - **Plucks / Bells / Cloches** : `Attack` court (**`2–8 ms`**), `Decay` moyen (**`250–600 ms`**), `Sustain` bas (**`0–20 %`**).
+> - **Leads expressifs** : `Attack` doux (**`10–30 ms`**), `Release` court (**`80–180 ms`**), léger **`Glide`** si mono.
 
 ### 3.2 Effets Natifs Clés (`gl.*`) & Paramètres Exacts Vérifiés
 * **`gl.sampler`** : `plugin.data = "/chemin/absolu.wav"` (chaîne brute). Clés : `Root note` (MIDI), `Fine tune` (cents), `One shot` (`0`/`1`), `Voices` (`1` mono cut-itself pour 808/sub, `12` pour accords), `Attack`, `Release`, `Glide`, `Declick`, `Remove DC`, `Loop`, `Filter` (`0=Off`, `1=Low pass`, `2=Low pass 24`, `3=Band pass`, `4=High pass`, `5=Notch`), `Cutoff` (`20..20000 Hz`), `Resonance` (`0..1`).
 * **Filtres LPF natifs des synthés `gl.*`** : `gl.analog` (`Cutoff` `20..20000 Hz`), `gl.wavetable` (`Filter 1 on = 1`, `Filter 1 cutoff` `20..20000 Hz`), `gl.string` (`Hi cut` `200..20000 Hz`), `gl.warmsynth` / `gl.dcosynth` / `gl.twinva` / `gl.sawswarm` (`Cutoff` normalisé `0..1`, ex. `0.35–0.55` ; attention `dcosynth`/`twinva`/`sawswarm` sont à `1.0` par défaut !), `gl.pluck` (`Brightness` `0..1`, `Damping` `0..1`), `gl.alloy` (`Cutoff` `0..256`), et `gl.fm` / `gl.matrixfm` / `gl.keys` (sans LPF synthé → poser `gl.eq` sur l'insert).
-* **`gl.eq` (7 bandes)** : `Quality` (`0=Normal`, `1=Master`). **Enum exact `Band N type`** : `0=Off`, `1=Low cut` (HPF), `2=Band pass`, `3=High cut` (LPF), **`4=Notch`**, `5=Low shelf`, **`6=Peak`**, `7=High shelf`. Note : `Band model` vaut `1` (`Reference`, largeur réglée par `Band N width` `0..1`, `0.35` ≈ Q 1.6) par défaut ; passer `Band model = 0` (`Legacy`) si l'on règle explicitement `Band N Q (legacy)`.
+* **Enveloppes ADSR natives des synthés `gl.*`** : unités en **secondes (`s`)** sur `gl.analog` (`Amp attack/decay/sustain/release`, `Glide`), `gl.wavetable` (`Amp env attack/decay/sustain/release`, `Glide`), `gl.fm` (`Op 1..4 attack/decay/sustain/release`, `Glide`), `gl.sampler` (`Attack/Decay/Sustain/Release`, `Glide`) et `gl.pluck` (`Decay`, `Release`, `Damping`) ; valeurs **normalisées `0..1`** sur `gl.warmsynth` / `gl.sawswarm` (`Attack/Decay/Sustain/Release`), `gl.twinva` (`Amp attack/decay/sustain/release`, `Glide`) et `gl.dcosynth` (`Env 1 attack/decay/sustain/release`, `Portamento`). *(Attention : `gl.twinva`, `gl.sawswarm` et `gl.dcosynth` ont `Attack = 0`, `Release = 0` par défaut !)*
+* **`gl.eq` (7 bandes — Convention Unique : `Band N width`)** : `Quality` (`0=Standard`, `1=High (decramped)`). **Enum exact `Band N type`** : `0=Off`, `1=Low cut` (HPF), `2=Band pass`, `3=High cut` (LPF), **`4=Notch`**, `5=Low shelf`, **`6=Peak`**, `7=High shelf`. **`Band model` vaut `1` (`Reference`) par défaut** : toujours régler la largeur exclusivement avec **`Band N width`** (`0..1`, plus bas = plus étroit : **`0.45`** ≈ Q 1.2 · **`0.39`** ≈ Q 1.4 · **`0.35`** ≈ Q 1.6 · **`0.22`** ≈ Q 2.8). *Ne jamais envoyer `Band N Q (legacy)` seul (ignoré en mode `Reference`, ne fonctionne qu'en forçant `Band model = 0`).*
 * **`gl.comp`** : `Detector input` (`0=Main`, `1=Sidechain`), `Threshold` (dB), `Ratio`, `Attack` (s), `Release` (s), `Makeup` (dB), `Lookahead`, `Detector high-pass` (Hz).
 * **`gl.limiter`** : `Gain` (dB), `Ceiling` (dB), **`Attack (look-ahead)` = `0.002` s** (jamais `0.005`), `0.2 dB safety = 1`.
 * **`gl.dist`** : `Mode = 0` (`Soft`), `Drive`, `Tone` (Hz), `Mix` (`0..1`), `Oversampling` (`2` = 4x), `Remove DC = 1`.
@@ -134,7 +141,7 @@ Les serveurs Python utilisent `mcp 2.3.0` (`MCPServer`, transport `stdio`). Tout
 | **Double / Triolet double / Triple** | `1/16`, `1/16T`, `1/32` | `1/16`, `1/24`, `1/32` | `0.25`, `0.167`, `0.125` | `167 / 111 / 83 ms` | `125 / 83 / 62.5 ms` | `107 / 71 / 53.5 ms` |
 
 ### Syntaxe Critique MCP & Lua (`run_script`)
-1. **`set_song`** : `numerator` et `denominator` (jamais `timeSigNum`/`timeSigDen`).
+1. **`set_song`** : `"tempo"` (jamais `"bpm"`), `"numerator"` et `"denominator"` (jamais `timeSigNum`/`timeSigDen`).
 2. **Routage mixeur** : `add_channel(..., mixer=M)` ou `edit_channel(channel=N, mixer=M)` — **jamais** `patch("channel/N/mixerTrack", ...)`.
 3. **Largeur stéréo mixeur** : `set_parameters` sur `mixer/N/stereo` (ex. `-0.25` rétrécit vers mono).
 4. **Sends & Sidechain** : `"sidechain": True, "preFader": True` obligatoire pour tout envoi sidechain.
@@ -151,7 +158,7 @@ Les serveurs Python utilisent `mcp 2.3.0` (`MCPServer`, transport `stdio`). Tout
 
 | Script | Rôle Exact & Vrais Flags CLI | Coût CPU / Usage Optimal |
 | :--- | :--- | :--- |
-| **`scripts/studio_lib.py`** | `GridlineMCP`, `setup_standard_buses(..., profile=...)`, `verify_midi_gate`, `check_pattern_audibility`, `clean_audio_sample`, `extract_clean_oneshot`, `stabilize_stereo_low_mid`. | Importer dans `build_song.py` → 1 seul appel au lieu de 40 appels MCP. |
+| **`scripts/studio_lib.py`** | `GridlineMCP`, `setup_standard_buses(mcp, bpm=..., profile=..., valence=...)`, `verify_midi_gate`, `check_pattern_audibility`, `clean_audio_sample`, `extract_clean_oneshot`, `stabilize_stereo_low_mid`. | Importer dans `build_song.py` → 1 seul appel au lieu de 40 appels MCP. |
 | **`scripts/audio_metrics.py`** | `analyze_single_file(..., with_clap=False)`, `analyze_pitch_and_purity`, `analyze_vocal_signature`, `score_candidate`. | `< 50 ms`/fichier sans CLAP. |
 | **`scripts/audit_project_sources.py`** | Audit pré-mix 1-shot d'un `.gridline` + `--prepare-samples <dir>` (détecte `DISSONANCE_RISK`, `LOW_MID_WIDE_PHASE`, `NYQUIST_JUMP`, `mixer_warnings`). | Rapide (0 GPU, 0 CLAP). |
 | **`scripts/render_and_audit.py`** | Rendu silencieux + `analyze_mix` + `audit_mix_deep` + `section_lufs` + Quality Gate multi-genres. Flags : `--profile <genre>`, `--target-lufs`, `--bpm`, `--beats-per-bar`, `--range B1-B2`, `--no-neural`, `--sections`, `--mp3`. | Itérer avec `--range --no-neural` (~5× plus rapide) ; audit neural complet **1 seule fois** à la fin. |

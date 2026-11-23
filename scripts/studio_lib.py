@@ -275,15 +275,20 @@ def verify_midi_gate(
     max_pitch: int = 74,
     valence: float = 0.0,
     tension: float = 0.3,
+    min_pitch: int = 31,
 ) -> dict[str, Any]:
-    """Run strict 7-metric musicality gate via audio-analyzer and raise on FAIL."""
+    """
+    Run strict 7-metric musicality gate via audio-analyzer and raise on FAIL.
+    `min_pitch` defaults to 31 (G1 = 49 Hz) to prevent < 42 Hz infra-sub 808s;
+    pass `min_pitch=28` explicitly if an acoustic/electric bass legitimately uses E1..F#1.
+    """
     sys.path.insert(0, f"{ROOT}/mcp-servers/audio-analyzer")
     from deep_diagnostics import audit_midi_file
 
     res = audit_midi_file(
         midi_path=midi_path,
         expected_key=expected_key,
-        min_pitch=24,
+        min_pitch=min_pitch,
         max_pitch=max_pitch,
         strict_musicality=True,
         valence=valence,
@@ -293,6 +298,7 @@ def verify_midi_gate(
         raise RuntimeError(
             f"MIDI GATE FAILED ({midi_path}): failures={res.get('musicality_failures')} "
             f"too_high={res.get('too_high_count')} "
+            f"too_low={res.get('too_low_count')} "
             f"blocking_clashes={res.get('blocking_minor_2nd_clashes')} "
             f"sub_collisions={res.get('low_end_simultaneous_collisions')}"
         )
@@ -317,8 +323,10 @@ def setup_standard_buses(
     + FX Room (Dry=0, Dry full=0, Decay <= T_noire), adapted to `profile` and `valence`:
     - BUS Music places `gl.dist` (Slot 1, Tone <= 7500 Hz) BEFORE `gl.eq` (Slot 2, HPF + LPF)
       so any saturation harmonics above LPF are cleanly filtered out.
-    - trap_rap / edm_club: punchy sidechain, gentle soft saturation, drums air (unless valence < -0.2)
-    - pop_rnb / rock_metal: balanced glue, moderate sidechain
+    - trap_rap: smooth Kick->808 sidechain (Ratio 2.4, Threshold -18 dB, Release 65 ms) to preserve 808 body,
+      gentle soft saturation, drums air (unless valence < -0.2)
+    - edm_club: punchy sidechain (5:1, -20 dB, 85 ms), gentle soft saturation, drums air (unless valence < -0.2)
+    - pop_rnb / rock_metal: balanced glue, moderate sidechain (3:1)
     - lofi_chill: warmer LPF on BUS Music, soft glue, light drums air
     - jazz_acoustic / classical_ambient: clean transparent bus (no distortion, gentle/minimal comp, larger room decay)
     """
@@ -368,7 +376,14 @@ def setup_standard_buses(
     music_dist_mix = 0.0 if acoustic_mode else (0.10 if lofi_mode else 0.08)
     music_dist_tone = 6500 if (lofi_mode or dark_mode) else 7500
     drums_air_gain = 0.0 if (acoustic_mode or lofi_mode or dark_mode) else 1.8
-    sc_ratio_bass = 1.5 if acoustic_mode else (3.0 if profile in ("pop_rnb", "rock_metal", "lofi_chill") else 5.0)
+    if acoustic_mode:
+        sc_ratio_bass, sc_thresh_bass, sc_release_bass = 1.5, -20.0, 0.085
+    elif profile == "trap_rap":
+        sc_ratio_bass, sc_thresh_bass, sc_release_bass = 2.4, -18.0, 0.065
+    elif profile == "edm_club":
+        sc_ratio_bass, sc_thresh_bass, sc_release_bass = 5.0, -20.0, 0.085
+    else:
+        sc_ratio_bass, sc_thresh_bass, sc_release_bass = 3.0, -20.0, 0.085
     sc_ratio_music = 1.2 if acoustic_mode else 2.2
     master_comp_thresh = -8.5 if acoustic_mode else -10.5
     master_comp_makeup = 0.5 if acoustic_mode else 1.5
@@ -391,8 +406,8 @@ def setup_standard_buses(
         # BUS Bass / 808
         (f"mixer/{bus_808}/slot/1/Width", 0.0),
         (f"mixer/{bus_808}/slot/2/Detector input", 1),
-        (f"mixer/{bus_808}/slot/2/Threshold", -20.0), (f"mixer/{bus_808}/slot/2/Ratio", sc_ratio_bass),
-        (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", 0.085), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
+        (f"mixer/{bus_808}/slot/2/Threshold", sc_thresh_bass), (f"mixer/{bus_808}/slot/2/Ratio", sc_ratio_bass),
+        (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", sc_release_bass), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
         (f"mixer/{bus_808}/slot/3/Band 1 type", 1), (f"mixer/{bus_808}/slot/3/Band 1 freq", 30),
         # BUS Music: Slot 1 gl.dist (Tone <= 7500 Hz) -> Slot 2 gl.eq (HPF + LPF) -> Slot 3 Glue -> Slot 4 Duck
         (f"mixer/{bus_music}/slot/1/Mode", 0), (f"mixer/{bus_music}/slot/1/Drive", 3.5),
