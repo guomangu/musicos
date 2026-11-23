@@ -154,7 +154,18 @@ Pour qu'une IA textuelle crée une mélodie **chantable, émotive et immédiatem
 | **Hauts-Médiums** | `800 Hz–4 kHz` | Croches, Double-croches | Attaque précise, articulation dynamique | Voix, Lead synthé, Snare, Cuivres |
 | **Aigus / Air** | `4–20 kHz` | Double-croches, Triple-croches, Triolets | Attaque instantanée, Decay & Release très courts | Hi-hats, Shakers, Cymbales |
 
-### 6.2 Bibliothèque Universelle de 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
+### 6.2 Micro-Timing, Humanisation (Effet Haas) & Loi Anti-Mitraillette
+* **Effet de précédence (Effet Haas)** : si Kick + Basse + Hi-hat frappent à `0.0 ms` exact, leurs crêtes s'additionnent (perte de *headroom*) et masquent les attaques. Un décalage de **`5 ms à 15 ms`** sépare chaque attaque tout en conservant un impact perçu comme unique.
+* **Loi Anti-Mitraillette (motifs rapides `>= 1/16`)** : aucune frappe consécutive ne doit être identique — varier **vélocité** (ex. temps fort `100 %`, contretemps `65 %`, subdivisions `40 %`, **`±5 %`** aléatoire), **hauteur** (**`±5` à `±15 ct`**) et **filtre LPF** (coupure proportionnelle à la vélocité).
+
+| Élément | Décalage par rapport à la grille | Effet Musical Produit |
+| :--- | :---: | :--- |
+| **Kick (Grosse caisse)** | **`0 ms`** (Ancrage absolu) | Référence temporelle fixe pour l'auditeur. |
+| **Snare / Clap** | **`-5 ms` à `+10 ms`** | En avance (`-5 ms`) = urgent/nerveux · En retard (`+10 ms`) = lourd/*groovie*. |
+| **Hi-hats / "Tics"** | **`+5 ms` à `+20 ms`** (ou Swing `52–58 %`) | Dégage l'attaque Kick/Snare et crée un balancement naturel. |
+| **Basse / 808** | **`+10 ms` à `+25 ms`** | Laisse passer le transitoire initial du Kick avant l'arrivée de l'énergie grave. |
+
+### 6.3 Bibliothèque Universelle de 10 Matrices Rythmiques Exactes (Beats 0-Indexed)
 
 > Chaque mesure 4/4 vaut `4.0` beats (`0.00` à `3.75` par pas de `0.25`). Pour éviter tout groove cassé, partir de la matrice du genre cible puis ajouter des variations mineures en fin de bloc (mes. 4 et 8).
 

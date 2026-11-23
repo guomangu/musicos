@@ -31,15 +31,24 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 | **High-Mids (`500 Hz–4 kHz`)** | Lead, Voix, Snare, Pluck | Relais temporel + EQ miroir `-2 à -4 dB` (`1–3 kHz`) sur Harmonie ; **Lead domine l'harmonie de `>= +3 dB`**. |
 | **Air (`4–20 kHz`)** | Hats, Cymbales, Shimmer, Souffle | `LPF 9.5–15.5 kHz` sur `BUS Music` (selon profil) pour laisser l'air aux percussions ou adoucir en Lo-Fi. |
 
-### Cartographie Psychoacoustique des Aigus (`2–20 kHz`) & Pente Rose
-* **Pente spectrale naturelle (Bruit Rose)** : l'équilibre global agréable décroît doucement des graves vers les aigus d'environ **`-3 à -4,5 dB/octave`** (si les aigus dépassent cette pente, le mix devient maigre et fatigant).
-* **Zone idéale des aigus (hi-hats / "tics")** : concentrer l'énergie utile entre **`7 kHz et 14 kHz`** et éviter tout pic étroit entre **`2,5 kHz et 5 kHz`** :
+### Cartographie Psychoacoustique des Aigus (`2–20 kHz`) & Loi de la Pente Rose
+* **Justification physiologique (Fletcher-Munson)** : le conduit auditif résonne naturellement entre **`2,5 kHz` et `4 kHz`** (sensibilité évolutive maximale aux cris/parole) — un excès y cause une fatigue physique immédiate, alors que `> 10 kHz` reste spatial et non douloureux.
 
-| Sous-zone Aigus | Fréquences | Perception & Effet |
+| Sous-zone Aigus | Fréquences | Rôle Musical | Tolérance & Risques |
+| :--- | :---: | :--- | :--- |
+| **1. Présence / Attaque** | `2–5 kHz` | Clic Kick, claquement Snare, diction vocale. | **Critique (Bas)** : excès = son métallique, strident ("perce-tympan"). |
+| **2. Brillance / Détail** | `5–10 kHz` | Sifflantes (*s, ch, t*), *crispness* des cymbales/hats. | **Modéré** : excès = sibilance douloureuse, rendu plastique/artificiel. |
+| **3. Air / Soie** | `10–20 kHz` | Légèreté, ouverture spatiale "studio", élévation du mix. | **Élevé** : excès = souffle blanc (*hiss*) ou électricité statique. |
+
+* **Loi de la Pente Rose (`-3` à `-4,5 dB/octave`)** : l'énergie globale des graves vers les aigus doit décroître linéairement (environ `-3` à `-4,5 dB/oct`, comme pluie/vent) — un spectre plat (`0 dB/oct`) sonne agressif et maigre. **Zone cible "tics" rapides (`>= 1/16`) : `7–14 kHz`** (+ HPF `500 Hz–1 kHz`).
+
+| Plage d'Octave | Niveau Cible (Réf. `100 Hz = 0 dB`) | Diagnostic en cas d'écart |
 | :--- | :---: | :--- |
-| **1. Présence / Attaque** | `2–5 kHz` | **Sensibilité maximale** (Fletcher-Munson, conduit auditif). Bon dosage = précis ; excès = métallique, fatigant. |
-| **2. Brillance / Détail** | `5–10 kHz` | Consonnes sifflantes et éclat des cymbales. Bon dosage = *crisp* ; excès = sibilance, son plastique. |
-| **3. Air / Soie** | `10–20 kHz` | Espace et ouverture sans agressivité. Bon dosage = léger/soyeux ; excès = souffle (*hiss*) statique. |
+| `50–100 Hz` | **`+3` à `+4,5 dB`** | Trop bas = léger/sans fondation · Trop haut = boueux/saturé. |
+| `100–200 Hz` | **`0 dB` (Réf.)** | Zone de chaleur et d'impact corporel. |
+| `400–800 Hz` | **`-6` à `-9 dB`** | Trop haut = son "carton" (*boxy*), nasal, encombré. |
+| `1,6–3,2 kHz` | **`-12` à `-18 dB`** | Trop haut = fatigue auditive immédiate, agression. |
+| `6,4–12,8 kHz` | **`-18` à `-27 dB`** | Trop bas = étouffé/sombre · Trop haut = strident/acide. |
 
 ### Matrice de Spatialisation 3D (`X` Largeur · `Y` Profondeur · `Z` Hauteur)
 | Axe Spatial | Paramètre Technique | Règle d'Application par Catégorie |
@@ -67,8 +76,9 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 
 ## Chapitre 3 — Quality Gate Bloquant & Table Symptôme → Action Unique Exacte
 
-### 3.1 Les 12 Critères `render_and_audit.py` & Checklist Pré-Rendu (5 Vérifications)
-**Checklist Pré-Rendu** : (1) **Spectre** `100 % Mono < 120 Hz` · (2) **Rythme** aucune note `< 100 Hz` de durée `< 1/8` (sauf `Release < 50 ms`) · (3) **Densité** `1 à 8` pistes actives simultanées max · (4) **Hiérarchie** 1 seul Lead actif dominant l'harmonie de `>= +3 dB` · (5) **Structure** aucune boucle de 8 mesures répétée à l'identique.
+### 3.1 Les 12 Critères `render_and_audit.py` & Checklists Pré-Rendu (Modules 1 & 2)
+* **Checklist Structure & Mix (Module 1)** : (1) **Spectre** `100 % Mono < 120 Hz` · (2) **Rythme** aucune note `< 100 Hz` de durée `< 1/8` (sauf `Release < 50 ms`) · (3) **Densité** `1 à 8` pistes actives simultanées max · (4) **Hiérarchie** 1 seul Lead actif dominant l'harmonie de `>= +3 dB` · (5) **Structure** aucune boucle de 8 mesures répétée à l'identique.
+* **Checklist Timbrale & Micro-Timing (Module 2)** : (1) **Anti-agressivité** aucun pic étroit isolé `> +4 dB` dans `2,5–4,5 kHz` · (2) **Enveloppes aiguës** attaque `>= 1 ms` et aucune queue chevauchant la frappe suivante (`T_decay < 0,8 × T_note`) · (3) **Variation** écart-type vélocité `> 0` sur tout motif rapide (`>= 1/16`) · (4) **Pente rose** FFT refrain entre `-3` et `-5 dB/oct` sur `60 Hz–12 kHz` · (5) **Séparation transitoires** au moins 2 familles d'instruments (ex. Kick/Basse ou Snare/Hi-hat) avec décalage `>= 5 ms` sur les temps forts.
 
 1. `clipped_samples == 0` · 2. `true_peak_dbtp <= -1.0` · 3. `|lufs - target_lufs| <= 1.2` · 4. `low_end_corr >= 0.50` (optimal `>= 0.75`) · 5. `low_mid_corr >= 0.55` (optimal `>= 0.65`) · 6. `sharpness < profil_max` · 7. `micro_glitches == 0` · 8. `resonances == []` · 9. `low_mids <= profil_max` · 10. `air >= profil_min` · 11. `|tuning_offset| <= 6.5 ct` · 12. `dynamic_arc >= profil_min`.
 
@@ -123,3 +133,4 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 | `active9` *Glass Horizon* | Trap / `172` / `Fm` | `181 s` | `-12.12` / `-1.13` | OK (`+1.0 ct`) | `7.23` | Format long 3 min |
 | `roshi_serpent` *Pigalle* | Dark Trap / `136` / `E Phryg` | `121 s` | `-11.48` / `-1.38` | OK | `7.39` | Fix `gl.eq Peak=6`, Freesound API, `gl.sampler` WAV |
 | `morceaux/rosh2` *Astral Pigalle* | Cloud/Dark / `136` / `Cm` | `120 s` | `-11.86` / `-1.21` | `1.00` / `0.943` | **`7.96`** | 100 % CC0 `mono_oneshot`, 0 glitch/résonance, arc `>4.5 dB` |
+| `morceaux/ryan` *Tokyo Expressway 1993* | Cloud Phonk / `192` / `Am` | `121.7 s` | `-13.27` / `-2.35` | `0.95` / `0.825` | **`7.80`** | `lofi_chill`, `96` half-time, Lead Keys `C4-D5` LPF `2.6k`, Pente Rose OK |
