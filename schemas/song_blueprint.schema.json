@@ -94,7 +94,7 @@
                 "minItems": 2,
                 "maxItems": 6,
                 "items": { "type": "integer", "minimum": 36, "maximum": 84 },
-                "description": "Notes MIDI déjà renversées pour voice leading minimal (<= 2.5 st moyen)"
+                "description": "Notes MIDI déjà renversées pour voice leading minimal (plage 48-67 recommandée, <= 2.5 st moyen)"
               },
               "chord_tones_pc": {
                 "type": "array",
@@ -124,7 +124,7 @@
               "type": "integer",
               "minimum": 55,
               "maximum": 88,
-              "description": "Sommet mélodique unique de la phrase (typiquement mesure 3)"
+              "description": "Sommet mélodique (<= 74 par défaut ; 75-81 réservé exclusivement aux timbres très doux si valence > +0.3)"
             }
           }
         },

@@ -672,6 +672,7 @@ def extract_dsp_metrics(
 
     mean_power = np.mean(power, axis=1)
     total_e = float(np.sum(mean_power[(freqs >= 20.0) & (freqs <= 20000.0)])) + 1e-12
+    spectral_centroid_hz = round(float(np.sum(freqs * mean_power) / (float(np.sum(mean_power)) + 1e-12)), 1)
 
     # 6 bands
     bands: dict[str, float] = {}
@@ -752,6 +753,7 @@ def extract_dsp_metrics(
     return {
         "phase_corr": round(float(phase_corr), 4),
         "low_mid_corr": pitch_purity["low_mid_corr"],
+        "spectral_centroid_hz": spectral_centroid_hz,
         "crest_factor_db": crest_factor_db,
         "attack_ms": attack_ms,
         "r_harsh": round(r_harsh, 4),
@@ -1051,6 +1053,7 @@ def score_candidate(
     mix_bark: list[float] | None = None,
     target_key: str | None = None,
     monophonic_only: bool = False,
+    valence: float | None = None,
 ) -> dict[str, Any]:
     """Run Layers 1-4 and compute final composite score S_final per Section 7."""
     dsp = entry["dsp"]
@@ -1073,6 +1076,13 @@ def score_candidate(
         }
 
     s_comfort = compute_comfort_score(dsp, needs_fade=bool(entry.get("needs_fade")), role=role_id)
+    centroid_hz = dsp.get("spectral_centroid_hz")
+    if valence is not None and valence < 0.0 and role_id in ("lead_melody", "chord_keys", "pad_atmosphere"):
+        if centroid_hz is not None and float(centroid_hz) > 2500.0:
+            s_comfort = round(max(0.0, s_comfort - min(0.25, (float(centroid_hz) - 2500.0) / 10000.0)), 4)
+            warnings.append(
+                f"bright_for_dark_valence(centroid={centroid_hz}Hz > 2500Hz): apply gl.sampler Filter=Low pass, Cutoff<=6000Hz"
+            )
     s_role = compute_role_score(dsp, float(entry.get("duration_sec", 0.0)), role_id)
 
     s_zs = 0.5

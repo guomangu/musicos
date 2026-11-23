@@ -103,6 +103,132 @@ class TestMusicalityMetrics(unittest.TestCase):
         finally:
             os.remove(path)
 
+    def test_dark_tense_mode_relaxes_appoggiaturas_and_diatonic_clashes(self):
+        # F minor (F, G, Ab, Bb, C, Db, Eb): Fm -> DbMaj7 -> Bbm7 -> Fm
+        chord_pcs = [
+            [5, 8, 0],      # Fm
+            [1, 5, 8, 0],   # Dbmaj7
+            [10, 1, 5, 8],  # Bbm7
+            [5, 8, 0],      # Fm
+        ]
+        voicings = optimize_voice_leading(chord_pcs, low_midi=48, high_midi=65)
+        bass_roots = [41, 37, 46, 41]  # F2, Db2, Bb2, F2
+
+        bpm = 132.0
+        beat_s = 60.0 / bpm
+        pm = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+        bass = pretty_midi.Instrument(program=33, name="Bass")
+        chords = pretty_midi.Instrument(program=0, name="Chords")
+        lead = pretty_midi.Instrument(program=0, name="Lead")
+
+        for bar in range(4):
+            b0 = bar * 4.0
+            for p in voicings[bar]:
+                chords.notes.append(pretty_midi.Note(82, p, b0 * beat_s, (b0 + 3.5) * beat_s))
+            bass.notes.append(pretty_midi.Note(100, bass_roots[bar], b0 * beat_s, (b0 + 3.25) * beat_s))
+
+        # Descending dark motif in MIDI 63..72 with 2 strong-beat appoggiaturas out of 7 (5/7 = 0.714 >= 0.65, < 0.80)
+        melody_beats = [
+            # Bar 1 (Fm: F, Ab, C): G4(67, appoggiatura!) -> F4(65) -> Ab4(68) -> F4(65)
+            (0.0, 0.5, 67), (0.5, 0.5, 65), (1.5, 0.5, 68), (2.0, 0.75, 65),
+            # Bar 2 (Dbmaj7: Db, F, Ab, C): Ab4(68) -> F4(65) -> F4(65)
+            (4.0, 0.75, 68), (5.0, 0.5, 65), (6.0, 0.75, 65),
+            # Bar 3 (Bbm7: Bb, Db, F, Ab): C5(72, appoggiatura!) -> Bb4(70) -> Ab4(68) -> F4(65)
+            (8.0, 0.5, 72), (8.5, 0.5, 70), (9.0, 0.5, 68), (10.0, 0.75, 65),
+            # Bar 4 (Fm: F, Ab, C): F4(65) -> Eb4(63) -> F4(65) [rest 14.0..16.0]
+            (12.0, 0.75, 65), (13.0, 0.5, 63), (13.5, 0.75, 65),
+        ]
+        for st, ln, p in melody_beats:
+            lead.notes.append(pretty_midi.Note(90, p, st * beat_s, (st + ln) * beat_s))
+
+        pm.instruments.extend([bass, chords, lead])
+        with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as tmp:
+            path = tmp.name
+        try:
+            pm.write(path)
+            # Strict consonant mode MUST fail due to strong_beat_chord_tone_ratio (0.714 < 0.80)
+            res_cons = audit_midi_file(path, expected_key="F minor", max_pitch=72, strict_musicality=True, valence=0.2, tension=0.2)
+            self.assertFalse(res_cons["gate_passed"], res_cons)
+
+            # Dark/tense mode MUST pass (strong_beat_ratio >= 0.65)
+            res_dark = audit_midi_file(path, expected_key="F minor", max_pitch=72, strict_musicality=True, valence=-0.7, tension=0.6)
+            self.assertTrue(res_dark["gate_passed"], res_dark)
+            self.assertEqual(res_dark["too_high_count"], 0)
+            self.assertGreaterEqual(res_dark["musicality_metrics"]["strong_beat_chord_tone_ratio"], 0.65)
+
+            # Enforcing max_pitch=70 MUST fail because C5=72 > 70
+            res_high = audit_midi_file(path, expected_key="F minor", max_pitch=70, strict_musicality=True, valence=-0.7, tension=0.6)
+            self.assertFalse(res_high["gate_passed"], res_high)
+            self.assertGreater(res_high["too_high_count"], 0)
+        finally:
+            os.remove(path)
+
+    def test_dark_mode_allows_up_to_2_diatonic_clashes_and_rejects_excess_or_nondiatonic(self):
+        chord_pcs = [[5, 8, 0], [1, 5, 8, 0], [10, 1, 5, 8], [5, 8, 0]]
+        voicings = optimize_voice_leading(chord_pcs, low_midi=48, high_midi=65)
+        bass_roots = [41, 37, 46, 41]
+        bpm = 132.0
+        beat_s = 60.0 / bpm
+
+        def build_with_clashes(clash_notes):
+            pm = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+            bass = pretty_midi.Instrument(program=33, name="Bass")
+            chords = pretty_midi.Instrument(program=0, name="Chords")
+            lead = pretty_midi.Instrument(program=0, name="Lead")
+            for bar in range(4):
+                b0 = bar * 4.0
+                for p in voicings[bar]:
+                    chords.notes.append(pretty_midi.Note(82, p, b0 * beat_s, (b0 + 3.5) * beat_s))
+                bass.notes.append(pretty_midi.Note(100, bass_roots[bar], b0 * beat_s, (b0 + 3.25) * beat_s))
+            for st, dur, p in clash_notes:
+                lead.notes.append(pretty_midi.Note(90, p, st * beat_s, (st + dur) * beat_s))
+            pm.instruments.extend([bass, chords, lead])
+            return pm
+
+        # Find C in bar 0 voicing -> Db (13 st or 1 st above C) is diatonic in F minor
+        c_p = [p for p in voicings[0] if p % 12 == 0][0]
+        db_clash = c_p + 13 if c_p + 13 <= 74 else c_p + 1
+        c_hi = db_clash - 1  # C5(72) if db_clash=73
+
+        # 2 diatonic clashes in bar 0 (stepwise C5 -> Db5 -> C5 -> Db5 -> C5 -> Bb4 -> Ab4) -> PASS in dark mode, FAIL in consonant
+        notes_2_diatonic = [
+            (0.0, 0.5, c_hi), (0.5, 0.4, db_clash), (1.0, 0.5, c_hi), (1.5, 0.4, db_clash), (2.0, 0.75, c_hi),
+            (4.0, 0.75, 68), (5.0, 0.5, 65), (6.0, 0.75, 65),
+            (8.0, 0.75, 65), (9.0, 0.5, 68), (10.0, 0.75, 65),
+            (12.0, 0.75, 65), (13.0, 0.75, 68),
+        ]
+        # 3 diatonic clashes in same 4-bar block -> FAIL even in dark mode
+        notes_3_diatonic = notes_2_diatonic + [(2.8, 0.4, db_clash)]
+        # 1 non-diatonic clash (A natural = 69 against Ab3 = 56 -> diff = 13 st) -> FAIL even in dark mode
+        ab_p = [p for p in voicings[0] if p % 12 == 8][0]
+        a_clash = ab_p + 13 if ab_p + 13 <= 74 else ab_p + 1
+        notes_nondiatonic = [
+            (0.0, 0.5, 65), (0.5, 0.4, a_clash), (1.0, 0.5, 65), (2.0, 0.75, 65),
+            (4.0, 0.75, 68), (5.0, 0.5, 65), (6.0, 0.75, 65),
+            (8.0, 0.75, 65), (9.0, 0.5, 68), (10.0, 0.75, 65),
+            (12.0, 0.75, 65), (13.0, 0.75, 68),
+        ]
+
+        for label, nlist in [("2_diat", notes_2_diatonic), ("3_diat", notes_3_diatonic), ("non_diat", notes_nondiatonic)]:
+            pm = build_with_clashes(nlist)
+            with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as tmp:
+                path = tmp.name
+            try:
+                pm.write(path)
+                res_dark = audit_midi_file(path, expected_key="F minor", max_pitch=74, strict_musicality=True, valence=-0.7, tension=0.7)
+                if label == "2_diat":
+                    self.assertTrue(res_dark["gate_passed"], res_dark)
+                    self.assertEqual(len(res_dark["minor_2nd_clashes"]), 2)
+                    self.assertEqual(len(res_dark["blocking_minor_2nd_clashes"]), 0)
+                    # Consonant mode must still reject the 2 clashes
+                    res_cons = audit_midi_file(path, expected_key="F minor", max_pitch=74, strict_musicality=True, valence=0.0, tension=0.2)
+                    self.assertFalse(res_cons["gate_passed"], res_cons)
+                else:
+                    self.assertFalse(res_dark["gate_passed"], f"{label} should fail: {res_dark}")
+                    self.assertGreaterEqual(len(res_dark["blocking_minor_2nd_clashes"]), 1)
+            finally:
+                os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()

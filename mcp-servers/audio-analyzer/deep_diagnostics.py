@@ -392,13 +392,14 @@ def run_deep_audit(
         )
     shrill = [r for r in resonances if 1800 <= r["freq_hz"] <= 7000]
     sharp_val = psycho.get("sharpness_din_acum", 0.0)
-    if shrill or sharp_val >= 2.25:
+    sharp_warn_thresh = 1.85 if target_genre in ("lofi_chill", "classical_ambient", "jazz_acoustic") else 1.95
+    if shrill or sharp_val >= sharp_warn_thresh:
         issues.append(
             {
                 "category": "harsh_shrill_treble",
-                "severity": "high" if sharp_val >= 2.5 else "medium",
-                "detail": f"Acuité DIN={sharp_val} acum, pics aigus={[(r['freq_hz'], r['local_excess_db']) for r in shrill]}.",
-                "fix": "Baisser l'octave du synthé/piano s'il est > C5, ou adoucir avec un passe-bas/shelf -3..-6 dB entre 2.5 et 6 kHz.",
+                "severity": "high" if sharp_val >= 2.1 else "medium",
+                "detail": f"Acuité DIN={sharp_val} acum (seuil {sharp_warn_thresh}), pics aigus={[(r['freq_hz'], r['local_excess_db']) for r in shrill]}.",
+                "fix": "Vérifier Lead <= MIDI 74 (sinon -12 st), abaisser le LPF du synthé/insert (<= 5-7 kHz) et creuser gl.eq Peak = 6 (-3.5 dB @ 3200 Hz).",
             }
         )
 
@@ -451,8 +452,10 @@ def audit_midi_file(
     midi_path: str,
     expected_key: str = "",
     min_pitch: int = 24,
-    max_pitch: int = 91,
+    max_pitch: int = 74,
     strict_musicality: bool = True,
+    valence: float = 0.0,
+    tension: float = 0.3,
 ) -> dict[str, Any]:
     """Audite la justesse harmonique, la tessiture (notes trop aiguës), les clashs MIDI et les métriques de musicalité."""
     import music21
@@ -531,8 +534,7 @@ def audit_midi_file(
                 melodic_notes.append((n.start, n.end, n.pitch, name))
         track_reports.append(report)
 
-    # Détection de frottements dissonants (seconde mineure directe = 1 demi-ton, ou neuvième mineure montante = 13 demi-tons)
-    clashes: list[dict[str, Any]] = []
+    # Collisions sub-grave (< MIDI 48 = C3, soit <= 123.5 Hz) inter-pistes
     sub_collisions: list[dict[str, Any]] = []
     melodic_notes.sort(key=lambda x: x[0])
     for i, (s1, e1, p1, tr1) in enumerate(melodic_notes):
@@ -541,31 +543,32 @@ def audit_midi_file(
                 break
             if tr1 == tr2:
                 continue
-            diff = abs(p1 - p2)
-            if diff in (1, 13) and len(clashes) < 12:
-                clashes.append(
-                    {
-                        "time_s": round(s2, 3),
-                        "tracks": [tr1, tr2],
-                        "notes": [pretty_midi.note_number_to_name(p1), pretty_midi.note_number_to_name(p2)],
-                        "interval": "minor_2nd_cluster" if diff == 1 else "minor_9th_clash",
-                    }
-                )
-            if p1 < 50 and p2 < 50 and p1 != p2 and len(sub_collisions) < 12:
+            if p1 < 48 and p2 < 48 and p1 != p2 and len(sub_collisions) < 12:
                 sub_collisions.append(
                     {
-                        "time_s": round(s2, 3),
+                        "time_s": round(float(s2), 3),
                         "tracks": [tr1, tr2],
                         "notes": [pretty_midi.note_number_to_name(p1), pretty_midi.note_number_to_name(p2)],
                     }
                 )
 
-    musicality = evaluate_midi_musicality(abs_path)
+    musicality = evaluate_midi_musicality(
+        abs_path,
+        valence=valence,
+        tension=tension,
+        allowed_pcs=allowed_pcs,
+    )
+    clashes = musicality.get("minor_2nd_clashes", [])
+    blocking_clashes = musicality.get("blocking_minor_2nd_clashes", clashes)
     out_of_scale_total = sum(tr.get("out_of_scale_count", 0) for tr in track_reports if not tr["is_drum"])
+    too_high_total = sum(tr.get("too_high_count", 0) for tr in track_reports if not tr["is_drum"])
+    too_low_total = sum(tr.get("too_low_count", 0) for tr in track_reports if not tr["is_drum"])
+    pitch_range_ok = (too_high_total == 0) and (too_low_total == 0)
     gate_ok = (
         musicality["musicality_verdict"] == "PASS"
         and out_of_scale_total == 0
-        and len(clashes) == 0
+        and pitch_range_ok
+        and len(blocking_clashes) == 0
         and len(sub_collisions) == 0
     )
 
@@ -575,13 +578,20 @@ def audit_midi_file(
         "expected_key": ref_key_str,
         "key_matches_expected": detected_key_str.lower() == ref_key_str.lower(),
         "strict_musicality": strict_musicality,
+        "emotion_mode": musicality.get("emotion_mode", "consonant"),
+        "valence": valence,
+        "tension": tension,
+        "max_pitch_limit": max_pitch,
+        "too_high_count": too_high_total,
+        "too_low_count": too_low_total,
         "musicality_verdict": musicality["musicality_verdict"],
-        "gate_passed": gate_ok if strict_musicality else (out_of_scale_total == 0 and len(clashes) == 0),
+        "gate_passed": gate_ok if strict_musicality else (out_of_scale_total == 0 and pitch_range_ok and len(blocking_clashes) == 0),
         "musicality_metrics": musicality["metrics"],
         "musicality_detected_roles": musicality["detected_roles"],
         "musicality_failures": musicality["failures"],
         "tracks": track_reports,
-        "minor_2nd_clashes": clashes,
+        "minor_2nd_clashes": clashes[:24],
+        "blocking_minor_2nd_clashes": blocking_clashes[:24],
         "low_end_simultaneous_collisions": sub_collisions,
     }
 

@@ -3,9 +3,9 @@
 > **Cheatsheet IA (L'essentiel en 14 lignes)**
 > - **Règle n°1 anti-erreur LLM** : Ne **JAMAIS** calculer une note MIDI, une gamme ou un accord de tête. Utiliser la **formule Python (§1)** à partir du pitch-class (`C=0..B=11`) et des intervalles ci-dessous.
 > - **Émotion → Paramètres** : Extraire `(V, T, E, D)` du prompt → choisir **Mode** (selon `V, T`), **Progression éprouvée (§4)**, **BPM & Matrice Rythmique (§6)**, **Palette d'instruments (§7)**.
-> - **Mélodie agréable garantie (§5)** : 1 motif court de **3 à 5 notes** répété et varié sur 4 mesures (`A - A' - A'' [Apex] - B [Silence]`), `>= 65 %` pas conjoints (`<= 4 st`), `20–50 %` de silence réel, notes cibles de l'accord sur les temps forts, vélocités en courbe (jamais plates), **micro-strum 10–25 ms** sur accords piano/guitare.
+> - **Mélodie agréable garantie (§5)** : 1 motif court de **3 à 5 notes** répété et varié sur 4 mesures (`A - A' - A'' [Apex <= 74] - B [Silence]` si `V >= 0`, ou courbe descendante/hypnotique si `V < 0`), `>= 65 %` pas conjoints (`<= 4 st`), `20–50 %` de silence réel, notes de l'accord sur temps forts (`>= 80 %` consonant, `>= 65 %` sombre/tendu), vélocités en courbe (jamais plates), **micro-strum 10–25 ms** sur accords piano/guitare.
 > - **5 Anti-Patterns LLM interdits** : (1) note sur chaque croche sans respiration, (2) arpège mécanique 1-3-5-8 en boucle, (3) vélocité uniforme `100` partout, (4) sauts erratiques non compensés, (5) même boucle de 4 mesures répétée sans variation jusqu'à la fin.
-> - **Cohérence universelle** : 1 seule idée mélodique forte + max 3 couches hors batterie + registre séparé par instrument (Basse `28–48`, Accords `48–72`, Lead `60–84`).
+> - **Cohérence universelle** : 1 seule idée mélodique forte + max 3 couches hors batterie + registre séparé par instrument (Basse `28–48`, Accords `48–67`, Lead `55–72`, Apex absolu `<= 74` ; `75–81` réservé aux timbres doux si `V > +0.3`).
 
 ---
 
@@ -18,9 +18,15 @@
 | **Pitch Class (`pc`)** | `0` | `1` | `2` | `3` | `4` | `5` | `6` | `7` | `8` | `9` | `10` | `11` |
 | **Octave 1 (Sub/808)** | `24` | `25` | `26` | `27` | `28` | `29` | `30` | `31` | `32` | `33` | `34` | `35` |
 | **Octave 2 (Basse)** | `36` | `37` | `38` | `39` | `40` | `41` | `42` | `43` | `44` | `45` | `46` | `47` |
-| **Octave 3 (Accords bas)** | `48` | `49` | `50` | `51` | `52` | `53` | `54` | `55` | `56` | `57` | `58` | `59` |
-| **Octave 4 (Centre, C4=60)** | `60` | `61` | `62` | `63` | `64` | `65` | `66` | `67` | `68` | `69` (`440Hz`) | `70` | `71` |
-| **Octave 5 (Lead aigu)** | `72` | `73` | `74` | `75` | `76` | `77` | `78` | `79` | `80` | `81` | `82` | `83` |
+| **Octave 3 (Accords `48–67`)** | `48` | `49` | `50` | `51` | `52` | `53` | `54` | `55` | `56` | `57` | `58` | `59` |
+| **Octave 4 (Lead `55–72`, C4=60)** | `60` | `61` | `62` | `63` | `64` | `65` | `66` | `67` | `68` | `69` (`440Hz`) | `70` | `71` |
+| **Octave 5 (Apex `<= 74` ; `75–81` doux `V>+0.3`)** | `72` | `73` | `74` | `75` | `76` | `77` | `78` | `79` | `80` | `81` | `82` | `83` |
+
+> **Plages de Registres MIDI par Défaut (Anti-Stridence)** :
+> - **Basse / 808** : `MIDI 28–48` (`E1–C3`).
+> - **Accords (`Chords`)** : `MIDI 48–67` (`C3–G4`).
+> - **Lead / Motif** : **`MIDI 55–72` (`G3–C5`)** par défaut, **Apex absolu `<= MIDI 74` (`D5`)**.
+> - *Exception* : La zone `MIDI 75–81` est réservée exclusivement aux timbres très doux/sinusoïdaux (flûte douce, cordes légato avec LPF `<= 5 kHz`) sur des morceaux lumineux (`valence > +0.3`). **Interdite** sur synthés riches, cloches FM ou morceaux sombres.
 
 ```python
 SCALES = {
@@ -50,21 +56,25 @@ Toute demande utilisateur se traduit en 4 axes mesurables :
 3. **Énergie ($E \in [0, 1]$)** : `0.0` intimiste/calme ↔ `1.0` puissant/frontal/monumental.
 4. **Profondeur ($D \in [0, 1]$)** : `0.0` sec/proche/percutant ↔ `1.0` vaste/éthéré/cinématique.
 
-### 2.1 Modes & Gammes (du plus lumineux au plus sombre)
+### 2.1 Modes & Gammes (du plus sombre au plus lumineux)
+
+> **Règle de Verrouillage par Valence ($V$)** :
+> - Si **`V <= -0.3`** (triste, sombre, mélancolique, tendu) : **interdiction** d'utiliser Ionien, Lydien, Mixolydien ou Pentatonique Majeure. Choisir exclusivement parmi **Éolien**, **Phrygien**, **Mineur Harmonique**, **Dorien** (uniquement si cool/chic) ou **Pentatonique Mineure**.
+> - Si **`V <= -0.7`** (sombre, tragique, menaçant) : privilégier **Phrygien** (`i - bII`) ou **Mineur Harmonique** (`i - bVI - V7`) avec ancrage fort sur la tonique `i`.
 
 | Mode | Intervalles (demi-tons) | $V$ | $T$ | Couleur Émotionnelle & Genres Typiques |
 | :--- | :--- | :---: | :---: | :--- |
-| **Lydien** | `[0, 2, 4, 6, 7, 9, 11]` | `+1.0` | `0.2` | Féérique, spatial, émerveillement (Cinéma, Synthwave, Ambient, VGM) |
-| **Ionien (Majeur)** | `[0, 2, 4, 5, 7, 9, 11]` | `+0.8` | `0.1` | Joyeux, franc, solaire (Pop, Folk, Indie, House lumineuse) |
-| **Pentatonique Majeure** | `[0, 2, 4, 7, 9]` | `+0.7` | `0.1` | Mélodique, instantanément chantable, zéro fausse note (Pop, Folk, Lo-Fi) |
-| **Mixolydien** | `[0, 2, 4, 5, 7, 9, 10]` | `+0.5` | `0.3` | Assuré, groove, rock/funk positif (Rock, Funk, Afrobeat, House) |
-| **Dorien** | `[0, 2, 3, 5, 7, 9, 10]` | `-0.2` | `0.3` | Mineur élégant, cool, résilient (Soul, R&B, Funk, Lo-Fi, House, Cinéma) |
-| **Pentatonique Mineure / Blues** | `[0, 3, 5, 7, 10]` (+`6`) | `-0.4` | `0.4` | Expressif, accrocheur, solo garanti sans clash (Rock, Blues, Rap, R&B) |
 | **Éolien (Mineur Naturel)** | `[0, 2, 3, 5, 7, 8, 10]` | `-0.7` | `0.3` | Triste, nostalgique, dramatique (Pop triste, Trap/Cloud, Rock, Ballade) |
-| **Mineur Harmonique** | `[0, 2, 3, 5, 7, 8, 11]` | `-0.8` | `0.7` | Tragique, théâtral, classique/épique (Orchestral, Metal, Trap dramatique) |
 | **Phrygien** | `[0, 1, 3, 5, 7, 8, 10]` | `-0.9` | `0.8` | Menaçant, sombre, tendu (`i <-> bII`) (Dark Trap, Drill, Metal, Techno) |
+| **Mineur Harmonique** | `[0, 2, 3, 5, 7, 8, 11]` | `-0.8` | `0.7` | Tragique, théâtral, classique/épique (Orchestral, Metal, Trap dramatique) |
 | **Phrygien Dominant** | `[0, 1, 4, 5, 7, 8, 10]` | `-0.6` | `0.85` | Mystique, oriental/flamenco, intense (Cinéma, Trap, Metal, Electro) |
 | **Locrien** | `[0, 1, 3, 5, 6, 8, 10]` | `-1.0` | `1.0` | Horreur, chaos, instabilité (Sound design horreur uniquement) |
+| **Pentatonique Mineure / Blues** | `[0, 3, 5, 7, 10]` (+`6`) | `-0.4` | `0.4` | Expressif, accrocheur, solo garanti sans clash (Rock, Blues, Rap, R&B) |
+| **Dorien** | `[0, 2, 3, 5, 7, 9, 10]` | `-0.2` | `0.3` | Mineur élégant, cool, résilient (Soul, R&B, Funk, Lo-Fi, House, Cinéma) |
+| **Mixolydien** | `[0, 2, 4, 5, 7, 9, 10]` | `+0.5` | `0.3` | Assuré, groove, rock/funk positif (Rock, Funk, Afrobeat, House) |
+| **Pentatonique Majeure** | `[0, 2, 4, 7, 9]` | `+0.7` | `0.1` | Mélodique, instantanément chantable, zéro fausse note (Pop, Folk, Lo-Fi) |
+| **Ionien (Majeur)** | `[0, 2, 4, 5, 7, 9, 11]` | `+0.8` | `0.1` | Joyeux, franc, solaire (Pop, Folk, Indie, House lumineuse) |
+| **Lydien** | `[0, 2, 4, 6, 7, 9, 11]` | `+1.0` | `0.2` | Féérique, spatial, émerveillement (Cinéma, Synthwave, Ambient, VGM) |
 
 ---
 
@@ -87,26 +97,40 @@ Toute demande utilisateur se traduit en 4 axes mesurables :
 
 ---
 
-## Chapitre 4 — Catalogue Universel de 12 Progressions Harmoniques Éprouvées
+## Chapitre 4 — Catalogue Universel de 14 Progressions Harmoniques Éprouvées
 
-> Une IA textuelle ne doit **jamais inventer des accords au hasard**. Choisir une progression éprouvée adaptée à l'émotion, la transposer dans la tonalité cible, puis calculer ses renversements via `optimize_voice_leading()`.
+> Une IA textuelle ne doit **jamais inventer des accords au hasard**. Choisir une progression éprouvée dans le bloc correspondant à la valence `(V)` cible, la transposer dans la tonalité cible, puis calculer ses renversements via `optimize_voice_leading()`.
+
+### A. Sombre & Triste (`V < -0.3`)
 
 | # | Émotion / Ambiance | Genres | Mode | Progression (4 ou 8 mesures) | Mouvement Basse (demi-tons depuis tonique) |
 | :---: | :--- | :--- | :--- | :--- | :--- |
-| **P1** | Joyeux, fédérateur, hymne | Pop, Indie, EDM, Rock | Ionien | `I – V – vi – IV` | `[0, 7, 9, 5]` |
-| **P2** | Nostalgique, doux-amer, lumineux | Pop, Synthwave, Anime/J-Pop | Ionien | `IVmaj7 – V7 – iii7 – vi7` | `[5, 7, 4, 9]` |
-| **P3** | Épique, mélancolique, universel | Pop, Rock, Cinéma, Rap, EDM | Éolien | `i – VI – III – VII` | `[0, 8, 3, 10]` |
 | **P4** | Triste, profond, introspectif | Ballade, Cloud Trap, Piano, Lo-Fi | Éolien | `i7 – VI(maj7) – iv7 – v7` (ou `V7`) | `[0, 8, 5, 7]` |
+| **P4b** | Mélancolique, lourd, hypnotique | Trap sombre, Cloud, Piano, Cinéma | Éolien | `i – bVI – v – i` ou `i – bVI – iv – i` | `[0, 8, 7, 0]` ou `[0, 8, 5, 0]` |
 | **P5** | Sombre, nerveux, menaçant | Dark Trap, Drill, Metal, Techno | Phrygien | `i – bII – i – bVII` (ou `i – bII`) | `[0, 1, 0, 10]` |
+| **P5b** | Sombre, minimaliste, oppressant | Dark Trap, Drill, Ambient sombre | Phrygien / Pédale | `i – bII(maj7) – i – bVI` (pédale de tonique `i` possible) | `[0, 0, 0, 8]` ou `[0, 1, 0, 8]` |
 | **P6** | Tragique, dramatique, théâtral | Orchestral, Classique, Rap épique | Min. Harm. | `i – iv – VI – V7` | `[0, 5, 8, 7]` |
+| **P3** | Épique, mélancolique-héroïque *(relatif majeur)* | Pop, Rock, Cinéma, Rap, EDM | Éolien | `i – VI – III – VII` *(⚠️ Attention : sonne héroïque/pop — attirance vers le relatif majeur `III`. Ne pas l'utiliser pour une ambiance vraiment sombre, glaciale ou dépressive.)* | `[0, 8, 3, 10]` |
+
+### B. Neutre & Groove (`-0.3 <= V <= +0.3`)
+
+| # | Émotion / Ambiance | Genres | Mode | Progression (4 ou 8 mesures) | Mouvement Basse (demi-tons depuis tonique) |
+| :---: | :--- | :--- | :--- | :--- | :--- |
 | **P7** | Cool, groove, chic, résilient | House, Funk, Soul, R&B, Lo-Fi | Dorien | `i7 – IV7 – i7 – bVII(maj7)` | `[0, 5, 0, 10]` |
-| **P8** | Chaleureux, jazz, cosy | Lo-Fi, Jazz, Neo-Soul, Bossa | Ionien | `ii7 – V7 – Imaj7 – vi7` | `[2, 7, 0, 9]` |
-| **P9** | Rêveur, spatial, contemplatif | Ambient, Cinéma SF, Chill, VGM | Lydien | `Imaj7 – II(add9) – Imaj7 – vii7` | `[0, 2, 0, 11]` |
-| **P10** | Énergique, solaire, rock/funk | Rock, Funk, Indie, Afrobeat | Mixolydien | `I – bVII – IV – I` | `[0, 10, 5, 0]` |
 | **P11** | Blues / Groove intemporel (12 mes.) | Blues, Rock, Jazz, Soul | Blues/Mix. | `I7(×4) – IV7(×2) – I7(×2) – V7 – IV7 – I7 – V7` | `[0..0, 5, 5, 0, 0, 7, 5, 0, 7]` |
 | **P12** | Escalade émotionnelle (Pont / Pré-refrain) | Tous genres | Éolien/Ion. | `iv7 – III – VI – V(sus4 -> 7)` | `[5, 3, 8, 7]` |
 
-* **Astuce Pont / Contraste harmonique** : Si le Couplet/Refrain utilise `P3` (`i–VI–III–VII`), utiliser `P12` (`iv–III–VI–V`) au Pont pour créer un vrai soulèvement émotionnel qui ramène vers le Refrain !
+### C. Lumineux & Joyeux (`V > +0.3`)
+
+| # | Émotion / Ambiance | Genres | Mode | Progression (4 ou 8 mesures) | Mouvement Basse (demi-tons depuis tonique) |
+| :---: | :--- | :--- | :--- | :--- | :--- |
+| **P8** | Chaleureux, jazz, cosy | Lo-Fi, Jazz, Neo-Soul, Bossa | Ionien | `ii7 – V7 – Imaj7 – vi7` | `[2, 7, 0, 9]` |
+| **P9** | Rêveur, spatial, contemplatif | Ambient, Cinéma SF, Chill, VGM | Lydien | `Imaj7 – II(add9) – Imaj7 – vii7` | `[0, 2, 0, 11]` |
+| **P10** | Énergique, solaire, rock/funk | Rock, Funk, Indie, Afrobeat | Mixolydien | `I – bVII – IV – I` | `[0, 10, 5, 0]` |
+| **P2** | Nostalgique, doux-amer, lumineux | Pop, Synthwave, Anime/J-Pop | Ionien | `IVmaj7 – V7 – iii7 – vi7` | `[5, 7, 4, 9]` |
+| **P1** | Joyeux, fédérateur, hymne | Pop, Indie, EDM, Rock | Ionien | `I – V – vi – IV` | `[0, 7, 9, 5]` |
+
+* **Astuce Pont / Contraste harmonique** : Si le Couplet/Refrain utilise `P4` / `P4b` ou `P3`, utiliser `P12` (`iv7–III–VI–V7`) au Pont pour créer un soulèvement émotionnel (ou basculer vers `iv -> V7` en mineur harmonique pour appeler le retour sur `i`).
 
 ---
 
@@ -121,15 +145,25 @@ Pour qu'une IA textuelle crée une mélodie **chantable, émotive et immédiatem
 * *Exemple concret en `C minor` (accord `Cm7`, degrés 0-indexed `0=C, 2=Eb, 3=F, 4=G, 5=Ab, 6=Bb`)* :
   * `A` (mes. 1, beats `[0.0, 1.0, 1.5, 2.5]`, durées `[0.9, 0.45, 0.9, 0.9]`, degrés `[4, 5, 4, 2]` → `G4, Ab4, G4, Eb4`, silence `3.4..4.0`).
 
-### Étape 2 — Développer sur 4 Mesures (`A – A' – A'' – B`)
-* **Mesure 1 (`A`)** : Exposé clair de la cellule.
-* **Mesure 2 (`A'`)** : **Même squelette rythmique**, adapté aux notes de l'accord 2 (décalé de `±1` ou `±2` degrés) + silence fin de mesure (`3.0..4.0`).
-* **Mesure 3 (`A''` — Apex Unique)** : Monter vers **le point culminant unique** de la phrase (`+2` à `+5 st` au-dessus de `A`, dans `MIDI 67–81`), puis redescendre d'un pas conjoint (`1–3 st`).
-* **Mesure 4 (`B` — Cadence & Respiration)** : Redescendre doucement vers la tierce ou la tonique (`beat 0.0` et `1.5`), puis **silence complet sur beats `2.5..4.0`** (place pour la batterie, le fill ou un bref écho du contre-chant).
+### Étape 2 — Développer sur 4 Mesures selon `(V, T)` (2 Plans Distincts)
+
+Choisir obligatoirement le plan adapté à la Valence `V` :
+
+* **Plan 1 — Courbe Ascendante (`V >= 0`, Pop / Lumineux / Épique)** : `A - A' - A'' [Apex <= MIDI 74] - B [Cadence + Silence]` :
+  * **Mesure 1 (`A`)** : Exposé clair de la cellule (`MIDI 58–70`).
+  * **Mesure 2 (`A'`)** : **Même squelette rythmique**, adapté aux notes de l'accord 2 (décalé de `±1` ou `±2` degrés) + silence fin de mesure (`3.0..4.0`).
+  * **Mesure 3 (`A''` — Apex Unique)** : Monter vers **le point culminant unique** de la phrase (`+2` à `+5 st` au-dessus de `A`, **`<= MIDI 74`** par défaut), puis redescendre d'un pas conjoint (`1–3 st`).
+  * **Mesure 4 (`B` — Cadence & Respiration)** : Redescendre doucement vers la tierce ou la tonique (`beat 0.0` et `1.5`), puis **silence complet sur beats `2.5..4.0`** (place pour la batterie, le fill ou un bref écho du contre-chant).
+
+* **Plan 2 — Courbe Sombre / Mélancolique / Hypnotique (`V < 0`)** :
+  * **Mesure 1 (`A`)** : Motif court (3–4 notes) centré sur la quinte/tierce mineure (`MIDI 58–67`), mouvement **descendant** (ex. soupir `b6 -> 5` ou `b3 -> 2 -> 1`).
+  * **Mesure 2 (`A'`)** : Répétition presque identique ou légèrement abaissée (`-1` à `-2` degrés) pour créer un effet hypnotique/obsédant + silence en fin de mesure.
+  * **Mesure 3 (`A''`)** : **Pas d'apex joyeux obligatoire**. Option A : tension sombre sur `b6` ou `b2` résolvant vers le bas (`b6 -> 5` ou `b2 -> 1`). Option B : maintien bas/statique avec variation rythmique subtile.
+  * **Mesure 4 (`B`)** : Retombée grave vers la tonique `1` ou la quinte inférieure, suivie de **1.5 à 2.0 beats de silence réel**.
 
 ### Étape 3 — Sculpting Expressif (Vélocité, Durée/Gate, Micro-Strum)
 * **Hiérarchie de vélocité** (ne jamais écrire `vel=100` partout) :
-  * Temps fort (`0.0`) : `92–104` · Temps 3 (`2.0`) : `84–94` · Contretemps (`0.5, 1.5, 2.5`) : `68–82` · Note d'Apex (mes. 3) : `+8 à +12` · Fin de phrase (`B`) : `-10 à -15`.
+  * Temps fort (`0.0`) : `92–104` · Temps 3 (`2.0`) : `84–94` · Contretemps (`0.5, 1.5, 2.5`) : `68–82` · Note d'Apex mes. 3 (`V >= 0`) ou appoggiature `b6`/`b2` (`V < 0`) : `+6 à +10` · Fin de phrase (`B`) : `-10 à -15`.
 * **Articulation (*Gate Length*)** :
   * Légato / Chant / Cordes / Pad : `0.90–0.98 × écart` (éviter chevauchement involontaire en mono).
   * Pluck / Guitare / Funk / Pizzicato : `0.45–0.70 × écart`.
@@ -189,12 +223,14 @@ Pour qu'une IA textuelle crée une mélodie **chantable, émotive et immédiatem
 
 Choisir une palette où les instruments **appartiennent au même univers acoustique** et occupent des **registres MIDI disjoints** :
 
-| Famille de Genre | Profil Mix (`--profile`) | Basse (`MIDI 28–50`) | Harmonie (`MIDI 48–72`) | Lead / Motif (`MIDI 60–84`) | Percussions / Texture |
+| Famille de Genre | Profil Mix (`--profile`) | Basse (`MIDI 28–48`) | Harmonie (`MIDI 48–67`) | Lead / Motif (`MIDI 55–72`, Apex `<= 74`) | Percussions / Texture |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Trap / Cloud / Drill** | `trap_rap` | `gl.sampler` 808 mono (`Voices=1`) | `gl.sampler` piano/pad WAV ou `gl.warmsynth` | `gl.sampler` bell/pluck/flûte `mono_oneshot` ou `gl.pluck` | Samples Trap (Kick, Clap/Snare, Hats) |
-| **Pop / Synthwave** | `pop_rnb` | `gl.analog` / `gl.fingerbass` (octave bass) | `gl.dcosynth` / `gl.warmsynth` / `gl.keys` | `gl.twinva` / `gl.keys` / `gl.plucker` / Voix | Kick/Snare punchy + Shaker |
-| **House / Techno / EDM** | `edm_club` | `gl.acid` / `gl.analog` / `gl.stepbass` | `gl.sawswarm` / `gl.wavetable` / `gl.dcosynth` | `gl.wavetable` / `gl.pluck` / `gl.synth` | `gl.kick` / samples 909 + Open Hat |
-| **Lo-Fi / Boom Bap** | `lofi_chill` | `gl.fingerbass` / sub rond doux | `gl.keys` (EP/Rhodes) / `gl.sampler` piano doux | `gl.plucker` (guitare douce) / flûte / piano aigu | Kick/Snare feutrés (LPF `8–10 kHz`) |
-| **Rock / Indie / Metal** | `rock_metal` | `gl.fingerbass` | `gl.plucker` / `gl.twinstring` (+ `gl.dist` si Rock/Metal) | `gl.twinstring` / `gl.analog` / Voix | `gl.drumkit` ou samples acoustiques |
+| **Trap / Cloud / Drill** | `trap_rap` | `gl.sampler` 808 mono (`Voices=1`) | `gl.sampler` piano/pad WAV ou `gl.warmsynth` (LPF `<= 5.5 kHz`) | `gl.sampler` bell/pluck/flûte `mono_oneshot` ou `gl.pluck` (LPF `<= 7 kHz`) | Samples Trap (Kick, Clap/Snare, Hats) |
+| **Pop / Synthwave** | `pop_rnb` | `gl.analog` / `gl.fingerbass` (octave bass) | `gl.dcosynth` / `gl.warmsynth` / `gl.keys` (LPF `<= 5.5 kHz`) | `gl.twinva` / `gl.keys` / `gl.plucker` / Voix (LPF `<= 7.5 kHz`) | Kick/Snare punchy + Shaker |
+| **House / Techno / EDM** | `edm_club` | `gl.acid` / `gl.analog` / `gl.stepbass` | `gl.sawswarm` / `gl.wavetable` / `gl.dcosynth` (LPF `<= 5.5 kHz`) | `gl.wavetable` / `gl.pluck` / `gl.synth` (LPF `<= 7.5 kHz`) | `gl.kick` / samples 909 + Open Hat |
+| **Lo-Fi / Boom Bap** | `lofi_chill` | `gl.fingerbass` / sub rond doux | `gl.keys` (EP/Rhodes) / `gl.sampler` piano doux | `gl.plucker` (guitare douce) / flûte / piano (`<= 72`) | Kick/Snare feutrés (LPF `8–10 kHz`) |
+| **Rock / Indie / Metal** | `rock_metal` | `gl.fingerbass` | `gl.plucker` / `gl.twinstring` (+ `gl.dist` suivi de LPF) | `gl.twinstring` / `gl.analog` / Voix | `gl.drumkit` ou samples acoustiques |
 | **Jazz / R&B / Soul** | `jazz_acoustic` | `gl.fingerbass` (walking/pocket) | `gl.keys` (Rhodes `m7`/`m9`/`Maj9`) | `gl.keys` / `gl.sampler` sax/flûte/guitare | Kit doux / rimshot / ride |
 | **Classique / Cinéma / Ambient** | `classical_ambient` | `gl.string` (contrebasse/cello) / sub doux | `gl.string` / `gl.twinstring` / `gl.warmsynth` (pad lent) | `gl.sampler` piano WAV / `gl.string` / `gl.plucker` | Timbales/percs ciné légères ou aucune |
+
+*(Exception registre : `MIDI 75–81` est réservée exclusivement aux timbres très doux/sinusoïdaux — flûte douce, cordes légato avec LPF `<= 5 kHz` — sur morceaux lumineux `valence > +0.3`. Strictement interdite sur synthés riches, cloches FM ou morceaux sombres.)*

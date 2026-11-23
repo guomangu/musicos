@@ -58,7 +58,9 @@ Répond en quelques millisecondes à *« Voix ? Chant lent ? Chant continu ? »*
 
 ### 3.3 Entonnoir de Scoring 4 Couches & Normalisation (`studio_lib.py`)
 1. **Hard Filter** : rejet si clipping consécutif, silence, phase destructrice ($\rho_{LR} < 0.2$), `DISSONANCE_RISK` si `monophonic_only=True`, ou `LOW_MID_WIDE_PHASE`.
-2. **Confort Auditif** : dureté `2–5 kHz` (`r_harsh`), pics résonants, rugosité Plomp-Levelt.
+2. **Confort Auditif** : dureté `2–5 kHz` (`r_harsh`), pics résonants, rugosité Plomp-Levelt :
+   * **Plafond de brillance selon la Valence** : Pour tout projet avec `valence < 0` ou profil `lofi_chill` / `trap_rap` sombre, rejeter ou filtrer (`gl.sampler Filter = 1 [Low pass], Cutoff <= 6 kHz`) tout sample `lead_melody` ou `chord_keys` dont le centroïde spectral dépasse **`2.5 kHz`** ou présentant une énergie excessive dans `2.5–5 kHz` (`r_harsh`).
+   * **Hi-hats doux** : Privilégier des hats courts sans pic résonant entre `3 kHz` et `6 kHz` ; si le sample est métallique, appliquer systématiquement un LPF à `10–12 kHz` et un creux `-3 dB @ 4 kHz`.
 3. **Adéquation au Rôle & Masquage Bark (24 bandes)** : roles valides = `kick`, `bass_sub`, `snare_clap`, `hihat_perc`, `lead_melody`, `pad_atmosphere`, `chord_keys`.
 4. **Esthétique CLAP** (optionnel CPU) + calcul `Root note` / `Fine tune` vers `440.0 Hz`.
 

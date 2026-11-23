@@ -269,7 +269,13 @@ def check_pattern_audibility(mcp: GridlineMCP, min_lufs: float = -24.0) -> list[
     return issues
 
 
-def verify_midi_gate(midi_path: str, expected_key: str, max_pitch: int = 84) -> dict[str, Any]:
+def verify_midi_gate(
+    midi_path: str,
+    expected_key: str,
+    max_pitch: int = 74,
+    valence: float = 0.0,
+    tension: float = 0.3,
+) -> dict[str, Any]:
     """Run strict 7-metric musicality gate via audio-analyzer and raise on FAIL."""
     sys.path.insert(0, f"{ROOT}/mcp-servers/audio-analyzer")
     from deep_diagnostics import audit_midi_file
@@ -280,11 +286,15 @@ def verify_midi_gate(midi_path: str, expected_key: str, max_pitch: int = 84) -> 
         min_pitch=24,
         max_pitch=max_pitch,
         strict_musicality=True,
+        valence=valence,
+        tension=tension,
     )
     if not res.get("gate_passed"):
         raise RuntimeError(
             f"MIDI GATE FAILED ({midi_path}): failures={res.get('musicality_failures')} "
-            f"clashes={res.get('minor_2nd_clashes')} sub_collisions={res.get('low_end_simultaneous_collisions')}"
+            f"too_high={res.get('too_high_count')} "
+            f"blocking_clashes={res.get('blocking_minor_2nd_clashes')} "
+            f"sub_collisions={res.get('low_end_simultaneous_collisions')}"
         )
     return res
 
@@ -300,11 +310,14 @@ def setup_standard_buses(
     limiter_gain_db: float = 7.5,
     fx_room_vol: float = 0.30,
     profile: str = "trap_rap",
+    valence: float = 0.0,
 ) -> None:
     """
     Instantiate calibrated Master + BUS Drums + BUS 808/Bass + BUS Music (Timbral Glue)
-    + FX Room (Dry=0, Dry full=0, Decay <= T_noire), adapted to `profile`:
-    - trap_rap / edm_club: punchy sidechain, gentle tape/soft saturation, bright drums
+    + FX Room (Dry=0, Dry full=0, Decay <= T_noire), adapted to `profile` and `valence`:
+    - BUS Music places `gl.dist` (Slot 1, Tone <= 7500 Hz) BEFORE `gl.eq` (Slot 2, HPF + LPF)
+      so any saturation harmonics above LPF are cleanly filtered out.
+    - trap_rap / edm_club: punchy sidechain, gentle soft saturation, drums air (unless valence < -0.2)
     - pop_rnb / rock_metal: balanced glue, moderate sidechain
     - lofi_chill: warmer LPF on BUS Music, soft glue, light drums air
     - jazz_acoustic / classical_ambient: clean transparent bus (no distortion, gentle/minimal comp, larger room decay)
@@ -312,6 +325,7 @@ def setup_standard_buses(
     t_noire_s = 60.0 / float(bpm)
     acoustic_mode = profile in ("jazz_acoustic", "classical_ambient")
     lofi_mode = profile == "lofi_chill"
+    dark_mode = valence < -0.2
     rt60 = round(min(1.10 if acoustic_mode else 0.42, max(0.18, t_noire_s * (1.2 if acoustic_mode else 0.65))), 3)
     rt60_ds = max(1, min(200, int(round(rt60 * 10.0))))
 
@@ -335,8 +349,9 @@ def setup_standard_buses(
         {"tool": "add_plugin", "arguments": {"mixer": bus_808, "plugin": "gl.stereo"}},
         {"tool": "add_plugin", "arguments": {"mixer": bus_808, "plugin": "gl.comp"}},
         {"tool": "add_plugin", "arguments": {"mixer": bus_808, "plugin": "gl.eq"}},
-        {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.eq"}},
+        # BUS Music: gl.dist (Slot 1) BEFORE gl.eq (Slot 2) so saturation harmonics are filtered by LPF
         {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.dist"}},
+        {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.eq"}},
         {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.comp"}},
         {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.comp"}},
         {"tool": "add_plugin", "arguments": {"mixer": fx_room, "plugin": "gl.reverb"}},
@@ -344,9 +359,15 @@ def setup_standard_buses(
     mcp.batch(fx_adds)
 
     music_hpf = 90 if acoustic_mode else (110 if lofi_mode else 135)
-    music_lpf = 9500 if lofi_mode else (15500 if acoustic_mode else 12800)
-    music_dist_mix = 0.0 if acoustic_mode else (0.12 if lofi_mode else 0.08)
-    drums_air_gain = 0.0 if (acoustic_mode or lofi_mode) else 1.8
+    if lofi_mode:
+        music_lpf = 8500 if dark_mode else 9500
+    elif acoustic_mode:
+        music_lpf = 12000 if dark_mode else 13500
+    else:
+        music_lpf = 10500 if dark_mode else 12500
+    music_dist_mix = 0.0 if acoustic_mode else (0.10 if lofi_mode else 0.08)
+    music_dist_tone = 6500 if (lofi_mode or dark_mode) else 7500
+    drums_air_gain = 0.0 if (acoustic_mode or lofi_mode or dark_mode) else 1.8
     sc_ratio_bass = 1.5 if acoustic_mode else (3.0 if profile in ("pop_rnb", "rock_metal", "lofi_chill") else 5.0)
     sc_ratio_music = 1.2 if acoustic_mode else 2.2
     master_comp_thresh = -8.5 if acoustic_mode else -10.5
@@ -373,12 +394,21 @@ def setup_standard_buses(
         (f"mixer/{bus_808}/slot/2/Threshold", -20.0), (f"mixer/{bus_808}/slot/2/Ratio", sc_ratio_bass),
         (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", 0.085), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
         (f"mixer/{bus_808}/slot/3/Band 1 type", 1), (f"mixer/{bus_808}/slot/3/Band 1 freq", 30),
-        # BUS Music (4-slot Timbral Glue — Threshold -13.5 dB preserves Intro/Chorus dynamic arc)
-        (f"mixer/{bus_music}/slot/1/Band 1 type", 1), (f"mixer/{bus_music}/slot/1/Band 1 freq", music_hpf),
-        (f"mixer/{bus_music}/slot/1/Band 7 type", 3), (f"mixer/{bus_music}/slot/1/Band 7 freq", music_lpf),
-        (f"mixer/{bus_music}/slot/2/Mode", 0), (f"mixer/{bus_music}/slot/2/Drive", 3.5),
-        (f"mixer/{bus_music}/slot/2/Tone", 12000), (f"mixer/{bus_music}/slot/2/Mix", music_dist_mix),
-        (f"mixer/{bus_music}/slot/2/Output", 0.0), (f"mixer/{bus_music}/slot/2/Oversampling", 2), (f"mixer/{bus_music}/slot/2/Remove DC", 1),
+        # BUS Music: Slot 1 gl.dist (Tone <= 7500 Hz) -> Slot 2 gl.eq (HPF + LPF) -> Slot 3 Glue -> Slot 4 Duck
+        (f"mixer/{bus_music}/slot/1/Mode", 0), (f"mixer/{bus_music}/slot/1/Drive", 3.5),
+        (f"mixer/{bus_music}/slot/1/Tone", music_dist_tone), (f"mixer/{bus_music}/slot/1/Mix", music_dist_mix),
+        (f"mixer/{bus_music}/slot/1/Output", 0.0), (f"mixer/{bus_music}/slot/1/Oversampling", 2), (f"mixer/{bus_music}/slot/1/Remove DC", 1),
+        (f"mixer/{bus_music}/slot/2/Band 1 type", 1), (f"mixer/{bus_music}/slot/2/Band 1 freq", music_hpf),
+        (f"mixer/{bus_music}/slot/2/Band 7 type", 3), (f"mixer/{bus_music}/slot/2/Band 7 freq", music_lpf),
+    ]
+    if dark_mode:
+        changes.extend([
+            (f"mixer/{bus_music}/slot/2/Band 6 type", 6),
+            (f"mixer/{bus_music}/slot/2/Band 6 freq", 3200),
+            (f"mixer/{bus_music}/slot/2/Band 6 gain", -2.0),
+            (f"mixer/{bus_music}/slot/2/Band 6 width", 0.39),
+        ])
+    changes.extend([
         (f"mixer/{bus_music}/slot/3/Threshold", -13.5), (f"mixer/{bus_music}/slot/3/Ratio", 1.8),
         (f"mixer/{bus_music}/slot/3/Attack", 0.022), (f"mixer/{bus_music}/slot/3/Release", 0.110), (f"mixer/{bus_music}/slot/3/Makeup", 1.5),
         (f"mixer/{bus_music}/slot/4/Detector input", 1),
@@ -393,7 +423,7 @@ def setup_standard_buses(
         (f"mixer/{fx_room}/slot/1/Low cut (full)", 350 if acoustic_mode else 480), (f"mixer/{fx_room}/slot/1/Decay (full)", rt60_ds),
         (f"mixer/{fx_room}/slot/1/Dry (full)", 0), (f"mixer/{fx_room}/slot/1/Early reflections (full)", 14 if acoustic_mode else 10),
         (f"mixer/{fx_room}/slot/1/Wet (full)", 58),
-    ]
+    ])
     mcp.set_params(changes)
     mcp.batch([
         {"tool": "edit_mixer_track", "arguments": {"mixer": bus_drums, "name": "BUS Drums", "routeTo": 0, "volume": 1.0, "pan": 0.0}},

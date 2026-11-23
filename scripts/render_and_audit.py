@@ -35,14 +35,42 @@ def parse_sections(spec: str) -> list[tuple[str, int, int]]:
 
 
 GENRE_GATES: dict[str, dict[str, float]] = {
-    "trap_rap":          {"low_mids_max": 24.0, "air_min": 3.0, "sharp_max": 2.2, "arc_min": 2.5, "default_lufs": -11.0},
-    "pop_rnb":           {"low_mids_max": 26.0, "air_min": 3.0, "sharp_max": 2.2, "arc_min": 2.5, "default_lufs": -10.5},
-    "edm_club":          {"low_mids_max": 24.0, "air_min": 3.5, "sharp_max": 2.3, "arc_min": 2.5, "default_lufs": -9.0},
-    "rock_metal":        {"low_mids_max": 28.0, "air_min": 2.5, "sharp_max": 2.4, "arc_min": 2.0, "default_lufs": -10.0},
-    "lofi_chill":        {"low_mids_max": 34.0, "air_min": 0.5, "sharp_max": 2.0, "arc_min": 1.8, "default_lufs": -14.0},
-    "jazz_acoustic":     {"low_mids_max": 36.0, "air_min": 1.0, "sharp_max": 2.1, "arc_min": 2.5, "default_lufs": -14.5},
-    "classical_ambient": {"low_mids_max": 40.0, "air_min": 0.3, "sharp_max": 2.0, "arc_min": 3.0, "default_lufs": -16.0},
+    "trap_rap":          {"low_mids_max": 24.0, "air_min": 3.0, "dark_air_min": 1.2,  "sharp_max": 1.90, "dark_sharp_max": 1.85, "arc_min": 2.5, "default_lufs": -11.0},
+    "pop_rnb":           {"low_mids_max": 26.0, "air_min": 3.0, "dark_air_min": 1.5,  "sharp_max": 1.95, "dark_sharp_max": 1.85, "arc_min": 2.5, "default_lufs": -10.5},
+    "edm_club":          {"low_mids_max": 24.0, "air_min": 3.5, "dark_air_min": 1.75, "sharp_max": 2.05, "dark_sharp_max": 1.90, "arc_min": 2.5, "default_lufs": -9.0},
+    "rock_metal":        {"low_mids_max": 28.0, "air_min": 2.5, "dark_air_min": 1.25, "sharp_max": 2.10, "dark_sharp_max": 1.90, "arc_min": 2.0, "default_lufs": -10.0},
+    "lofi_chill":        {"low_mids_max": 34.0, "air_min": 0.5, "dark_air_min": 0.25, "sharp_max": 1.75, "dark_sharp_max": 1.75, "arc_min": 1.8, "default_lufs": -14.0},
+    "jazz_acoustic":     {"low_mids_max": 36.0, "air_min": 1.0, "dark_air_min": 0.50, "sharp_max": 1.85, "dark_sharp_max": 1.80, "arc_min": 2.5, "default_lufs": -14.5},
+    "classical_ambient": {"low_mids_max": 40.0, "air_min": 0.3, "dark_air_min": 0.15, "sharp_max": 1.75, "dark_sharp_max": 1.75, "arc_min": 3.0, "default_lufs": -16.0},
 }
+
+
+def _resolve_valence_and_dark_mode(
+    project_path: str,
+    blueprint_path: str,
+    dark_flag: bool,
+    valence_arg: float | None,
+) -> tuple[float | None, bool, str | None]:
+    """Read emotion_vector.valence from song_blueprint.json (or CLI overrides) to adapt dark-mix thresholds."""
+    valence: float | None = valence_arg
+    used_bp: str | None = None
+    candidates = [blueprint_path] if blueprint_path else [
+        os.path.join(os.path.dirname(os.path.abspath(project_path)), "song_blueprint.json")
+    ]
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            try:
+                with open(cand, encoding="utf-8") as fh:
+                    bp = json.load(fh)
+                ev = bp.get("emotion_vector") or {}
+                if valence is None and "valence" in ev and ev["valence"] is not None:
+                    valence = float(ev["valence"])
+                used_bp = os.path.abspath(cand)
+                break
+            except Exception:
+                pass
+    is_dark = bool(dark_flag) or (valence is not None and valence < -0.2)
+    return valence, is_dark, used_bp
 
 
 def main() -> None:
@@ -55,11 +83,19 @@ def main() -> None:
     ap.add_argument("--bpm", type=float, default=132.0)
     ap.add_argument("--beats-per-bar", type=float, default=4.0, help="Beats per bar (4.0 for 4/4, 3.0 for 3/4, 6.0 for 6/8)")
     ap.add_argument("--sections", default="", help="Optional e.g. 'Intro:1-4,Refrain1:5-12,Outro:29-33'")
+    ap.add_argument("--blueprint", default="", help="Optional path to song_blueprint.json (auto-detected next to project)")
+    ap.add_argument("--valence", type=float, default=None, help="Override emotion_vector.valence [-1..+1]")
+    ap.add_argument("--dark", action="store_true", help="Force dark mix thresholds (reduced air_min, stricter sharpness)")
     ap.add_argument("--mp3", action="store_true", help="Also render 320 kbps MP3 alongside WAV")
     ap.add_argument("--no-neural", action="store_true", help="Skip Audiobox/CLAP for ultra-fast check")
     args = ap.parse_args()
 
     gate_cfg = GENRE_GATES[args.profile]
+    valence, is_dark, blueprint_used = _resolve_valence_and_dark_mode(
+        args.project, args.blueprint, args.dark, args.valence
+    )
+    air_min = gate_cfg["dark_air_min"] if is_dark else gate_cfg["air_min"]
+    sharp_max = gate_cfg["dark_sharp_max"] if is_dark else gate_cfg["sharp_max"]
     target_lufs = args.target_lufs if args.target_lufs is not None else gate_cfg["default_lufs"]
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -78,6 +114,11 @@ def main() -> None:
         subprocess.run(cmd_mp3, capture_output=True, text=True, timeout=180, check=True)
 
     base = _analyze_file(args.out, target_lufs=target_lufs)
+    if is_dark and base["spectral_bands"]["air"]["energy_pct"] >= air_min:
+        base["recommendations"] = [
+            r for r in base["recommendations"] if "Manque d'air dans les aigus" not in r
+        ] or ["Mix équilibré (mode sombre) : loudness, True Peak, spectre et phase dans les cibles."]
+
     data, sr = sf.read(args.out, dtype="float64", always_2d=True)
     deep = run_deep_audit(
         audio_path=os.path.abspath(args.out),
@@ -103,7 +144,7 @@ def main() -> None:
     mono = data.mean(axis=1)
     max_jump = round(float(np.max(np.abs(np.diff(mono)))) if len(mono) > 1 else 0.0, 4)
 
-    # Studio Quality Gate evaluation (genre-aware)
+    # Studio Quality Gate evaluation (genre- & valence-aware)
     gate_failures: list[str] = []
     if base["clipped_samples"] > 0:
         gate_failures.append(f"clipped_samples={base['clipped_samples']} > 0")
@@ -117,16 +158,16 @@ def main() -> None:
     if lm_corr < 0.55:
         gate_failures.append(f"low_mid_corr={lm_corr} < 0.55")
     sharp = deep["psychoacoustics"].get("sharpness_din_acum", 0.0)
-    if sharp >= gate_cfg["sharp_max"]:
-        gate_failures.append(f"sharpness={sharp} >= {gate_cfg['sharp_max']}")
+    if sharp >= sharp_max:
+        gate_failures.append(f"sharpness={sharp} >= {sharp_max}")
     if deep["glitches_and_artifacts"]["micro_glitch_or_crackle_events"] > 0:
         gate_failures.append(f"micro_glitches={deep['glitches_and_artifacts']['micro_glitch_or_crackle_events']} > 0")
     if deep["third_octave_resonances"]:
         gate_failures.append(f"resonances={[r['freq_hz'] for r in deep['third_octave_resonances']]}")
     if base["spectral_bands"]["low_mids"]["energy_pct"] > gate_cfg["low_mids_max"]:
         gate_failures.append(f"low_mids={base['spectral_bands']['low_mids']['energy_pct']}% > {gate_cfg['low_mids_max']}%")
-    if base["spectral_bands"]["air"]["energy_pct"] < gate_cfg["air_min"]:
-        gate_failures.append(f"air={base['spectral_bands']['air']['energy_pct']}% < {gate_cfg['air_min']}%")
+    if base["spectral_bands"]["air"]["energy_pct"] < air_min:
+        gate_failures.append(f"air={base['spectral_bands']['air']['energy_pct']}% < {air_min}%")
     tune_ct = abs(float(deep["psychoacoustics"].get("tuning_cents_offset", 0.0)))
     if tune_ct > 6.5:
         gate_failures.append(f"tuning_offset={tune_ct}ct > 6.5ct")
@@ -137,6 +178,15 @@ def main() -> None:
 
     summary = {
         "profile": args.profile,
+        "dark_mode": is_dark,
+        "valence": valence,
+        "blueprint_used": blueprint_used,
+        "effective_thresholds": {
+            "air_min": air_min,
+            "sharp_max": sharp_max,
+            "low_mids_max": gate_cfg["low_mids_max"],
+            "arc_min": gate_cfg["arc_min"],
+        },
         "target_lufs": target_lufs,
         "out_wav": os.path.abspath(args.out),
         "duration_s": base["duration_seconds"],

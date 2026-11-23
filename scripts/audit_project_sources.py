@@ -140,11 +140,69 @@ def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, A
             if not sc_senders:
                 mixer_warnings.append(f"MISSING_SIDECHAIN_SENDER_TO({m.get('name') or mid})")
 
+    track_isolation_warnings: list[str] = []
+
+    # Check "1 sonorité = 1 piste dédiée" (dedicated mixer track, single-channel patterns, dedicated named playlist track)
+    mixer_to_channels: dict[Any, list[str]] = {}
+    ch_id_to_name: dict[str, str] = {}
+    for idx, ch in enumerate(d.get("channels", [])):
+        cid = str(ch.get("id", idx))
+        cname = ch.get("name") or f"ch_{idx}"
+        ch_id_to_name[cid] = cname
+        mt = ch.get("mixerTrack")
+        if mt is not None:
+            mixer_to_channels.setdefault(mt, []).append(cname)
+    for mt, cnames in mixer_to_channels.items():
+        if len(cnames) > 1:
+            mname = mixer_by_id.get(mt, {}).get("name") or mt
+            track_isolation_warnings.append(f"SHARED_MIXER_TRACK({mname}: {cnames})")
+
+    pat_by_id = {p.get("id"): p for p in d.get("patterns", [])}
+    pat_channels: dict[Any, set[str]] = {}
+    for pid, pat in pat_by_id.items():
+        ch_ids = {
+            str(k) for k, v in (pat.get("notes") or {}).items() if v
+        } | {
+            str(k) for k, v in (pat.get("steps") or {}).items() if v
+        }
+        pat_channels[pid] = ch_ids
+
+    used_pats = {item.get("pattern") for item in d.get("playlist", []) if item.get("pattern")}
+    for pid in sorted(used_pats):
+        ch_ids = pat_channels.get(pid, set())
+        if len(ch_ids) > 1:
+            pname = pat_by_id.get(pid, {}).get("name") or f"pat_{pid}"
+            names = [ch_id_to_name.get(c, c) for c in sorted(ch_ids)]
+            track_isolation_warnings.append(f"MULTI_CHANNEL_PATTERN({pname}: {names})")
+
+    playlist_track_sources: dict[int, set[str]] = {}
+    for item in d.get("playlist", []):
+        tr_idx = item.get("track")
+        if tr_idx is None:
+            continue
+        if item.get("kind") == "automation":
+            playlist_track_sources.setdefault(int(tr_idx), set()).add(f"auto:{item.get('source')}")
+        elif item.get("channel"):
+            cid = str(item.get("channel"))
+            playlist_track_sources.setdefault(int(tr_idx), set()).add(f"ch:{ch_id_to_name.get(cid, cid)}")
+        elif item.get("pattern"):
+            for cid in pat_channels.get(item.get("pattern"), set()):
+                playlist_track_sources.setdefault(int(tr_idx), set()).add(f"ch:{ch_id_to_name.get(cid, cid)}")
+
+    tracks_meta = d.get("tracks", [])
+    for tr_idx, srcs in sorted(playlist_track_sources.items()):
+        if len(srcs) > 1:
+            track_isolation_warnings.append(f"SHARED_PLAYLIST_TRACK(track_{tr_idx + 1}: {sorted(srcs)})")
+        tr_name = tracks_meta[tr_idx].get("name", "").strip() if tr_idx < len(tracks_meta) else ""
+        if not tr_name:
+            track_isolation_warnings.append(f"UNNAMED_PLAYLIST_TRACK(track_{tr_idx + 1})")
+
     report: dict[str, Any] = {
         "project": os.path.abspath(proj_path),
         "tempo": d.get("tempo"),
         "ppq": d.get("ppq"),
         "mixer_warnings": mixer_warnings,
+        "track_isolation_warnings": track_isolation_warnings,
         "channels": [],
         "prepared_samples": [],
     }

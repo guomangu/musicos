@@ -280,12 +280,112 @@ def _compute_contrary_oblique_ratio(
     return round(good / total, 3) if total > 0 else 1.0
 
 
+def _beat_block_4bars(pm: pretty_midi.PrettyMIDI, time_s: float) -> int:
+    """Map a timestamp (seconds) to its 0-indexed 4-measure block."""
+    beats = pm.get_beats()
+    num = pm.time_signature_changes[0].numerator if pm.time_signature_changes else 4
+    bars_beats = max(1, 4 * int(num))
+    if len(beats) >= 2:
+        step = float(beats[-1] - beats[-2])
+        if time_s <= beats[-1]:
+            beat_pos = float(np.interp(time_s, beats, np.arange(len(beats), dtype=float)))
+        else:
+            beat_pos = (len(beats) - 1) + (time_s - float(beats[-1])) / max(step, 1e-4)
+        return int(max(0.0, beat_pos) // bars_beats)
+    return 0
+
+
+def _infer_allowed_pcs_from_midi(midi_path: str) -> Optional[set[int]]:
+    """Infer scale pitch classes from a MIDI file via music21 when no explicit key is supplied."""
+    try:
+        import music21
+
+        score = music21.converter.parse(midi_path)
+        est_key = score.analyze("key")
+        return {p.pitchClass for p in est_key.getScale().getPitches()}
+    except Exception:
+        return None
+
+
+def detect_minor_2nd_clashes(
+    pm: pretty_midi.PrettyMIDI,
+    allowed_pcs: Optional[set[int]] = None,
+    valence: float = 0.0,
+    tension: float = 0.3,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Detect inter-track minor 2nd (1 st) / minor 9th (13 st) clashes.
+    When valence < -0.3 or tension >= 0.5, up to 2 diatonic tensions per
+    4-bar block are permitted when both pitches belong to `allowed_pcs`.
+    Returns (all_clashes, blocking_clashes).
+    """
+    melodic_notes: List[Tuple[float, float, int, str]] = []
+    for inst in pm.instruments:
+        name = inst.name or f"Track_{inst.program}"
+        if not inst.notes:
+            continue
+        is_perc = bool(inst.is_drum) or bool(_PERC_TRACK_RE.search(name.lower()))
+        if not is_perc:
+            for n in inst.notes:
+                melodic_notes.append((n.start, n.end, n.pitch, name))
+
+    melodic_notes.sort(key=lambda x: x[0])
+    dark_tense = (valence < -0.3) or (tension >= 0.5)
+    all_clashes: List[Dict[str, Any]] = []
+    blocking_clashes: List[Dict[str, Any]] = []
+    diatonic_per_block: Dict[int, int] = {}
+
+    for i, (s1, e1, p1, tr1) in enumerate(melodic_notes):
+        for s2, e2, p2, tr2 in melodic_notes[i + 1 :]:
+            if s2 >= e1 - 0.01:
+                break
+            if tr1 == tr2:
+                continue
+            diff = abs(p1 - p2)
+            if diff not in (1, 13):
+                continue
+
+            is_diatonic = (
+                allowed_pcs is not None
+                and (p1 % 12) in allowed_pcs
+                and (p2 % 12) in allowed_pcs
+            )
+            block_idx = _beat_block_4bars(pm, s2)
+            entry = {
+                "time_s": round(float(s2), 3),
+                "block_4bars": block_idx,
+                "tracks": [tr1, tr2],
+                "notes": [pretty_midi.note_number_to_name(p1), pretty_midi.note_number_to_name(p2)],
+                "interval": "minor_2nd_cluster" if diff == 1 else "minor_9th_clash",
+                "diatonic": is_diatonic,
+            }
+            all_clashes.append(entry)
+
+            if dark_tense and is_diatonic:
+                diatonic_per_block[block_idx] = diatonic_per_block.get(block_idx, 0) + 1
+                if diatonic_per_block[block_idx] > 2:
+                    blocking_clashes.append(entry)
+            else:
+                blocking_clashes.append(entry)
+
+    return all_clashes, blocking_clashes
+
+
 def evaluate_midi_musicality(
     midi_path: str,
     thresholds: Optional[MusicalityThresholds] = None,
+    valence: float = 0.0,
+    tension: float = 0.3,
+    allowed_pcs: Optional[set[int]] = None,
 ) -> Dict[str, Any]:
     """Point d'entrée principal à appeler depuis audit_midi_harmony."""
-    th = thresholds or MusicalityThresholds()
+    dark_tense = (valence < -0.3) or (tension >= 0.5)
+    if thresholds is not None:
+        th = thresholds
+    else:
+        th = MusicalityThresholds(
+            strong_beat_chord_ratio_min=0.65 if dark_tense else 0.80
+        )
     pm = pretty_midi.PrettyMIDI(midi_path)
     total_dur = pm.get_end_time()
     roles = _infer_roles(pm)
@@ -303,6 +403,15 @@ def evaluate_midi_musicality(
     overlap_conflict = _compute_lead_overlap_conflict(roles["lead"], roles["counter"])
     contrary_ratio = _compute_contrary_oblique_ratio(topline, bass_notes)
 
+    eff_allowed = allowed_pcs
+    if eff_allowed is None and dark_tense:
+        raw_clashes, _ = detect_minor_2nd_clashes(pm, allowed_pcs=None, valence=valence, tension=tension)
+        if raw_clashes:
+            eff_allowed = _infer_allowed_pcs_from_midi(midi_path)
+    all_clashes, blocking_clashes = detect_minor_2nd_clashes(
+        pm, allowed_pcs=eff_allowed, valence=valence, tension=tension
+    )
+
     failures: List[str] = []
     if stepwise_ratio < th.stepwise_ratio_min:
         failures.append(f"stepwise_ratio={stepwise_ratio} < {th.stepwise_ratio_min} (mélodie trop sautillante)")
@@ -318,9 +427,15 @@ def evaluate_midi_musicality(
         failures.append(f"lead_overlap_conflict={overlap_conflict} > {th.lead_overlap_max} (cafouillis d'attaques)")
     if contrary_ratio < th.contrary_oblique_min:
         failures.append(f"contrary_or_oblique_ratio={contrary_ratio} < {th.contrary_oblique_min}")
+    if blocking_clashes:
+        failures.append(
+            f"minor_2nd_clashes={len(blocking_clashes)} bloquants "
+            f"({'<= 2 diatoniques/4 mes. autorisées' if dark_tense else '0 autorisé'})"
+        )
 
     return {
         "musicality_verdict": "PASS" if not failures else "FAIL",
+        "emotion_mode": "dark_tense" if dark_tense else "consonant",
         "metrics": {
             "stepwise_ratio": stepwise_ratio,
             "gap_fill_compliance": gap_fill,
@@ -330,7 +445,11 @@ def evaluate_midi_musicality(
             "voice_leading_avg_semitones": vl_avg,
             "lead_overlap_conflict": overlap_conflict,
             "contrary_or_oblique_ratio": contrary_ratio,
+            "minor_2nd_clashes_total": len(all_clashes),
+            "minor_2nd_clashes_blocking": len(blocking_clashes),
         },
+        "minor_2nd_clashes": all_clashes,
+        "blocking_minor_2nd_clashes": blocking_clashes,
         "detected_roles": {k: [i.name for i in v] for k, v in roles.items()},
         "failures": failures,
     }

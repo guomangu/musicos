@@ -35,10 +35,11 @@ Prompt Utilisateur (Antigravity / Zed)
   * `projects/active/` (ou `active2`..`activeN`, ou dossier dédié `morceaux/<nom>/`) : `song_blueprint.json`, `master_sketch.mid`, `build_song.py`, `samples/`, `exports/`, `renders/`, `projet.gridline`.
 
 ### 1.2 Budget DSP Strict
-1. N'ajouter `gl.eq` sur un insert individuel que si un besoin fréquentiel est mesuré (sinon regrouper sur `BUS Drums` / `BUS Music`).
+1. **Filtrage obligatoire à la source** : Tout synthé natif `gl.*` riche en harmoniques (`gl.sawswarm`, `gl.wavetable`, `gl.twinva`, `gl.analog`, `gl.dcosynth`, `gl.fm`, `gl.alloy`, `gl.pluck`) **DOIT** avoir son filtre passe-bas interne (`Cutoff`) abaissé dès la création, ou disposer d'un `gl.eq` (`Quality = 0`, `Band type = 3` High cut) sur son insert. Pour les autres corrections mineures, regrouper sur `BUS Drums` / `BUS Music`.
 2. `gl.eq` `Quality = 0` (`Normal`) sur les inserts ; `Quality = 1` sur `Master 0` uniquement.
 3. Limiter `Polyphony <= 12` (max `16` pour pianos soutenus), `Unison <= 2`, et mutualiser la réverbération sur un unique bus `FX Room`.
 4. **Template vide** : `/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline` ne contient que les pistes mixeur **`0..16`**. `studio_lib.setup_standard_buses()` crée automatiquement les pistes manquantes jusqu'à `20`.
+5. **Isolation stricte (`1 sonorité = 1 piste dédiée`)** : chaque sonorité distincte (`Kick`, `Clap`, `HiHat`, `808`, `Chords`, `Lead`, `Counter`, `Vocal`…) doit avoir son propre canal, son propre insert mixeur dédié (avant routage vers les bus `17..20`), ses propres patterns séparés (jamais de pattern multi-instruments) et sa propre piste Playlist nommée (`project.playlist.setTrackName`).
 
 ---
 
@@ -78,9 +79,16 @@ Les serveurs Python utilisent `mcp 2.3.0` (`MCPServer`, transport `stdio`). Tout
 
 > **Règle `gl.multisampler` (`.sfz`)** : certains `.sfz` externes (`Headroom Piano Clean.sfz`) peuvent être muets (`-144 LUFS`) en GUI `--attach`. Privilégier `gl.sampler` avec un WAV 24-bit mono-note calibré `A4=440 Hz` (`Voices = 12`) ou `gl.keys` / `gl.warmsynth`.
 
+> **Règle Anti-Stridence (LPF par défaut selon le rôle)** :
+> - **Pads / Accords (`Chords`)** : LPF strict entre **`2.5 kHz` et `5.5 kHz`** (plus bas si `valence < 0`).
+> - **Leads / Mélodies** : LPF entre **`4.0 kHz` et `7.5 kHz`** (interdiction de laisser un synthé *saw/FM* ouvert jusqu'à `20 kHz`).
+> - **Cloches / FM / Métallique (`gl.fm`, `gl.alloy`, `gl.matrixfm`)** : LPF `<= 7.0 kHz` + creux `gl.eq` (`Band type = 6 Peak`, `-3.0 dB @ 3200 Hz`, `Q = 1.6`).
+> - **`gl.sampler` (mélodique ou hats brillants)** : Exploiter nativement les paramètres `Filter` (`1=Low pass`, `2=Low pass 24`) / `Cutoff` / `Resonance` du sampler si le sample est trop brillant.
+
 ### 3.2 Effets Natifs Clés (`gl.*`) & Paramètres Exacts Vérifiés
-* **`gl.sampler`** : `plugin.data = "/chemin/absolu.wav"` (chaîne brute). Clés : `Root note` (MIDI), `Fine tune` (cents), `One shot` (`0`/`1`), `Voices` (`1` mono cut-itself pour 808/sub, `12` pour accords), `Attack`, `Release`, `Glide`, `Declick`, `Remove DC`, `Loop`, `Filter`/`Cutoff`/`Resonance`.
-* **`gl.eq` (7 bandes)** : `Quality` (`0=Normal`, `1=Master`). **Enum exact `Band N type`** : `0=Off`, `1=Low cut` (HPF), `2=Band pass`, `3=High cut` (LPF), **`4=Notch`**, `5=Low shelf`, **`6=Peak`**, `7=High shelf`.
+* **`gl.sampler`** : `plugin.data = "/chemin/absolu.wav"` (chaîne brute). Clés : `Root note` (MIDI), `Fine tune` (cents), `One shot` (`0`/`1`), `Voices` (`1` mono cut-itself pour 808/sub, `12` pour accords), `Attack`, `Release`, `Glide`, `Declick`, `Remove DC`, `Loop`, `Filter` (`0=Off`, `1=Low pass`, `2=Low pass 24`, `3=Band pass`, `4=High pass`, `5=Notch`), `Cutoff` (`20..20000 Hz`), `Resonance` (`0..1`).
+* **Filtres LPF natifs des synthés `gl.*`** : `gl.analog` (`Cutoff` `20..20000 Hz`), `gl.wavetable` (`Filter 1 on = 1`, `Filter 1 cutoff` `20..20000 Hz`), `gl.string` (`Hi cut` `200..20000 Hz`), `gl.warmsynth` / `gl.dcosynth` / `gl.twinva` / `gl.sawswarm` (`Cutoff` normalisé `0..1`, ex. `0.35–0.55` ; attention `dcosynth`/`twinva`/`sawswarm` sont à `1.0` par défaut !), `gl.pluck` (`Brightness` `0..1`, `Damping` `0..1`), `gl.alloy` (`Cutoff` `0..256`), et `gl.fm` / `gl.matrixfm` / `gl.keys` (sans LPF synthé → poser `gl.eq` sur l'insert).
+* **`gl.eq` (7 bandes)** : `Quality` (`0=Normal`, `1=Master`). **Enum exact `Band N type`** : `0=Off`, `1=Low cut` (HPF), `2=Band pass`, `3=High cut` (LPF), **`4=Notch`**, `5=Low shelf`, **`6=Peak`**, `7=High shelf`. Note : `Band model` vaut `1` (`Reference`, largeur réglée par `Band N width` `0..1`, `0.35` ≈ Q 1.6) par défaut ; passer `Band model = 0` (`Legacy`) si l'on règle explicitement `Band N Q (legacy)`.
 * **`gl.comp`** : `Detector input` (`0=Main`, `1=Sidechain`), `Threshold` (dB), `Ratio`, `Attack` (s), `Release` (s), `Makeup` (dB), `Lookahead`, `Detector high-pass` (Hz).
 * **`gl.limiter`** : `Gain` (dB), `Ceiling` (dB), **`Attack (look-ahead)` = `0.002` s** (jamais `0.005`), `0.2 dB safety = 1`.
 * **`gl.dist`** : `Mode = 0` (`Soft`), `Drive`, `Tone` (Hz), `Mix` (`0..1`), `Oversampling` (`2` = 4x), `Remove DC = 1`.

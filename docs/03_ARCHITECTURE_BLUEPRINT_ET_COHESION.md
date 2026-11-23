@@ -1,7 +1,7 @@
 # Facette 3 — Blueprint, Arrangement Multi-Genres, Top-Down `master_sketch.mid`, MIDI Gate & Patron `build_song.py`
 
 > **Cheatsheet IA (L'essentiel en 14 lignes)**
-> - **Source de vérité unique** : Écrire **toutes** les notes en **beats 0-indexed** dans 1 script Python `build_song.py` qui génère : (1) `song_blueprint.json`, (2) `master_sketch.mid` (3 pistes nommées **`Bass`**, **`Chords`**, **`Lead`**), (3) vérifie `verify_midi_gate()`, puis (4) construit tout le `.gridline` en 1 passe via `GridlineMCP`.
+> - **Source de vérité unique & Isolation par piste** : Écrire **toutes** les notes en **beats 0-indexed** dans 1 script Python `build_song.py` qui génère : (1) `song_blueprint.json`, (2) `master_sketch.mid` (3 pistes nommées **`Bass`**, **`Chords`**, **`Lead`**), (3) vérifie `verify_midi_gate()`, puis (4) construit tout le `.gridline` en 1 passe via `GridlineMCP` en respectant absolument **`1 sonorité = 1 canal + 1 insert mixeur + patterns dédiés + 1 piste Playlist nommée`**.
 > - **Gate MIDI bloquant** : Tant que `verify_midi_gate()` ne retourne pas `PASS`, **0 appel Gridline et 0 rendu audio** — corriger les notes en Python en `< 0.5 s` grâce à la Table de Correction (§5.3).
 > - **Piège `_infer_roles()` (§5.2)** : Nommer exactement `Bass`/`808`, `Chords`/`Pad`, `Lead`/`Melody`, `Counter Harmony`. Ne jamais nommer un contre-chant `"Vocal"` ni un accompagnement arpégé `"Piano"` seul.
 > - **Arrangement vivant** : Max **3 couches** hors batterie · **Matrice Rôles × Sections (§1.3)** · renouvellement toutes les **4–8 mesures** · transition obligatoire (drum fill / beat-4 mute / LPF sweep) · **fin propre** (résolution + extinction naturelle, jamais coupée sec).
@@ -16,8 +16,8 @@ Tout projet commence par `song_blueprint.json` valide :
 * **Métadonnées** : `title`, `genre`, `mood`, **`mix_profile`** (`trap_rap`, `pop_rnb`, `edm_club`, `rock_metal`, `lofi_chill`, `jazz_acoustic`, `classical_ambient`), `emotion_vector` (`valence`, `tension`, `energy`, `depth`), `bpm`, `time_signature` (`numerator`, `denominator`), `key`, `swing`, `target_lufs`.
 * **`harmonic_core` (Obligatoire)** :
   * `key` (ex. `"C"`, `"F#"`), `mode` (tous modes acceptés : `ionian`, `aeolian`, `dorian`, `phrygian`, `phrygian_dominant`, `lydian`, `mixolydian`, `harmonic_minor`, `melodic_minor`, `locrian`, `pentatonic_minor`, `pentatonic_major`, `blues`), `progression_bars` (`1..32`).
-  * `chord_progression` : par mesure `bar`, `symbol`, `bass_midi` (`24–60`), `voicing_midi` (2–6 notes `36–84` calculées par `optimize_voice_leading`), `chord_tones_pc` (`0..11`).
-  * `motif_cell` : `intervals_from_tonic` (`2..12` notes), `rhythm_beats`, `apex_midi` (`55–88`).
+  * `chord_progression` : par mesure `bar`, `symbol`, `bass_midi` (`24–60`), `voicing_midi` (2–6 notes `48–67` recommandées, calculées par `optimize_voice_leading`), `chord_tones_pc` (`0..11`).
+  * `motif_cell` : `intervals_from_tonic` (`2..12` notes), `rhythm_beats`, `apex_midi` (`55–74` par défaut ; `75–81` timbres très doux si `valence > +0.3`).
   * `phrase_plan` : `A-A'-A''-B`, `A-B-A'-C`, `A-A'-B-B'`, `A-A-B-A` ou `free_ambient`.
 * **`structure`**, **`frequency_plan`**, **`tracks`**, **`vocals`**.
 
@@ -60,7 +60,7 @@ La macro- et micro-structure reposent sur une grille binaire en multiples de 4 (
 1. **Échantillon (`< 5 ms`)** : zéro clic/DC/clipping, accordage **`A4 = 440.0 Hz ± 5 ct`**.
 2. **Transitoire (`5–50 ms`)** : attaques concurrentes `<= 15 %` dans `400 Hz–3 kHz` ; séparation Kick/Basse.
 3. **Motif (`1–2 temps`)** : 1 cellule rythmico-mélodique mémorable.
-4. **Phrase (`4 mesures`)** : `A - A' - A'' (Apex unique) - B (Silence)`.
+4. **Phrase (`4 mesures`)** : `A - A' - A'' (Apex <= 74) - B (Silence)` (`V >= 0`), ou courbe descendante/hypnotique (`V < 0`).
 5. **Section (`8–16 mesures`)** : évolution obligatoire aux paliers **4 / 8 / 16 mesures** + transition.
 6. **Macro** : contraste réel `section_lufs` selon le profil (Facette 5 §1).
 
@@ -85,18 +85,18 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 ## Chapitre 3 — Loi de la Réduction Unique (`master_sketch.mid`) & Voice Leading
 
 1. **Interdiction** d'écrire Basse, Accords et Mélodie séparément dans Gridline sans partition mère validée.
-2. Générer **`master_sketch.mid`** (3 pistes : **`Bass`**, **`Chords`**, **`Lead`**) en Python avec `optimize_voice_leading(chord_pcs_list, low_midi=48, high_midi=72)` (`mcp-servers/audio-analyzer/musicality_metrics.py`).
-3. Valider via `studio_lib.verify_midi_gate(".../master_sketch.mid", expected_key="C minor", max_pitch=84)`.
-4. Éclater la **même** partition (en beats) vers les canaux Gridline (puis optionnellement revérifier le MIDI orchestré exporté).
+2. Générer **`master_sketch.mid`** (3 pistes : **`Bass`**, **`Chords`**, **`Lead`**) en Python avec `optimize_voice_leading(chord_pcs_list, low_midi=48, high_midi=67)` (`mcp-servers/audio-analyzer/musicality_metrics.py`).
+3. Valider via `studio_lib.verify_midi_gate(".../master_sketch.mid", expected_key="C minor", max_pitch=72 if valence < -0.3 else 76, valence=valence, tension=tension)` (défaut `max_pitch=74`).
+4. Éclater la **même** partition (en beats) vers les canaux Gridline en respectant strictement la règle **« 1 sonorité = 1 piste dédiée »** : chaque instrument ou élément rythmique (`Kick`, `Clap`, `HiHat`, `808 Bass`, `Chords Pad`, `Lead`, `Counter`…) reçoit son propre canal, son propre insert mixeur dédié (avant les bus `17..20`), ses **propres patterns séparés** (jamais de pattern multi-instruments) et sa **propre piste Playlist nommée** (`project.playlist.setTrackName(tr, nom)`), chaque automation ayant également sa piste dédiée. (Optionnellement revérifier le MIDI orchestré exporté.)
 
 ---
 
 ## Chapitre 4 — Grammaire Mélodique (`M1–M5`), Verticale (`V1–V6`) & Horizontale (`H1–H3`)
 
 * **M1 (Conjoint + *Gap-Fill*)** : `>= 65 %` des intervalles `<= 4 st` ; `>= 60 %` des sauts `>= 5 st` suivis d'un retour inverse de `1–3 st`. Ambitus recommandé `<= 19 st` (`12–16 st` optimal).
-* **M2 (Économie Motivique)** : `A - A' - A'' (Apex) - B`.
+* **M2 (Économie Motivique)** : `A - A' - A'' (Apex <= 74) - B` (`V >= 0`) ou motif descendant/hypnotique (`V < 0`).
 * **M3 (Respiration)** : `20 %` à `50 %` de silence réel dans la piste `Lead`.
-* **M4 (Gravité Harmonique)** : `>= 80 %` des notes sur temps forts dans l'accord courant.
+* **M4 (Gravité Harmonique)** : `>= 80 %` des notes sur temps forts dans l'accord courant en mode consonant (`>= 65 %` en mode sombre/tendu pour autoriser les appoggiatures expressives `b6->5`, `4->b3`, `b2->1`).
 * **M5 (*Pocket Alignment*)** : appuis du Lead calés sur temps `1`/`3` (ou anacrouses) en dialogue avec la batterie.
 * **V1 (Voice Leading)** : distance moyenne entre accords consécutifs `<= 2.50 st`, maintien des notes communes.
 * **V2 (Zéro transposition d'accord samplé)** : jamais transposer un sample d'accord complet ; utiliser un `mono_oneshot` ou un synthé polyphonique `gl.*`.
@@ -112,16 +112,18 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 
 ### 5.1 Seuils Exactement Vérifiés dans le Code (`musicality_metrics.py` & `deep_diagnostics.py`)
 
-| Métrique | Calcul Réel du Code | Seuil `PASS` |
-| :--- | :--- | :---: |
-| **`stepwise_ratio`** | Proportion de transitions `\|Δp\| <= 4 st` | `>= 0.65` |
-| **`gap_fill_compliance`** | Sauts `\|Δp\| >= 5 st` suivis d'un retour inverse `1 <= \|Δp_next\| <= 3 st` | `>= 0.60` |
-| **`melody_rest_ratio`** | `1 - (durée_couverte_Lead / durée_totale)` | `0.20 – 0.50` |
-| **`strong_beat_chord_tone_ratio`** | Notes Lead à `±0.09 s` d'un temps fort (`beats[::2]`) dans les pitch-classes de l'accord/basse actif | `>= 0.80` |
-| **`voice_leading_avg_semitones`** | Déplacement moyen entre tranches d'accords (`quantize = 0.08 s`) | `<= 2.50 st` |
-| **`lead_overlap_conflict`** | Attaques simultanées (`<= 40 ms`, `< 12 st`) entre pistes `lead` et `counter` | `<= 0.15` |
-| **`contrary_or_oblique_ratio`** | Transitions Basse/Lead avec `dm * db <= 0` | `>= 0.55` |
-| **Intégrité tonale & clashs** | `out_of_scale == 0`, `minor_2nd_clashes` (`1` ou `13 st` inter-pistes) `== []`, `sub_collisions` (`< MIDI 50`, pitches différents) `== []` | `0` défaut |
+| Métrique | Mode Consonant (`V >= -0.3` et `T < 0.5`) | Mode Sombre / Tendu (`V < -0.3` ou `T >= 0.5`) |
+| :--- | :---: | :---: |
+| **`max_pitch` (Lead)** | `<= 76` (`E5`) | **`<= 72–74`** (`C5–D5`) |
+| **`strong_beat_chord_tone_ratio`** | `>= 0.80` | **`>= 0.65`** *(autorise les appoggiatures expressives `b6->5`, `4->b3`, `b2->1` sur temps forts)* |
+| **`minor_2nd_clashes`** | `== 0` | **`<= 2` par bloc de 4 mesures** *(si tension diatonique contrôlée `b2/1` en Phrygien ou `b6/5` en Mineur, résolue au pas suivant)* |
+| **`stepwise_ratio`** (`\|Δp\| <= 4 st`) | `>= 0.65` | `>= 0.65` |
+| **`gap_fill_compliance`** (`\|Δp\| >= 5` → retour `1–3 st`) | `>= 0.60` | `>= 0.60` |
+| **`melody_rest_ratio`** | `0.20 – 0.50` | `0.20 – 0.50` |
+| **`voice_leading_avg_semitones`** (`quantize = 0.08 s`) | `<= 2.50 st` | `<= 2.50 st` |
+| **`lead_overlap_conflict`** (`<= 40 ms`, `< 12 st`) | `<= 0.15` | `<= 0.15` |
+| **`contrary_or_oblique_ratio`** (`dm * db <= 0`) | `>= 0.55` | `>= 0.55` |
+| **Intégrité tonale & sub** | `out_of_scale == 0`, `sub_collisions` (`< MIDI 48`) `== []` | `out_of_scale == 0`, `sub_collisions` (`< MIDI 48`) `== []` |
 
 *(Note 3/4 ou 6/8 : `strong_beats = beats[::2]` est calibré sur 4/4 ; sur un 3/4 ou Ambient pur sans Lead, veiller à aligner les notes sur les temps forts ou vérifier les autres métriques et `out_of_scale == 0`.)*
 
@@ -143,18 +145,19 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 | `gap_fill_compliance < 0.60` | Saut `>= 5 st` non compensé | Après chaque saut `>= 5 st`, forcer la note suivante à revenir de `1` ou `2` degrés en sens opposé. |
 | `melody_rest_ratio < 0.20` | Lead trop dense / continu | Raccourcir les durées (`×0.75`) et vider les beats `3.0–4.0` des mesures 2 et 4 (ou couper Lead dans Intro/Pont). |
 | `melody_rest_ratio > 0.50` | Lead trop vide | Allonger légèrement les notes tenues ou ajouter 1–2 notes conjointes en mesure 1 et 3. |
-| `strong_beat_chord_tone_ratio < 0.80` | Note de passage sur temps fort | Sur `beat % 2 == 0`, projeter la note sur la pitch-class la plus proche de l'accord courant. |
-| `voice_leading_avg_semitones > 2.50` | Accords déplacés en blocs | Passer la suite d'accords dans `optimize_voice_leading(chord_pcs_list, 48, 72)`. |
+| `strong_beat_chord_tone_ratio < min` | Trop de notes de passage sur temps forts (`< 0.80` consonant ou `< 0.65` sombre/tendu) | Sur `beat % 2 == 0`, projeter la note sur la pitch-class la plus proche de l'accord courant. |
+| `too_high_count > 0` | Note Lead au-dessus de `max_pitch` (`72–74` sombre, `76` consonant) | Baisser la phrase ou les sommets d'une octave (`-12 st`). |
+| `voice_leading_avg_semitones > 2.50` | Accords déplacés en blocs | Passer la suite d'accords dans `optimize_voice_leading(chord_pcs_list, 48, 67)`. |
 | `lead_overlap_conflict > 0.15` | Lead & Counter frappent ensemble | Décaler les attaques du `Counter` dans les silences du `Lead` (ou à `+12 st` / timbre différent). |
 | `contrary_or_oblique_ratio < 0.55` | Basse et Lead montent/descendent ensemble | Inverser la direction d'une mesure sur deux du Lead (ou tenir une note pivot quand la basse change). |
-| `minor_2nd_clashes` (`1` ou `13 st`) | Frottement 2nde/9e min inter-pistes | Décaler la note fautive d'un degré de gamme (vers une note de l'accord) ou couper l'extension sur ce temps. |
-| `sub_collisions` | Deux pistes jouent `< MIDI 50` en même temps | Garder `Chords` strictement `>= MIDI 50` (`low_midi=50` dans `optimize_voice_leading`). |
+| `minor_2nd_clashes` (`1` ou `13 st`) | Frottement non diatonique ou > 2/bloc en mode sombre | Vérifier que la tension appartient à la gamme active (`<= 2` par 4 mes. si `V < -0.3` / `T >= 0.5`), sinon déplacer d'un degré de gamme. |
+| `sub_collisions` | Deux pistes jouent `< MIDI 48` en même temps | Garder `Chords` strictement `>= MIDI 48` (`low_midi=48` dans `optimize_voice_leading`). |
 
 ---
 
-## Chapitre 6 — Patron Canonique Minimal `build_song.py` (Single Source of Truth)
+## Chapitre 6 — Patron Canonique Minimal `build_song.py` (Piloté par `song_blueprint.json`)
 
-> **Modèle de référence** : Tout agent (même léger) peut copier-adapter ce patron en **1 seul script Python** : 0 calcul MIDI de tête, 0 décalage entre `master_sketch.mid` et Gridline, 0 erreur d'unités, exécution `< 3 s`.
+> **Modèle de référence** : Toujours charger `BPM`, `KEY_STR`, `PROFILE`, `emotion_vector` et l'harmonie depuis `song_blueprint.json` (aucune constante pop/majeure codée en dur). L'exemple ci-dessous illustre un motif neutre/sombre en `C minor` (`Cm -> Ab -> Fm -> Cm`, registre `MIDI 60–68`, mouvement descendant `Ab4 -> G4 -> Eb4`), exécutable en `< 3 s`.
 
 ```python
 #!/usr/bin/env python3
@@ -168,27 +171,38 @@ from musicality_metrics import optimize_voice_leading
 
 PROJ_DIR = f"{ROOT}/projects/active"
 os.makedirs(PROJ_DIR, exist_ok=True)
-BPM, BEATS_PER_BAR, KEY_STR, PROFILE = 120.0, 4, "C minor", "pop_rnb"
 
-# 1. Harmonie calculée de façon déterministe (P3 en C minor: Cm7 - Abmaj7 - Ebmaj7 - Bb)
-chord_pcs = [[0, 3, 7, 10], [8, 0, 3, 7], [3, 7, 10, 2], [10, 2, 5]]
-voicings  = optimize_voice_leading(chord_pcs, low_midi=50, high_midi=67)
-bass_roots = [36, 44, 39, 46]  # C2, Ab2, Eb2, Bb2
+# 0. Charger la configuration depuis song_blueprint.json (jamais hardcoder un genre/mode par défaut)
+with open(f"{PROJ_DIR}/song_blueprint.json", encoding="utf-8") as fh:
+    bp = json.load(fh)
+BPM = float(bp["bpm"])
+BEATS_PER_BAR = int(bp["time_signature"]["numerator"])
+KEY_STR = bp["key"]
+PROFILE = bp.get("mix_profile", "trap_rap")
+ev = bp.get("emotion_vector", {})
+valence = float(ev.get("valence", 0.0))
+tension = float(ev.get("tension", 0.3))
+
+# 1. Harmonie issue du blueprint (ex. Cm -> Ab -> Fm -> Cm en C minor)
+prog = bp["harmonic_core"]["chord_progression"]
+chord_pcs = [c.get("chord_tones_pc") or [0, 3, 7] for c in prog]  # défaut Cm=[0,3,7]
+bass_roots = [int(c["bass_midi"]) for c in prog]                   # ex. [36, 44, 41, 36]
+voicings = optimize_voice_leading(chord_pcs, low_midi=48, high_midi=65)
 
 # 2. Notes en BEATS 0-indexed (Single Source of Truth: (start_beat, dur_beat, midi_pitch, velocity))
 bass_notes, chord_notes = [], []
-# Exemple sur 4 mesures vérifié PASS au Gate MIDI (à étendre selon structure complète)
-for bar_idx in range(4):
+for bar_idx in range(len(prog)):
     b0 = bar_idx * BEATS_PER_BAR
     bass_notes.append((b0, 3.5, bass_roots[bar_idx], 98))
     for k, p in enumerate(voicings[bar_idx]):
-        chord_notes.append((b0 + k * 0.02, 3.6 - k * 0.02, p, 78 if k < len(voicings[bar_idx]) - 1 else 86))
-# Mélodie A - A' - A''(Apex C5=72) - B(Gap-Fill + silence 14.2..16.0) dans C minor
+        chord_notes.append((b0 + k * 0.02, 3.6 - k * 0.02, p, 76 if k < len(voicings[bar_idx]) - 1 else 84))
+
+# Exemple de motif neutre/sombre en C minor (MIDI 60-68, mouvement descendant Ab4->G4->Eb4)
 lead_notes = [
-    (0.0, 0.9, 67, 94), (1.0, 0.45, 70, 82), (1.5, 0.9, 67, 88), (2.5, 0.85, 65, 78),    # A
-    (4.0, 0.9, 63, 92), (5.0, 0.45, 65, 80), (5.5, 0.9, 67, 86), (6.5, 0.85, 65, 76),    # A'
-    (8.0, 0.9, 67, 96), (9.0, 0.45, 70, 102), (9.5, 0.9, 72, 106), (10.5, 0.85, 70, 90), # A'' Apex
-    (12.0, 0.9, 65, 92), (13.0, 1.2, 67, 84),                                             # B + silence
+    (0.0, 0.9, 68, 92), (1.0, 0.45, 67, 82), (1.5, 0.9, 63, 78), (2.5, 0.85, 60, 74),   # A: Ab4->G4->Eb4->C4
+    (4.0, 0.9, 68, 90), (5.0, 0.45, 67, 80), (5.5, 0.9, 63, 76),                         # A': répétition + silence
+    (8.0, 0.9, 68, 94), (9.0, 0.45, 65, 84), (9.5, 0.9, 63, 80), (10.5, 0.85, 60, 76),   # A'': tension descendante
+    (12.0, 0.9, 63, 86), (13.0, 1.2, 60, 76),                                            # B: retombée + silence
 ]
 
 # 3. Export master_sketch.mid + GATE BLOQUANT (0 appel Gridline avant PASS !)
@@ -201,15 +215,21 @@ for name, notes in [("Bass", bass_notes), ("Chords", chord_notes), ("Lead", lead
     pm.instruments.append(inst)
 sketch_path = f"{PROJ_DIR}/master_sketch.mid"
 pm.write(sketch_path)
-verify_midi_gate(sketch_path, expected_key=KEY_STR, max_pitch=84)  # Lève RuntimeError si FAIL
+max_pitch = 72 if valence < 0 else 76
+verify_midi_gate(sketch_path, expected_key=KEY_STR, max_pitch=max_pitch, valence=valence, tension=tension)
 
-# 4. Build Gridline atomique (1 session MCP)
+# 4. Build Gridline atomique (1 session MCP) — RÈGLE ABSOLUE : 1 sonorité = 1 canal + 1 insert + 1 pattern dédié + 1 piste Playlist nommée
 proj_path = f"{PROJ_DIR}/projet.gridline"
 shutil.copyfile(TEMPLATE_EMPTY_MIXER, proj_path)
 mcp = GridlineMCP(proj_path, f"{PROJ_DIR}/exports")
-mcp.call("set_song", {"bpm": BPM, "numerator": BEATS_PER_BAR, "denominator": 4})
-setup_standard_buses(mcp, bpm=BPM, profile=PROFILE)
-# add_channel(..., mixer=1..N) -> edit_mixer_track(routeTo=17/18/19) -> set_notes (en beats !) -> add_clip -> save_project
+mcp.call("set_song", {"tempo": BPM, "numerator": BEATS_PER_BAR, "denominator": 4})
+setup_standard_buses(mcp, bpm=BPM, profile=PROFILE, valence=valence)
+# OBLIGATOIRE : configurer LPF Cutoff sur chaque canal synthé gl.* (ou gl.eq High cut sur son insert)
+# Ex. Pads/Chords LPF 2.5-5.5 kHz ; Lead LPF 4.0-7.5 kHz ; FM/Cloches LPF <= 7.0 kHz + Peak -3dB @ 3200Hz
+# Créer 1 canal + 1 insert dédié + 1 pattern dédié par sonorité (ex. Pat 1=Bass -> Track 1, Pat 2=Chords -> Track 2, Pat 3=Lead -> Track 3)
+# add_channel(..., mixer=N) -> edit_mixer_track(mixer=N, routeTo=17/18/19) -> set_notes (1 canal par pattern !) -> add_clip(pattern=P, track=N, start=0.0)
+# Nommer toutes les pistes Playlist via Lua :
+# mcp.call("run_script", {"code": "function apply() project.playlist.setTrackName(1, 'Bass') project.playlist.setTrackName(2, 'Chords') project.playlist.setTrackName(3, 'Lead') end"})
 assert not check_pattern_audibility(mcp, min_lufs=-22.0), "Pattern silencieux ou trop faible!"
 mcp.call("save_project", {})
 mcp.close()

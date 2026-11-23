@@ -1,0 +1,250 @@
+{
+  "title": "Brume de Minuit (Validation Fm)",
+  "genre": "Dark Trap / Cloud Mélancolique",
+  "mood": "sombre, mélancolique, feutré, sans agressivité",
+  "mix_profile": "trap_rap",
+  "emotion_vector": {
+    "valence": -0.75,
+    "tension": 0.55,
+    "energy": 0.65,
+    "depth": 0.7
+  },
+  "bpm": 132.0,
+  "time_signature": {
+    "numerator": 4,
+    "denominator": 4
+  },
+  "key": "F minor",
+  "swing": 0.08,
+  "target_lufs": -11.0,
+  "harmonic_core": {
+    "key": "F",
+    "mode": "aeolian",
+    "progression_bars": 4,
+    "chord_progression": [
+      {
+        "bar": 1,
+        "symbol": "Fm7",
+        "bass_midi": 29,
+        "voicing_midi": [
+          48,
+          53,
+          56,
+          63
+        ],
+        "chord_tones_pc": [
+          5,
+          8,
+          0,
+          3
+        ]
+      },
+      {
+        "bar": 2,
+        "symbol": "Dbmaj7",
+        "bass_midi": 37,
+        "voicing_midi": [
+          48,
+          53,
+          56,
+          61
+        ],
+        "chord_tones_pc": [
+          1,
+          5,
+          8,
+          0
+        ]
+      },
+      {
+        "bar": 3,
+        "symbol": "Bbm7",
+        "bass_midi": 34,
+        "voicing_midi": [
+          53,
+          56,
+          58,
+          61
+        ],
+        "chord_tones_pc": [
+          10,
+          1,
+          5,
+          8
+        ]
+      },
+      {
+        "bar": 4,
+        "symbol": "Fm",
+        "bass_midi": 29,
+        "voicing_midi": [
+          53,
+          56,
+          60
+        ],
+        "chord_tones_pc": [
+          5,
+          8,
+          0
+        ]
+      }
+    ],
+    "motif_cell": {
+      "intervals_from_tonic": [
+        3,
+        2,
+        0,
+        -2
+      ],
+      "rhythm_beats": [
+        0.0,
+        1.0,
+        1.5,
+        2.5
+      ],
+      "apex_midi": 68
+    },
+    "phrase_plan": "A-A'-A''-B"
+  },
+  "structure": [
+    {
+      "section": "Intro",
+      "start_bar": 1,
+      "bars": 4,
+      "energy": 0.3,
+      "active_roles": [
+        "chords",
+        "lead"
+      ]
+    },
+    {
+      "section": "Couplet",
+      "start_bar": 5,
+      "bars": 8,
+      "energy": 0.6,
+      "active_roles": [
+        "chords",
+        "bass",
+        "drums",
+        "lead"
+      ]
+    },
+    {
+      "section": "Refrain1",
+      "start_bar": 13,
+      "bars": 8,
+      "energy": 0.9,
+      "active_roles": [
+        "chords",
+        "bass",
+        "drums",
+        "lead",
+        "counter"
+      ]
+    },
+    {
+      "section": "Pont",
+      "start_bar": 21,
+      "bars": 4,
+      "energy": 0.35,
+      "active_roles": [
+        "chords",
+        "counter"
+      ]
+    },
+    {
+      "section": "Climax",
+      "start_bar": 25,
+      "bars": 4,
+      "energy": 1.0,
+      "active_roles": [
+        "chords",
+        "bass",
+        "drums",
+        "lead",
+        "counter"
+      ]
+    },
+    {
+      "section": "Outro",
+      "start_bar": 29,
+      "bars": 5,
+      "energy": 0.25,
+      "active_roles": [
+        "chords",
+        "lead"
+      ]
+    }
+  ],
+  "frequency_plan": {
+    "sub_20_60": "808 mono pure (Voices=1, LPF 1.8 kHz, Root=24, Fine=-14ct)",
+    "bass_60_250": "Kick tight mono + 808 sidechainée 5:1",
+    "low_mids_250_500": "Pad gl.analog LPF 3.2 kHz, creux -2.5 dB @ 450 Hz",
+    "mids_500_4000": "Lead gl.keys Soft Muffle 3.6 kHz + LPF 4.8 kHz + creux -2.5 dB @ 3.2 kHz",
+    "highs_4000_20000": "Hi-hats doux LPF 11 kHz + micro-variations vélocité/pitch"
+  },
+  "tracks": [
+    {
+      "name": "Kick",
+      "role": "kick",
+      "source_type": "sample",
+      "mixer_track": 1,
+      "pan": 0.0
+    },
+    {
+      "name": "Clap",
+      "role": "snare",
+      "source_type": "sample",
+      "mixer_track": 2,
+      "pan": 0.0
+    },
+    {
+      "name": "SnareLayer",
+      "role": "snare",
+      "source_type": "sample",
+      "mixer_track": 3,
+      "pan": 0.04
+    },
+    {
+      "name": "HiHat",
+      "role": "hat",
+      "source_type": "sample",
+      "mixer_track": 4,
+      "pan": -0.18
+    },
+    {
+      "name": "808 Bass",
+      "role": "bass",
+      "source_type": "sample",
+      "mixer_track": 5,
+      "pan": 0.0
+    },
+    {
+      "name": "Chords Pad",
+      "role": "chords",
+      "source_type": "gridline_native",
+      "plugin": "gl.analog",
+      "preset": "Velvet Pad",
+      "mixer_track": 6,
+      "pan": 0.0
+    },
+    {
+      "name": "Lead Keys",
+      "role": "lead",
+      "source_type": "gridline_native",
+      "plugin": "gl.keys",
+      "preset": "Soft",
+      "mixer_track": 7,
+      "pan": 0.0
+    },
+    {
+      "name": "Counter Plk",
+      "role": "counter",
+      "source_type": "gridline_native",
+      "plugin": "gl.pluck",
+      "preset": "Muted",
+      "mixer_track": 8,
+      "pan": 0.22
+    }
+  ]
+}

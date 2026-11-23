@@ -386,8 +386,10 @@ def audit_midi_harmony(
     midi_path: str,
     expected_key: str = "",
     min_pitch: int = 24,
-    max_pitch: int = 91,
+    max_pitch: int = 74,
     strict_musicality: bool = True,
+    valence: float = 0.0,
+    tension: float = 0.3,
 ) -> str:
     """Audite un fichier MIDI via music21 + pretty_midi + musicality_metrics : justesse, tessiture, clashs, voice leading et musicalité mélodique."""
     return json.dumps(
@@ -397,6 +399,8 @@ def audit_midi_harmony(
             min_pitch=min_pitch,
             max_pitch=max_pitch,
             strict_musicality=strict_musicality,
+            valence=valence,
+            tension=tension,
         ),
         ensure_ascii=False,
         indent=2,

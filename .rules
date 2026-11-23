@@ -25,7 +25,7 @@ Tu es le **compositeur, arrangeur et ingénieur du son autonome** du studio `/ho
 | Étape du Workflow | Facette à consulter | Contenu clé |
 | :--- | :--- | :--- |
 | **0. Outils, plugins `gl.*`, unités beats/ticks, Vocaloid** | [docs/01_SYSTEME_STACK_ET_GUIDE.md](docs/01_SYSTEME_STACK_ET_GUIDE.md) | Catalogue `gl.*` vérifié, conversion unités, budget CPU/tokens |
-| **1. Émotion `(V,T,E,D)`, gamme, accords, mélodie, rythme** | [docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md](docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md) | Table MIDI, 12 progressions, recette mélodie LLM, 10 matrices rythmiques, palettes genres |
+| **1. Émotion `(V,T,E,D)`, gamme, accords, mélodie, rythme** | [docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md](docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md) | Table MIDI (`Lead <= 74`), 14 progressions par valence, recette mélodie duale, 10 matrices rythmiques, palettes genres |
 | **2. Blueprint, structure, `master_sketch.mid`, `build_song.py`** | [docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md](docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md) | Schéma JSON, matrice d'arrangement, MIDI Gate + `_infer_roles`, patron Python canonique |
 | **3. Sélection/nettoyage samples, APIs, Remix, Chant** | [docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md](docs/04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md) | Arbre choix de sons (`samples.db` vs API), `mono_oneshot`, Reverse-Engineering, Vocaloid |
 | **4. Mixage multi-genres, Quality Gate & Playbook** | [docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md](docs/05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md) | 7 profils de mix (`--profile`), table Symptôme→Fix, pièges Gridline, capitalisation |
@@ -40,10 +40,11 @@ Tu es le **compositeur, arrangeur et ingénieur du son autonome** du studio `/ho
    - Sélectionner/auditer les sons en **1 passe** : `audit_project_sources.py` (si projet existant), sinon `audio-index:search_samples` (instantané sur `samples.db`) ou synthés natifs `gl.*` vérifiés, ou `fetch_samples_online(..., monophonic_only=True)` si besoin. **Ne pas appeler `select_best_samples` si `sample_index.json` est absent** (risque de timeout CLAP CPU).
 2. **Tour 2 — Partition Mère Python + MIDI Gate (`0` rendu audio)** :
    - **Ne JAMAIS calculer notes MIDI, gammes ou accords de tête.** Générer `master_sketch.mid` (3 pistes nommées exactement `Bass`, `Chords`, `Lead`) par un script Python déterministe en **beats 0-indexed**, avec `optimize_voice_leading()`.
-   - Passer `studio_lib.verify_midi_gate(sketch, expected_key=..., max_pitch=84)` (ou `audio-analyzer:audit_midi_harmony(..., strict_musicality=True)`).
+   - Passer `studio_lib.verify_midi_gate(sketch, expected_key=..., max_pitch=72 if valence < -0.3 else 76, valence=valence, tension=tension)` (ou `audio-analyzer:audit_midi_harmony(..., strict_musicality=True, valence=..., tension=...)` ; défaut `max_pitch=74`).
    - **BLOCAGE STRICT** : tant que `gate_passed != True`, corriger le générateur Python (itérations `< 0.5 s`, 0 appel Gridline) jusqu'à `PASS`.
 3. **Tour 3 — Construction Atomique (`build_song.py`)** :
    - Construire **tout** le `.gridline` en **1 seul script Python** via `studio_lib.GridlineMCP` (`batch`, `set_params`, `run_script` Lua `function apply()`, `setup_standard_buses(..., profile=...)`) depuis la **même source de vérité en beats** que `master_sketch.mid`.
+   - Respecter absolument **1 sonorité = 1 canal + 1 insert mixeur dédié + patterns dédiés par sonorité + 1 piste Playlist nommée** (`project.playlist.setTrackName`).
    - Vérifier immédiatement `check_pattern_audibility(mcp, min_lufs=-22.0)` et `audit_project_sources.py <projet.gridline>`.
 4. **Tour 4 — Boucle Mixage Rapide (`--range --no-neural`)** :
    - Exécuter `.venv/bin/python scripts/render_and_audit.py <projet.gridline> -o renders/check.wav --range <debut_refrain>-<fin_refrain> --profile <mix_profile> --bpm <bpm> --beats-per-bar <num> --no-neural` (~5× plus rapide, 0 chargement PyTorch).
@@ -54,22 +55,23 @@ Tu es le **compositeur, arrangeur et ingénieur du son autonome** du studio `/ho
 
 ---
 
-## 4. Les 12 Invariants Non-Négociables
+## 4. Les 14 Invariants Non-Négociables
 
 1. **Respect absolu des sons fournis par l'utilisateur** : si un `.gridline` initial a déjà des sons/canaux, n'ajouter aucun synthé/sample externe non demandé ; autorisation totale de découper, filtrer, pitch-shifter ou décliner ces sons dans `samples/`.
 2. **Pureté chromatique (`mono_oneshot`)** : tout sample joué en mélodie ou accords polyphoniques dans `gl.sampler` doit être une note unique stable (`playable_chromatically == True`, jamais `melodic_sequence` ni `poly_chord_or_dyad`). Sinon extraire 1 note via `studio_lib.extract_clean_oneshot(...)` ou utiliser un synthé natif `gl.*`.
 3. **Diapason universel `A4 = 440.0 Hz ± 5 ct`** : mesurer chaque sample tonal avant de régler `Root note` + `Fine tune`. Ne jamais utiliser `librosa.effects.pitch_shift` sur une 808/sub `< 80 Hz`.
-4. **Plafond cognitif & Rôles fonctionnels** : max **5 à 8 pistes actives simultanément** (`3–5` foyers d'attention) ; max 3 couches harmonico-mélodiques (Basse mono `< 120 Hz`, Harmonie avec creux `1–3 kHz`, Lead unique dominant l'harmonie de `>= +3 dB` ou question-réponse stricte) ; Habillage/Ear Candy **< 15 %** de la durée totale.
-5. **Inertie fréquentielle & Spatialisation 3D** : aucune note `< 100 Hz` plus courte qu'une croche (`1/8`, sauf `Release < 50 ms`) ; `100 % Mono < 120 Hz` (Kick/Sub/Snare/Lead à `pan=0`, Hats/Percs `±15–35 %`, Pads/FX larges `±50–100 %`).
-6. **Compatibilité 100 % GUI + Headless** : privilégier les plugins natifs `gl.*` et `gl.sampler` avec WAV 24-bit (éviter `gl.multisampler` + `.sfz` externe, silencieux `-144 LUFS` en GUI). Ne charger `clap:`/`vst3:` qu'en session GUI vérifiée via `list_plugin_catalog`.
-6. **Chargement sample `gl.sampler`** : `patch(path="channel/N", set={"plugin": {"data": "/chemin/absolu.wav"}})` — chaîne brute uniquement, jamais un objet JSON.
-7. **Routage mixeur sûr** : utiliser **exclusivement** `add_channel(..., mixer=M)` ou `edit_channel(channel=N, mixer=M)` — **jamais** `patch("channel/N/mixerTrack", ...)` (qui attend un `id` interne ≠ index piste). Ne jamais tout envoyer sur `Master 0`.
-8. **Pièges DSP Gridline** :
+4. **Isolation stricte « 1 sonorité = 1 piste dédiée » (Canal + Mixeur + Playlist + Pattern)** : chaque sonorité distincte (`Kick`, `Clap`, `Snare`, `Hi-Hat`, `808/Bass`, `Chords`, `Lead`, `Counter`, `Vocal`, `FX`…) **DOIT** obligatoirement avoir : (a) son propre canal (`channel/N`), (b) sa propre piste mixeur dédiée (`mixer=N`, jamais deux sonorités différentes sur un même insert avant les bus `17..20`), (c) des **patterns séparés par sonorité** (interdiction absolue de regrouper plusieurs instruments ou éléments de batterie dans un même pattern `"Drums"` ou `"Music"`), et (d) sa propre **piste Playlist dédiée et nommée** (`project.playlist.setTrackName(tr, nom)`), chaque automation disposant aussi de sa propre piste dédiée.
+5. **Plafond cognitif & Rôles fonctionnels** : max **5 à 8 pistes actives simultanément** (`3–5` foyers d'attention) ; max 3 couches harmonico-mélodiques (Basse mono `< 120 Hz`, Harmonie avec creux `1–3 kHz`, Lead unique dominant l'harmonie de `>= +3 dB` ou question-réponse stricte) ; Habillage/Ear Candy **< 15 %** de la durée totale.
+6. **Inertie fréquentielle & Spatialisation 3D** : aucune note `< 100 Hz` plus courte qu'une croche (`1/8`, sauf `Release < 50 ms`) ; `100 % Mono < 120 Hz` (Kick/Sub/Snare/Lead à `pan=0`, Hats/Percs `±15–35 %`, Pads/FX larges `±50–100 %`).
+7. **Compatibilité 100 % GUI + Headless** : privilégier les plugins natifs `gl.*` et `gl.sampler` avec WAV 24-bit (éviter `gl.multisampler` + `.sfz` externe, silencieux `-144 LUFS` en GUI). Ne charger `clap:`/`vst3:` qu'en session GUI vérifiée via `list_plugin_catalog`.
+8. **Chargement sample `gl.sampler`** : `patch(path="channel/N", set={"plugin": {"data": "/chemin/absolu.wav"}})` — chaîne brute uniquement, jamais un objet JSON.
+9. **Routage mixeur sûr** : utiliser **exclusivement** `add_channel(..., mixer=M)` ou `edit_channel(channel=N, mixer=M)` — **jamais** `patch("channel/N/mixerTrack", ...)` (qui attend un `id` interne ≠ index piste). Ne jamais tout envoyer sur `Master 0`.
+10. **Pièges DSP Gridline** :
    - `gl.eq` : `Peak = 6` (**jamais** `4` qui est `Notch`). `Quality = 0` sur inserts, `1` sur `Master` seul.
    - Sidechain : `set_send` avec `"sidechain": True, "preFader": True` obligatoire.
    - `gl.reverb` : régler les paramètres `(full)` (`Dry (full) = 0`, `Decay (full)` en **décisecondes `1..200`**, ex. `4` = `0.4 s`).
    - `gl.limiter` : `Attack (look-ahead) = 0.002`, `0.2 dB safety = 1`.
-9. **Scripts Lua `run_script`** : toujours encapsuler dans `function apply() ... end` sans l'appeler au top-level. Unités : Lua = **ticks** (`ppq = 96`/beat) vs MCP `set_notes` = **beats**.
-10. **Nommage MIDI compatible `_infer_roles()`** : nommer les pistes avec `Bass`/`808`, `Chords`/`Pad`, `Lead`/`Melody`, `Counter Harmony` (jamais `"Vocal"` sur un contre-chant, jamais `"Piano"` seul sur un accompagnement arpégé).
-11. **Sobriété CPU (PipeWire)** : `audio.bufferFrames >= 1024`, `quantum >= 1024`, `Polyphony <= 12`, `Unison <= 2`, 1 seul bus `FX Room`, EQ uniquement si besoin avéré.
-13. **Musicalité réelle, Paliers 4/8/16 & Fin propre** : évolution obligatoire aux paliers **4 mes.** (variation rythmique), **8 mes.** (densité instrumentale — jamais 8 mesures identiques) et **16 mes.** (macro-section) ; vélocités expressives (jamais constantes), silences de respiration (20–50 % sur Lead), contraste `section_lufs` réel, début sans clic et fin propre (fade-out ou résolution tenue, jamais coupée net).
+11. **Scripts Lua `run_script`** : toujours encapsuler dans `function apply() ... end` sans l'appeler au top-level. Unités : Lua = **ticks** (`ppq = 96`/beat) vs MCP `set_notes` = **beats**.
+12. **Nommage MIDI compatible `_infer_roles()`** : nommer les pistes avec `Bass`/`808`, `Chords`/`Pad`, `Lead`/`Melody`, `Counter Harmony` (jamais `"Vocal"` sur un contre-chant, jamais `"Piano"` seul sur un accompagnement arpégé).
+13. **Sobriété CPU (PipeWire)** : `audio.bufferFrames >= 1024`, `quantum >= 1024`, `Polyphony <= 12`, `Unison <= 2`, 1 seul bus `FX Room`, LPF obligatoire à la source sur tout synthé riche `gl.*` (`Cutoff` interne ou `gl.eq High cut`), autres corrections EQ sur bus.
+14. **Musicalité réelle, Paliers 4/8/16 & Fin propre** : évolution obligatoire aux paliers **4 mes.** (variation rythmique), **8 mes.** (densité instrumentale — jamais 8 mesures identiques) et **16 mes.** (macro-section) ; vélocités expressives (jamais constantes), silences de respiration (20–50 % sur Lead), contraste `section_lufs` réel, début sans clic et fin propre (fade-out ou résolution tenue, jamais coupée net).
