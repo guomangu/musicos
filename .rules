@@ -42,10 +42,11 @@ Tu es le **compositeur, arrangeur et ingénieur du son autonome** du studio `/ho
    - **Ne JAMAIS calculer notes MIDI, gammes ou accords de tête.** Générer `master_sketch.mid` (3 pistes nommées exactement `Bass`, `Chords`, `Lead`) par un script Python déterministe en **beats 0-indexed**, avec `optimize_voice_leading()`.
    - Passer `studio_lib.verify_midi_gate(sketch, expected_key=..., max_pitch=72 if valence < -0.3 else 76, valence=valence, tension=tension)` (ou `audio-analyzer:audit_midi_harmony(..., strict_musicality=True, valence=..., tension=...)` ; défaut `max_pitch=74`).
    - **BLOCAGE STRICT** : tant que `gate_passed != True`, corriger le générateur Python (itérations `< 0.5 s`, 0 appel Gridline) jusqu'à `PASS`.
-3. **Tour 3 — Construction Atomique (`build_song.py`)** :
-   - Construire **tout** le `.gridline` en **1 seul script Python** via `studio_lib.GridlineMCP` (`batch`, `set_params`, `run_script` Lua `function apply()`, `setup_standard_buses(..., profile=..., valence=...)`) depuis la **même source de vérité en beats** que `master_sketch.mid`.
+3. **Tour 3 — Construction Atomique (`build_song.py` via `song_builder.py`)** :
+   - Préparer/dériver les samples via **`scripts/sample_prep_lib.py`** (`process_sample_specs()` + `audit_samples_manifest()` — zéro réécriture des fonctions DSP).
+   - Construire **tout** le `.gridline` en **1 seul script court** via **`scripts/song_builder.py`** (`load_blueprint`, `degree_to_midi`, `ChannelSpec`, `eq_insert` / `eq_music_pocket` / `eq_kick_clean`, `build_gridline_project` / `run_song_cli`) depuis la **même source de vérité en beats** que `master_sketch.mid` (ne jamais réécrire `export_master_sketch`, la boucle patterns/clips ou le câblage MCP à la main).
    - Respecter absolument **1 sonorité = 1 canal + 1 insert mixeur dédié + patterns dédiés par sonorité + 1 piste Playlist nommée** (`project.playlist.setTrackName`).
-   - Vérifier immédiatement `check_pattern_audibility(mcp, min_lufs=-22.0)` et `audit_project_sources.py <projet.gridline>`.
+   - Vérifier immédiatement `check_pattern_audibility(mcp, min_lufs=-22.0)` (inclus dans `build_gridline_project`) et `audit_project_sources.py <projet.gridline>`.
 4. **Tour 4 — Boucle Mixage Rapide (`--range --no-neural`)** :
    - Exécuter `.venv/bin/python scripts/render_and_audit.py <projet.gridline> -o renders/check.wav --range <debut_refrain>-<fin_refrain> --profile <mix_profile> --bpm <bpm> --beats-per-bar <num> --no-neural` (~5× plus rapide, 0 chargement PyTorch).
    - Appliquer les corrections exactes via la table Symptôme→Fix (Facette 5 §3) en **1 à 2 itérations max**.

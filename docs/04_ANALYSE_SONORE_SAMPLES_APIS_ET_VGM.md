@@ -74,6 +74,7 @@ Répond en quelques millisecondes à *« Voix ? Chant lent ? Chant continu ? »*
   * **One-shots courts (`< 2.5 s`, percussions)** : `clean_audio_sample(..., max_peak=0.85, fade_in_ms=2.0, fade_out_ms=15.0)` (**peak norm `-1.0 dBFS`**, jamais `loudnorm`).
   * **Boucles / Pads (`>= 2.5 s`)** : `pcm_s24le 44.1 kHz`, `loudnorm` doux (`I=-14:TP=-1.0:LRA=11`), et `stabilize_stereo_low_mid(...)` (`< 650 Hz`) si `low_mid_corr < 0.65`.
   * **Extraction 1 note pure** : `extract_clean_oneshot(in_path, out_path, start_s=0.0, max_dur_s=0.65, fade_in_ms=2.0, fade_out_ms=25.0)`.
+  * **Pipeline déclaratif centralisé (`scripts/sample_prep_lib.py`)** : toujours utiliser `process_sample_specs(src_dir, out_dir, specs)` (gère découpage `slice_s`, `eq_peaks`, `varispeed_hz`, `pitch_shift_st`, `saturate_drive`, `time_stretch_rate`, `reverse`, `stabilize_low_mid`, nettoyage 24-bit et audit `manifest.json` avec `measure_fft_tuning()`). **Signe exact `gl.sampler Fine tune`** : `+X` monte de `+X ct`, `-X` baisse de `-X ct` (`recommended_gl_fine_tune_ct = -round(fft_cents_offset)`).
 
 ---
 

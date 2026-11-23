@@ -158,80 +158,45 @@ Le cortex auditif humain ne suit simultanément que **3 à 5 foyers d'attention*
 
 ## Chapitre 6 — Patron Canonique Minimal `build_song.py` (Piloté par `song_blueprint.json`)
 
-> **Modèle de référence** : Toujours charger `BPM`, `KEY_STR`, `PROFILE`, `emotion_vector` et l'harmonie depuis `song_blueprint.json` (aucune constante pop/majeure codée en dur). L'exemple ci-dessous illustre un motif neutre/sombre en `C minor` (`Cm -> Ab -> Fm -> Cm`, registre `MIDI 60–68`, mouvement descendant `Ab4 -> G4 -> Eb4`), exécutable en `< 3 s`.
+> **Modèle de référence (Centralisé via `scripts/song_builder.py`)** : Ne **jamais** réécrire la plomberie (`pretty_midi`, `GridlineMCP`, création des patterns/clips par section, nommage Playlist, EQ tuples). Importer `song_builder.py` (`load_blueprint`, `degree_to_midi`, `ChannelSpec`, `eq_insert`, `eq_music_pocket`, `eq_kick_clean`, `run_song_cli`) afin de n'écrire dans `build_song.py` que la logique musicale du morceau.
 
 ```python
 #!/usr/bin/env python3
-import json, os, shutil, sys
-import pretty_midi
+import sys
+sys.path.insert(0, "/home/gamo/Bureau/musicos/scripts")
+from song_builder import (
+    ChannelSpec, degree_to_midi, eq_insert, eq_kick_clean,
+    eq_music_pocket, optimize_voice_leading, run_song_cli,
+)
 
-ROOT = "/home/gamo/Bureau/musicos"
-sys.path.extend([f"{ROOT}/scripts", f"{ROOT}/mcp-servers/audio-analyzer"])
-from studio_lib import GridlineMCP, TEMPLATE_EMPTY_MIXER, setup_standard_buses, verify_midi_gate, check_pattern_audibility
-from musicality_metrics import optimize_voice_leading
+PROJ_DIR = "/home/gamo/Bureau/morceaux/mon_morceau"
+SECTIONS = [("Intro", 0, 8, "intro"), ("Drop1", 8, 16, "drop1"), ("Outro", 24, 8, "outro")]
 
-PROJ_DIR = f"{ROOT}/projects/active"
-os.makedirs(PROJ_DIR, exist_ok=True)
+def generate(meta):
+    voicings = optimize_voice_leading([[0, 3, 7], [8, 0, 3], [5, 8, 0], [0, 3, 7]], 48, 65)
+    bass_roots = [36, 44, 41, 36]
+    tracks = {"kick": [], "808": [], "chords": [], "lead": []}
+    markers = [{"name": s, "position": float(b * meta["beats_per_bar"])} for s, b, _, _ in SECTIONS]
+    # ... remplir tracks en beats 0-indexed selon SECTIONS (A - A' - A'' - B) ...
+    return tracks, markers
 
-# 0. Charger la configuration depuis song_blueprint.json (jamais hardcoder un genre/mode par défaut)
-with open(f"{PROJ_DIR}/song_blueprint.json", encoding="utf-8") as fh:
-    bp = json.load(fh)
-BPM = float(bp["bpm"])
-BEATS_PER_BAR = int(bp["time_signature"]["numerator"])
-KEY_STR = bp["key"]
-PROFILE = bp.get("mix_profile", "trap_rap")
-ev = bp.get("emotion_vector", {})
-valence = float(ev.get("valence", 0.0))
-tension = float(ev.get("tension", 0.3))
-
-# 1. Harmonie issue du blueprint (ex. Cm -> Ab -> Fm -> Cm en C minor)
-prog = bp["harmonic_core"]["chord_progression"]
-chord_pcs = [c.get("chord_tones_pc") or [0, 3, 7] for c in prog]  # défaut Cm=[0,3,7]
-bass_roots = [int(c["bass_midi"]) for c in prog]                   # ex. [36, 44, 41, 36]
-voicings = optimize_voice_leading(chord_pcs, low_midi=48, high_midi=65)
-
-# 2. Notes en BEATS 0-indexed (Single Source of Truth: (start_beat, dur_beat, midi_pitch, velocity))
-bass_notes, chord_notes = [], []
-for bar_idx in range(len(prog)):
-    b0 = bar_idx * BEATS_PER_BAR
-    bass_notes.append((b0, 3.5, bass_roots[bar_idx], 98))
-    for k, p in enumerate(voicings[bar_idx]):
-        chord_notes.append((b0 + k * 0.02, 3.6 - k * 0.02, p, 76 if k < len(voicings[bar_idx]) - 1 else 84))
-
-# Exemple de motif neutre/sombre en C minor (MIDI 60-68, mouvement descendant Ab4->G4->Eb4)
-lead_notes = [
-    (0.0, 0.9, 68, 92), (1.0, 0.45, 67, 82), (1.5, 0.9, 63, 78), (2.5, 0.85, 60, 74),   # A: Ab4->G4->Eb4->C4
-    (4.0, 0.9, 68, 90), (5.0, 0.45, 67, 80), (5.5, 0.9, 63, 76),                         # A': répétition + silence
-    (8.0, 0.9, 68, 94), (9.0, 0.45, 65, 84), (9.5, 0.9, 63, 80), (10.5, 0.85, 60, 76),   # A'': tension descendante
-    (12.0, 0.9, 63, 86), (13.0, 1.2, 60, 76),                                            # B: retombée + silence
+CHANNELS = [
+    ChannelSpec("Kick", "kick", 1, "drums", volume=0.68, sample_file="kick.wav", one_shot=1, sidechain_buses=[(18, 0.72), (19, 0.50)]),
+    ChannelSpec("808", "808", 2, "bass", volume=0.46, sample_file="808.wav", root_note=24, fine_tune=None, voices=1, release=0.05),
+    ChannelSpec("Chords", "chords", 3, "music", volume=0.76, sample_file="bell_c5.wav", root_note=72, voices=12, attack=0.06, release=0.42, lpf_hz=2800.0, fx_send=0.14),
+    ChannelSpec("Lead", "lead", 4, "music", volume=0.96, sample_file="bell_c5.wav", root_note=72, voices=4, attack=0.01, release=0.18, lpf_hz=4800.0, fx_send=0.16),
 ]
 
-# 3. Export master_sketch.mid + GATE BLOQUANT (0 appel Gridline avant PASS !)
-pm = pretty_midi.PrettyMIDI(initial_tempo=BPM)
-b2s = 60.0 / BPM
-for name, notes in [("Bass", bass_notes), ("Chords", chord_notes), ("Lead", lead_notes)]:
-    inst = pretty_midi.Instrument(program=0, name=name)
-    for st, dur, p, vel in notes:
-        inst.notes.append(pretty_midi.Note(vel, p, st * b2s, (st + dur) * b2s))
-    pm.instruments.append(inst)
-sketch_path = f"{PROJ_DIR}/master_sketch.mid"
-pm.write(sketch_path)
-max_pitch = 72 if valence < -0.3 else 76
-verify_midi_gate(sketch_path, expected_key=KEY_STR, max_pitch=max_pitch, valence=valence, tension=tension)
-
-# 4. Build Gridline atomique (1 session MCP) — RÈGLE ABSOLUE : 1 sonorité = 1 canal + 1 insert + 1 pattern dédié + 1 piste Playlist nommée
-proj_path = f"{PROJ_DIR}/projet.gridline"
-shutil.copyfile(TEMPLATE_EMPTY_MIXER, proj_path)
-mcp = GridlineMCP(proj_path, f"{PROJ_DIR}/exports")
-mcp.call("set_song", {"tempo": BPM, "numerator": BEATS_PER_BAR, "denominator": 4})
-setup_standard_buses(mcp, bpm=BPM, profile=PROFILE, valence=valence)
-# OBLIGATOIRE : configurer LPF Cutoff + enveloppe ADSR sur chaque canal synthé gl.* (ou gl.eq High cut sur son insert)
-# Ex. Pads/Chords LPF 2.5-5.5 kHz (Attack 150-400 ms, Release 400-800 ms) ; Lead LPF 4.0-7.5 kHz (Attack 10-30 ms) ; FM/Cloches LPF <= 7.0 kHz + Peak -3dB @ 3200Hz (Band N width = 0.35)
-# Créer 1 canal + 1 insert dédié + 1 pattern dédié par sonorité (ex. Pat 1=Bass -> Track 1, Pat 2=Chords -> Track 2, Pat 3=Lead -> Track 3)
-# add_channel(..., mixer=N) -> edit_mixer_track(mixer=N, routeTo=17/18/19) -> set_notes (1 canal par pattern !) -> add_clip(pattern=P, track=N, start=0.0)
-# Nommer toutes les pistes Playlist via Lua :
-# mcp.call("run_script", {"code": "function apply() project.playlist.setTrackName(1, 'Bass') project.playlist.setTrackName(2, 'Chords') project.playlist.setTrackName(3, 'Lead') end"})
-assert not check_pattern_audibility(mcp, min_lufs=-22.0), "Pattern silencieux ou trop faible!"
-mcp.call("save_project", {})
-mcp.close()
+if __name__ == "__main__":
+    run_song_cli(
+        proj_dir=PROJ_DIR,
+        out_gridline=f"{PROJ_DIR}/MonMorceau.gridline",
+        sections=SECTIONS,
+        channels=CHANNELS,
+        generate_fn=generate,
+        bass_keys=["808"],
+        chords_key="chords",
+        lead_key="lead",
+        insert_eq_params=eq_kick_clean(1) + eq_music_pocket(3) + eq_insert(4, [(1, 1, 250), (4, 6, 1500, 2.5, 0.45), (7, 3, 5500)]),
+    )
 ```
