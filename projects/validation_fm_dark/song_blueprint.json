@@ -189,35 +189,50 @@
       "role": "kick",
       "source_type": "sample",
       "mixer_track": 1,
-      "pan": 0.0
+      "pan": 0.0,
+      "sample_path": "samples/kick_main.wav",
+      "root_note": 36,
+      "fine_tune_ct": 0
     },
     {
       "name": "Clap",
       "role": "snare",
       "source_type": "sample",
       "mixer_track": 2,
-      "pan": 0.0
+      "pan": 0.0,
+      "sample_path": "samples/clap_main.wav",
+      "root_note": 39,
+      "fine_tune_ct": 0
     },
     {
       "name": "SnareLayer",
       "role": "snare",
       "source_type": "sample",
       "mixer_track": 3,
-      "pan": 0.04
+      "pan": 0.04,
+      "sample_path": "samples/clap_main.wav",
+      "root_note": 39,
+      "fine_tune_ct": 0
     },
     {
       "name": "HiHat",
       "role": "hat",
       "source_type": "sample",
       "mixer_track": 4,
-      "pan": -0.18
+      "pan": -0.18,
+      "sample_path": "samples/hh_closed.wav",
+      "root_note": 42,
+      "fine_tune_ct": 0
     },
     {
       "name": "808 Bass",
       "role": "bass",
       "source_type": "sample",
       "mixer_track": 5,
-      "pan": 0.0
+      "pan": 0.0,
+      "sample_path": "samples/808_main_d.wav",
+      "root_note": 38,
+      "fine_tune_ct": 0
     },
     {
       "name": "Chords Pad",

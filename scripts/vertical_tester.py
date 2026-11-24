@@ -120,6 +120,76 @@ def _resolve_role_hints_from_blueprint(bp: dict[str, Any]) -> dict[str, str]:
     return hints
 
 
+def analyze_vertical_stage_session(
+    mcp: Any,
+    stage: str,
+    *,
+    active_channels: list[int],
+    profile: str = "trap_rap",
+    bpm: float = 132.0,
+    loudness_fn: Any = None,
+) -> dict[str, Any]:
+    """In-session vertical check WITHOUT rendering any .wav: probe each active channel's
+    pattern loudness live (`analyze_loudness` scope=pattern while soloing), and verify the
+    layer hierarchy (low end present, lead above harmony, groove present) from levels.
+
+    `loudness_fn(channel, pattern) -> {"lufs": ..., "silent": ...}` is injectable for tests;
+    defaults to solo + `mcp.analyze_loudness`.
+    """
+    st_norm = str(stage).strip().upper()
+    if loudness_fn is None:
+        all_ch = [int(c.get("channel", i)) for i, c in enumerate(mcp.call("list_channels", {}).get("channels", []), start=1)]
+
+        def loudness_fn(ch: int, pattern: int = 1) -> dict[str, Any]:  # type: ignore[no-redef]
+            muted = mcp.solo_channel(ch, all_ch)
+            try:
+                return mcp.analyze_loudness(scope="pattern", pattern=int(pattern))
+            finally:
+                mcp.unsolo(muted, keep_solo=ch)
+
+    per_track: dict[str, dict[str, Any]] = {}
+    for ch in active_channels:
+        info = mcp.call("get_channel", {"channel": ch}) if hasattr(mcp, "call") else {}
+        name = str(info.get("name") or f"ch{ch}")
+        ld = loudness_fn(ch, 1)
+        per_track[name] = {"channel": ch, "lufs": ld.get("lufs"), "silent": bool(ld.get("silent"))}
+
+    def lvl(names: list[str]) -> float | None:
+        vals = [float(v["lufs"]) for k, v in per_track.items() if k in names and v["lufs"] is not None and not v["silent"]]
+        return max(vals) if vals else None
+
+    low_names = [k for k in per_track if any(w in k.lower() for w in ("kick", "808", "bass", "sub"))]
+    lead_names = [k for k in per_track if any(w in k.lower() for w in ("lead", "melody", "bell", "pluck", "vocal"))]
+    harm_names = [k for k in per_track if any(w in k.lower() for w in ("chord", "pad", "keys", "string"))]
+    groove_names = [k for k in per_track if any(w in k.lower() for w in ("snare", "clap", "hat", "perc"))]
+
+    checks: dict[str, bool] = {}
+    low = lvl(low_names)
+    lead = lvl(lead_names)
+    harm = lvl(harm_names)
+    groove = lvl(groove_names)
+    if st_norm in ("V1_LOW_END", "V2_GROOVE", "V3_HARMONY", "V4_LEAD"):
+        checks["low_end_present"] = low is not None and low > -30.0
+    if st_norm in ("V2_GROOVE", "V3_HARMONY", "V4_LEAD"):
+        checks["groove_present"] = groove is None or groove > -30.0
+    if st_norm in ("V3_HARMONY", "V4_LEAD"):
+        checks["harmony_present"] = harm is None or harm > -32.0
+    if st_norm == "V4_LEAD":
+        checks["lead_present"] = lead is not None and lead > -32.0
+        if lead is not None and harm is not None:
+            checks["lead_hierarchy_ok"] = (lead - harm) >= 3.0
+    failed = [k for k, v in checks.items() if not v]
+    return {
+        "verdict": "PASS" if not failed else "FIX",
+        "stage": st_norm,
+        "audition": "session",
+        "checks": checks,
+        "per_track_lufs": per_track,
+        "failed_checks": failed,
+        "fast": True,
+    }
+
+
 def run_vertical_stage(
     project_path: str,
     stage: str,
@@ -133,6 +203,7 @@ def run_vertical_stage(
     use_cache: bool = True,
     diagnostics_dir: str = "",
     keep_tmp: bool = False,
+    audition: str = "render",
 ) -> dict[str, Any]:
     """
     Create a temporary staged copy of `project_path` with only layers `<= stage` unmuted,
@@ -242,6 +313,29 @@ def run_vertical_stage(
             mcp.call("save_project", {})
         finally:
             mcp.close()
+
+        if audition == "session":
+            # In-session audition: no `gridline render`, no .wav -- probe pattern loudness live.
+            mcp2 = GridlineMCP(staged_proj, tmp_dir, client_name=f"vertical_session_{st_norm}")
+            try:
+                res = analyze_vertical_stage_session(
+                    mcp2, st_norm,
+                    active_channels=[int(c.get("channel", i)) for i, c in enumerate(mcp2.call("list_channels", {}).get("channels", []), start=1) if not c.get("muted", False)],
+                    profile=eff_profile, bpm=140.0,
+                )
+            finally:
+                mcp2.close()
+            res["active_tracks"] = active_tracks
+            res["target_layer_tracks"] = target_layer_tracks
+            res["forbidden_tracks"] = forbidden_tracks
+            res["muted_tracks"] = muted_tracks
+            diag_path = os.path.join(eff_diag_dir, f"vertical_{st_norm}.json")
+            with open(diag_path, "w", encoding="utf-8") as fh:
+                json.dump(res, fh, indent=2, ensure_ascii=False)
+            res["diagnostics_path"] = diag_path
+            if use_cache and e2_hash:
+                set_cached_verdict(proj_dir, e2_key, e2_hash, res)
+            return res
 
         stage_wav = os.path.join(out_render_dir, f"{st_norm}.wav")
         cmd = ["gridline", "render", staged_proj, "-o", stage_wav, "--bits", "24"]

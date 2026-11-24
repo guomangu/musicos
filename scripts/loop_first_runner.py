@@ -29,6 +29,7 @@ for _d in (SCRIPTS_DIR, INDEX_DIR, ANALYZER_DIR):
         sys.path.insert(0, _d)
 
 from deep_diagnostics import VERTICAL_STAGES
+from blueprint_safety import summarize_musical_safety
 from indexer import AUDIO_EXTS
 
 PIPELINE_STAGES = (
@@ -309,6 +310,43 @@ class LoopFirstStateMachine:
         }
 
     # --- State Transitions ---
+
+    def apply_palette_to_blueprint(self, palette: dict[str, Any], blueprint_path: str = "") -> dict[str, Any]:
+        """Merge a `propose_palettes` palette's `blueprint_tracks` (carrying detected
+        `root_note` / `fine_tune_ct`) into `<projet>/song_blueprint.json` `tracks[]`.
+
+        This is what guarantees a `gl.sampler` track is never played from a wrong C4
+        root (systematic dissonance on bells/keys otherwise).
+        """
+        bp_path = os.path.abspath(os.path.expanduser(blueprint_path)) if blueprint_path else os.path.join(self.project_dir, "song_blueprint.json")
+        bp: dict[str, Any] = {}
+        if os.path.isfile(bp_path):
+            with open(bp_path, encoding="utf-8") as fh:
+                bp = json.load(fh)
+        tracks = bp.setdefault("tracks", [])
+        if not isinstance(tracks, list):
+            tracks = []
+            bp["tracks"] = tracks
+        by_role = {str(t.get("role", "")).lower(): t for t in tracks if isinstance(t, dict)}
+        merged = 0
+        for tr in (palette.get("blueprint_tracks") or []):
+            role = str(tr.get("role", "")).lower()
+            if role and role in by_role:
+                by_role[role].update(tr)
+            else:
+                tracks.append(dict(tr))
+            merged += 1
+        tmp = bp_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(bp, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp, bp_path)
+        cat_path = os.path.join(os.path.dirname(bp_path), "samples_catalog.json")
+        safety = summarize_musical_safety(bp, catalog_path=cat_path if os.path.isfile(cat_path) else None)
+        self.state["palette_blueprint_written"] = True
+        self.state["palette_blueprint_tracks"] = merged
+        self.state["musical_safety"] = safety
+        self.save()
+        return {"blueprint_path": bp_path, "tracks_merged": merged, "musical_safety": safety}
 
     def select_palette(
         self,

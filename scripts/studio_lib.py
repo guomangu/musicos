@@ -176,6 +176,45 @@ class GridlineMCP:
             chunk = [{"path": p, "value": v} for p, v in changes[i : i + chunk_size]]
             self.call("set_parameters", {"changes": chunk})
 
+    # --- In-session audition (no .wav render needed) ---
+
+    def analyze_loudness(self, scope: str = "pattern", **kw: Any) -> dict[str, Any]:
+        """In-session loudness probe (pattern/playlist/song) straight from the live Gridline session."""
+        args: dict[str, Any] = {"scope": scope}
+        args.update(kw)
+        return self.call("analyze_loudness", args)
+
+    def play_transport(self, action: str = "play") -> bool:
+        """Best-effort transport control (play/stop/pause) on the live session. Returns False if unsupported."""
+        for tool in (action, "transport", "set_playing"):
+            try:
+                self.call(tool, {"action": action} if tool != action else {})
+                return True
+            except Exception:
+                continue
+        return False
+
+    def set_channel_muted(self, channel: int, muted: bool) -> None:
+        self.call("edit_channel", {"channel": int(channel), "muted": bool(muted)})
+
+    def solo_channel(self, channel: int, channels: list[int] | None = None) -> list[int]:
+        """Mute every channel except `channel` (in-session solo). Returns the previously-muted list."""
+        if channels is None:
+            channels = [int(c.get("channel", i)) for i, c in enumerate(self.call("list_channels", {}).get("channels", []), start=1)]
+        muted: list[int] = []
+        for ch in channels:
+            if int(ch) != int(channel):
+                self.set_channel_muted(ch, True)
+                muted.append(int(ch))
+        self.set_channel_muted(channel, False)
+        return muted
+
+    def unsolo(self, muted: list[int], keep_solo: int | None = None) -> None:
+        for ch in muted:
+            self.set_channel_muted(ch, False)
+        if keep_solo is not None:
+            self.set_channel_muted(keep_solo, False)
+
     def close(self) -> None:
         try:
             if self.proc.stdin:
@@ -449,8 +488,8 @@ def setup_standard_buses(
     fx_room: int = 20,
     fx_delay: int = 21,
     fx_hall: int = 22,
-    limiter_ceiling_db: float = -2.35,
-    limiter_gain_db: float = 7.5,
+    limiter_ceiling_db: float = -1.5,
+    limiter_gain_db: float = 5.0,
     fx_room_vol: float = 0.30,
     fx_delay_vol: float = 0.32,
     fx_hall_vol: float = 0.30,
@@ -518,15 +557,16 @@ def setup_standard_buses(
 
     music_hpf = 90 if acoustic_mode else (110 if lofi_mode else 135)
     if lofi_mode:
-        music_lpf = 8500 if dark_mode else 9500
+        music_lpf = 9500 if dark_mode else 10500
     elif acoustic_mode:
-        music_lpf = 12000 if dark_mode else 13500
+        music_lpf = 12500 if dark_mode else 14000
     else:
-        # Q3.3 anti-over-filtering: dark trap/pop must keep BUS Music LPF >= 11.5 kHz
-        music_lpf = 11500 if (dark_mode and profile in ("trap_rap", "pop_rnb")) else (10500 if dark_mode else 12500)
-    music_dist_mix = 0.0 if acoustic_mode else (0.10 if lofi_mode else 0.08)
+        # Q3.3 anti-over-filtering: dark trap/pop must keep BUS Music LPF >= 12 kHz (natural air)
+        music_lpf = 12000 if (dark_mode and profile in ("trap_rap", "pop_rnb")) else (11500 if dark_mode else 13500)
+    # Keep saturation subtle: a loud gl.dist reads as "electronic"; samples already carry character.
+    music_dist_mix = 0.0 if acoustic_mode else (0.06 if lofi_mode else 0.05)
     music_dist_tone = 6500 if (lofi_mode or dark_mode) else 7500
-    drums_air_gain = 0.0 if (acoustic_mode or lofi_mode or dark_mode) else 1.8
+    drums_air_gain = 0.0 if (acoustic_mode or lofi_mode or dark_mode) else 1.2
     if acoustic_mode:
         sc_ratio_bass, sc_thresh_bass, sc_release_bass = 1.5, -20.0, 0.085
     elif profile == "trap_rap":
@@ -536,8 +576,9 @@ def setup_standard_buses(
     else:
         sc_ratio_bass, sc_thresh_bass, sc_release_bass = 3.0, -20.0, 0.085
     sc_ratio_music = 1.2 if acoustic_mode else 2.2
-    master_comp_thresh = -8.5 if acoustic_mode else -10.5
-    master_comp_makeup = 0.5 if acoustic_mode else 1.5
+    # Gentler master bus: less compression/limiting = more natural dynamics (less "electronic" squash).
+    master_comp_thresh = -9.5 if acoustic_mode else -12.0
+    master_comp_makeup = 0.3 if acoustic_mode else 0.8
 
     changes: list[tuple[str, Any]] = [
         # Master (look-ahead 0.002s avoids True Peak overshoots & hi-hat micro-glitches)
@@ -561,7 +602,7 @@ def setup_standard_buses(
         (f"mixer/{bus_808}/slot/2/Attack", 0.002), (f"mixer/{bus_808}/slot/2/Release", sc_release_bass), (f"mixer/{bus_808}/slot/2/Lookahead", 2),
         *dsl_eq_params(bus_808, [dsl_eq_band(1, "hpf", 30)], slot=3),
         # BUS Music: Slot 1 gl.dist (Tone <= 7500 Hz) -> Slot 2 gl.eq (HPF + LPF) -> Slot 3 Glue -> Slot 4 Duck
-        (f"mixer/{bus_music}/slot/1/Mode", 0), (f"mixer/{bus_music}/slot/1/Drive", 3.5),
+        (f"mixer/{bus_music}/slot/1/Mode", 0), (f"mixer/{bus_music}/slot/1/Drive", 2.5),
         (f"mixer/{bus_music}/slot/1/Tone", music_dist_tone), (f"mixer/{bus_music}/slot/1/Mix", music_dist_mix),
         (f"mixer/{bus_music}/slot/1/Output", 0.0), (f"mixer/{bus_music}/slot/1/Oversampling", 2), (f"mixer/{bus_music}/slot/1/Remove DC", 1),
         *dsl_eq_params(
@@ -575,7 +616,7 @@ def setup_standard_buses(
         ),
     ]
     if dark_mode and apply_dark_mid_dip:
-        changes.extend(to_mixer_params(bus_music, 2, dsl_eq_band(6, "peak", 3200, -2.0, q=1.4)))
+        changes.extend(to_mixer_params(bus_music, 2, dsl_eq_band(6, "peak", 3200, -1.5, q=1.4)))
     fx_room_params = reverb_room(
         decay_sec=rt60,
         hpf_hz=350.0 if acoustic_mode else 480.0,
