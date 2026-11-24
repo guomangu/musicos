@@ -24,6 +24,25 @@ from gl_dsl import clamp, db_to_auto  # noqa: E402
 
 ANCHOR_PREMASTER_ACTIVE_LUFS = -16.0
 
+# Presence floors: a role's target may never drop below this offset vs the anchor,
+# otherwise the track becomes imperceptible (e.g. ChordKey buried under drums/lead).
+ROLE_PRESENCE_FLOOR_DB: dict[str, float] = {
+    "kick": -1.0,
+    "bass_sub": -6.0,
+    "snare_clap": -4.0,
+    "hihat_perc": -14.0,
+    "lead": -3.0,
+    "chords_pad": -10.0,
+    "counter_melody": -11.0,
+    "ear_candy_fx": -16.0,
+    "vocals": -1.0,
+}
+
+# High/airy timbres (bells, plucks, keys > 4 kHz centroid) are perceptually quieter at equal
+# LUFS: compensate their target upward so a LeadBell stays audible next to a loud kick.
+HIGH_CENTROID_COMPENSATION_DB = 2.0
+HIGH_CENTROID_HZ = 4000.0
+
 CANONICAL_ROLES: tuple[str, ...] = (
     "kick",
     "bass_sub",
@@ -318,13 +337,24 @@ def _effective_profile_offsets(
         anchor_role = "kick"
 
     shift = base_table[anchor_role][1]
+
+    def _with_floors(table: dict[str, tuple[float, float, float]]) -> dict[str, tuple[float, float, float]]:
+        out = {}
+        for r, (lo, tg, hi) in table.items():
+            fl = ROLE_PRESENCE_FLOOR_DB.get(r)
+            if fl is not None and tg < fl:
+                tg = fl
+                lo = min(lo, fl)
+            out[r] = (lo, tg, hi)
+        return out
+
     if abs(shift) < 1e-9:
-        return prof, anchor_role, dict(base_table)
+        return prof, anchor_role, _with_floors(dict(base_table))
     shifted = {
         r: (round(lo - shift, 2), round(tg - shift, 2), round(hi - shift, 2))
         for r, (lo, tg, hi) in base_table.items()
     }
-    return prof, anchor_role, shifted
+    return prof, anchor_role, _with_floors(shifted)
 
 
 
@@ -383,7 +413,13 @@ def balance_tracks_in_session(
     for t in tracks:
         ch = int(t["channel"])
         role = normalize_role_for_gain_staging(str(t.get("role") or t.get("name", "")))
-        target_lufs = round(anchor_target_lufs + float(offsets.get(role, (0.0, 0.0, 0.0))[1]), 2)
+        off_t = float(offsets.get(role, (0.0, 0.0, 0.0))[1])
+        fl = ROLE_PRESENCE_FLOOR_DB.get(role)
+        if fl is not None and off_t < fl:
+            off_t = fl
+        if float(t.get("centroid_hz") or 0.0) > HIGH_CENTROID_HZ:
+            off_t += HIGH_CENTROID_COMPENSATION_DB  # bells/plucks: perceptually quiet, lift them
+        target_lufs = round(anchor_target_lufs + off_t, 2)
         muted = mcp.solo_channel(ch, all_channels)
         try:
             ld = mcp.analyze_loudness(scope="pattern", pattern=int(t.get("pattern", 1)))

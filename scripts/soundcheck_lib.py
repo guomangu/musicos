@@ -36,7 +36,7 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR, INDEX_DIR):
         sys.path.insert(0, _d)
 
 from artifact_cache import compute_e1_track_hash, get_cached_verdict, set_cached_verdict
-from audio_metrics import analyze_single_file, extract_dsp_metrics, load_and_normalize_audio, parse_key_tonic_pc
+from audio_metrics import analyze_single_file, extract_dsp_metrics, key_fit_penalty, load_and_normalize_audio, parse_key_tonic_pc
 from deep_diagnostics import (
     _scan_glitches_and_crackle,
     _third_octave_profile,
@@ -732,6 +732,11 @@ def audit_track_soundcheck_fast(
                 checks["tuning_ok"] = co is None or abs(float(co)) <= 8.0
                 if co is not None and abs(float(co)) >= 50.0:
                     metrics["recommended_root_note_delta_st"] = int(round(-float(co) / 100.0))
+                mr = dsp.get("midi_root")
+                if mr is not None and key:
+                    pen = key_fit_penalty(mr, key, eff_role)
+                    checks["key_fit_ok"] = pen < 0.12
+                    metrics["key_fit_penalty"] = pen
         except Exception as exc:
             checks["hard_reject_ok"] = False
             warnings.append(f"analyze_failed: {exc}")

@@ -311,6 +311,104 @@ def _compute_low_mid_corr(y_stereo: np.ndarray, sr: int) -> float:
         return 1.0
 
 
+MINOR_SCALE_PCS = (0, 2, 3, 5, 7, 8, 10)
+MAJOR_SCALE_PCS = (0, 2, 4, 5, 7, 9, 11)
+PERCUSSIVE_ROLE_IDS = {"kick", "snare_clap", "hihat_perc"}
+
+
+def key_scale_pcs(target_key: str | None) -> set[int] | None:
+    """Pitch classes of the scale of `target_key` (e.g. "F minor" -> {5,7,8,10,0,1,3})."""
+    if not target_key or not target_key.strip():
+        return None
+    m = re.match(r"^\s*([A-G](?:#|b)?)\s*(min|minor|m|maj|major)?", target_key.strip(), re.IGNORECASE)
+    if not m:
+        return None
+    root = m.group(1)[0].upper() + (m.group(1)[1:] if len(m.group(1)) > 1 else "")
+    pc = NOTE_TO_PC.get(root)
+    if pc is None:
+        return None
+    qual = (m.group(2) or "").lower()
+    scale = MINOR_SCALE_PCS if qual in ("m", "min", "minor") else MAJOR_SCALE_PCS
+    return {(pc + iv) % 12 for iv in scale}
+
+
+def key_fit_penalty(root_midi: int | None, target_key: str | None, role: str = "") -> float:
+    """Penalty for a tonal sample whose root pitch class is far outside the target scale.
+
+    0.0 if in scale, small if reachable within <= 2 semitones, 0.12 if it would need a
+    large transposition (dissonant/"etrange" when played chromatically in the song key).
+    """
+    if root_midi is None or role in PERCUSSIVE_ROLE_IDS:
+        return 0.0
+    pcs = key_scale_pcs(target_key)
+    if not pcs:
+        return 0.0
+    pc = int(root_midi) % 12
+    if pc in pcs:
+        return 0.0
+    shifts = sorted({min((pc - q) % 12, (q - pc) % 12) for q in pcs})
+    return 0.0 if not shifts else (0.03 if shifts[0] <= 2 else 0.12)
+
+
+def _refine_f0_harmonic(sig: np.ndarray, sr: int, f0_init: float) -> float:
+    """Refine f0 with a harmonic-product-spectrum over octave candidates.
+
+    Prevents locking onto a strong inharmonic partial (bells / FM): a true fundamental
+    has energy at k*f0 for k=1..6, an inharmonic partial does not. Octave errors are
+    avoided by requiring a 15% score margin before moving away from the YIN estimate.
+    """
+    if f0_init is None or f0_init <= 25.0 or len(sig) < 2048:
+        return f0_init
+    n_fft = 65536
+    win = sig[: min(len(sig), sr * 3)]
+    if len(win) < 2048:
+        win = sig
+    sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft))
+    bin_hz = sr / n_fft
+
+    def hps(f: float) -> float:
+        tot = 0.0
+        for k in range(1, 7):
+            fk = f * k
+            if fk >= sr * 0.49:
+                break
+            idx = int(round(fk / bin_hz))
+            lo, hi = max(0, idx - 2), min(len(sp), idx + 3)
+            if hi > lo:
+                tot += float(np.max(sp[lo:hi]))
+        return tot
+
+    cands = [c for c in (f0_init * 0.5, f0_init, f0_init * 2.0) if 30.0 <= c <= min(2400.0, sr * 0.45)]
+    if not cands:
+        cands = [f0_init]
+    s_init = hps(f0_init)
+    best_f, best_s = f0_init, s_init
+    for c in cands:
+        if c == f0_init:
+            continue
+        sc = hps(c)
+        if sc > s_init * 1.15 and sc > best_s:
+            best_f, best_s = c, sc
+    # Anti-partial lock: if YIN locked onto an inharmonic partial (bell/FM), its pitch class
+    # differs from the LOWEST strong spectral peak (the true fundamental, even if weak).
+    # Wrong-pc root => dissonant sample; octave errors keep the same pc and stay harmless.
+    try:
+        mask = (np.fft.rfftfreq(n_fft, 1.0 / sr) >= 30.0) & (np.fft.rfftfreq(n_fft, 1.0 / sr) <= 1200.0)
+        sp_lo = sp[mask]
+        fr_lo = np.fft.rfftfreq(n_fft, 1.0 / sr)[mask]
+        if len(sp_lo) > 10 and float(np.max(sp_lo)) > 0:
+            p_idx, _ = signal.find_peaks(sp_lo, height=float(np.max(sp_lo)) * 0.20, distance=20)
+            if len(p_idx):
+                lowest = float(fr_lo[p_idx[0]])
+                pc_yin = round(69.0 + 12.0 * math.log2(max(best_f, 1e-6) / 440.0)) % 12
+                pc_low = round(69.0 + 12.0 * math.log2(max(lowest, 1e-6) / 440.0)) % 12
+                if pc_yin != pc_low and 30.0 <= lowest <= min(2400.0, sr * 0.45):
+                    return lowest
+    except Exception:
+        pass
+    return float(best_f)
+
+
 def analyze_pitch_and_purity(
     y_stereo: np.ndarray,
     mono_norm: np.ndarray,
@@ -395,6 +493,7 @@ def analyze_pitch_and_purity(
             start_idx = min(len(valid) // 3, int(skip_s * sr / 512)) if dur_s > 0.25 else 0
             body_f0 = valid[start_idx:] if len(valid[start_idx:]) >= 2 else valid
             med_f0 = float(np.median(body_f0))
+            med_f0 = _refine_f0_harmonic(sig, sr, med_f0)  # avoid inharmonic-partial lock (bells/FM)
             midi_vals = 69.0 + 12.0 * np.log2(np.maximum(body_f0, 1e-6) / 440.0)
             f0_std_st = round(float(np.std(midi_vals)), 3)
             # Snap exact FFT peak around med_f0 for sub-cent precision
@@ -405,7 +504,7 @@ def analyze_pitch_and_purity(
                 win = sig
             sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft_hi))
             fr = np.fft.rfftfreq(n_fft_hi, 1.0 / sr)
-            lo_b, hi_b = med_f0 * 0.88, med_f0 * 1.12
+            lo_b, hi_b = med_f0 * 0.94, med_f0 * 1.06
             m_b = (fr >= lo_b) & (fr <= hi_b)
             if np.any(m_b):
                 med_f0 = float(fr[m_b][np.argmax(sp[m_b])])
@@ -432,6 +531,8 @@ def analyze_pitch_and_purity(
 
     # 4. Polyphony / Chord detection via spectral peaks outside f0 harmonic series (avoids CQT semitone bleed)
     polyphony_ratio = 0.0
+    chord_peak_count = 0  # mutually non-harmonic strong peaks in 50-900 Hz => real chord
+    chroma_strong = 0     # strong pitch classes via chroma (fallback when YIN fails on chords)
     try:
         if len(sig) >= 2048 and med_f0 is not None and med_f0 > 25.0:
             n_fft_p = 65536
@@ -458,6 +559,49 @@ def analyze_pitch_and_purity(
                             non_harm_amps.append(float(sp_t[idx]) / dom_amp)
                     if non_harm_amps:
                         polyphony_ratio = round(min(1.0, max(non_harm_amps)), 3)
+                # Low-register chord evidence: >= 2 strong peaks in 50-900 Hz that are mutually
+                # non-harmonic (e.g. C4+A#4 dyad) => a real chord, not bell partials (which sit high).
+                low_mask = (fr_t >= 50.0) & (fr_t <= 900.0)
+                if np.any(low_mask):
+                    sp_low = sp_t[low_mask]
+                    fr_low = fr_t[low_mask]
+                    lp_idx, _ = signal.find_peaks(sp_low, height=float(np.max(sp_t)) * 0.25, distance=15)
+                    lp = sorted(float(fr_low[i]) for i in lp_idx)
+                    cnt = 0
+                    for i in range(len(lp)):
+                        non_harm = False
+                        for j in range(len(lp)):
+                            if i == j:
+                                continue
+                            ratio = max(lp[i], lp[j]) / max(min(lp[i], lp[j]), 1e-6)
+                            if abs(1200.0 * math.log2(ratio / max(1, round(ratio)))) > 50.0:
+                                non_harm = True
+                        if non_harm or len(lp) == 1:
+                            cnt += 1
+                    chord_peak_count = max(0, cnt if len(lp) >= 2 else 0)
+                    if len(lp) >= 2:
+                        # count peaks that have at least one non-harmonic partner
+                        chord_peak_count = sum(
+                            1 for i in range(len(lp))
+                            if any(
+                                abs(1200.0 * math.log2((max(lp[i], lp[j]) / max(min(lp[i], lp[j]), 1e-6)) / max(1, round(max(lp[i], lp[j]) / max(min(lp[i], lp[j]), 1e-6))))) > 50.0
+                                for j in range(len(lp)) if i != j
+                            )
+                        )
+    except Exception:
+        pass
+
+    # 4b. Chroma-based chord detection: >= 3 strong distinct pitch classes => poly chord,
+    # even when chord tones accidentally look harmonic to the detected f0 (e.g. keys_chords).
+    try:
+        if len(sig) >= 4096:
+            chroma = librosa.feature.chroma_stft(y=sig.astype(np.float32), sr=sr, n_fft=8192, hop_length=1024)
+            cmean = np.asarray(chroma.mean(axis=1), dtype=np.float64)
+            if cmean.max() > 1e-6:
+                strong_pcs = int(np.sum(cmean > 0.18 * cmean.max()))
+                chroma_strong = strong_pcs
+                if strong_pcs >= 3 and med_f0 is None:
+                    polyphony_ratio = max(polyphony_ratio, 0.6)
     except Exception:
         pass
 
@@ -486,18 +630,21 @@ def analyze_pitch_and_purity(
     # 6. Classify sample_nature & playable_chromatically
     # Notice: if f0_std_st is super stable (<= 0.25 st) and polyphony_ratio < 0.42, extra onsets from slow reverb/tremolo are NOT a melodic sequence
     is_melodic_seq = (f0_std_st > 0.75 and not is_low) or (onset_count >= 3 and f0_std_st > 0.35)
+    is_chord = chord_peak_count >= 2 or (med_f0 is None and chroma_strong >= 3)
     if is_perc_heavy or (not is_low and r_harm < 0.30 and (hnr_db is None or hnr_db < 4.5)):
         sample_nature = "percussion"
         playable = False
     elif is_melodic_seq:
         sample_nature = "melodic_sequence"
         playable = False
-    elif polyphony_ratio >= 0.45:
+    elif is_chord or (polyphony_ratio >= 0.45 and chord_peak_count >= 1):
         sample_nature = "poly_chord_or_dyad"
         playable = False
     elif inharmonic_warnings and not is_low:
+        # Inharmonic single-pitch instrument (bell/FM): partials are inharmonic but the pitch
+        # is stable -> still chromatically playable via the sampler (root = true fundamental).
         sample_nature = "inharmonic_bell_or_fx"
-        playable = False
+        playable = bool(med_f0 is not None and f0_std_st <= 0.65)
     elif dur_s >= 5.0 and f0_std_st > 0.40:
         sample_nature = "ambient_bed"
         playable = False

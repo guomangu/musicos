@@ -366,7 +366,32 @@
             "maximum": 1200,
             "description": "Fine tune in cents applied on top of root_note (A4=440 Hz +/-5 ct target)."
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "source_type": {
+                  "const": "sample"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "sample_path",
+                "root_note"
+              ]
+            },
+            "else": {
+              "required": [
+                "name",
+                "role",
+                "source_type",
+                "mixer_track"
+              ]
+            }
+          }
+        ]
       }
     },
     "vocals": {

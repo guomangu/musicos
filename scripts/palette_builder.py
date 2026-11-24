@@ -32,7 +32,7 @@ for _d in (SCRIPTS_DIR, INDEX_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-from audio_metrics import VALID_ROLES, compute_masking_penalty, parse_key_tonic_pc
+from audio_metrics import VALID_ROLES, compute_masking_penalty, key_fit_penalty, parse_key_tonic_pc
 from gl_dsl import SYNTH_REGISTRY, synth_voice
 from indexer import (
     DEFAULT_ANCHORS_NPZ,
@@ -354,6 +354,7 @@ def _build_mood_anchor_vec(emotion_vector: dict[str, float], anchors: dict[str, 
 def _load_project_candidates(
     project_samples_dir: str,
     roles: list[str],
+    target_key: str = "",
 ) -> dict[str, list[dict[str, Any]]]:
     """Load candidates strictly from a user project directory (`samples_catalog.json` or live scan)."""
     abs_dir = os.path.abspath(os.path.expanduser(project_samples_dir))
@@ -381,6 +382,12 @@ def _load_project_candidates(
         for role in roles:
             if role in MELODIC_ROLES and not playable:
                 continue
+            # Key-fit: a melodic one-shot whose root is > 2 st outside the song scale will
+            # sound dissonant/"etrange" once played chromatically -> exclude (loops exempt).
+            if role in MELODIC_ROLES and not s.get("is_loop") and target_key:
+                pen = key_fit_penalty(s.get("midi_root"), target_key, role)
+                if pen >= 0.12:
+                    continue
             r_sc = float(role_scores.get(role, 0.35))
             if role not in (s.get("compatible_roles") or []) and r_sc < 0.30:
                 continue
@@ -552,6 +559,8 @@ def _load_sqlite_candidates(
                 sh = diff if diff <= 6 else 12 - diff
                 if sh == 0:
                     s_role = min(1.0, s_role + 0.04)
+                else:
+                    s_role = max(0.0, s_role - key_fit_penalty(root_midi, target_key, role))
 
             bark_24 = None
             if bark_js:
@@ -757,7 +766,7 @@ def propose_palettes(
 
     user_locked = bool(project_samples_dir and str(project_samples_dir).strip())
     if user_locked:
-        sample_pool = _load_project_candidates(str(project_samples_dir), eff_roles)
+        sample_pool = _load_project_candidates(str(project_samples_dir), eff_roles, target_key=target_key)
     else:
         sample_pool = _load_sqlite_candidates(db_path, eff_roles, target_key=target_key)
 

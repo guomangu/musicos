@@ -461,6 +461,8 @@ def _select_best_from_sqlite(
                 key_bonus = 0.05
             elif sh <= 2:
                 key_bonus = 0.02
+            else:
+                key_bonus = -0.10  # root > 2 st outside the song scale: dissonance risk
 
         base_score = w1 * s_comfort + w2 * s_role + key_bonus - penalty
         if base_score < min_score and not eff_clap:

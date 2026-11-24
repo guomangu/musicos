@@ -379,5 +379,117 @@ class TestNaturalSoundAndGates(unittest.TestCase):
         self.assertLessEqual(abs(by["Lead"] - 0.74), 0.5)
 
 
+
+
+class TestPitchAndChordGuards(unittest.TestCase):
+    """Guards against 'LeadBell dissonant' / 'ChordKey etrange' errors."""
+
+    @staticmethod
+    def _analyze(y, sr=44100):
+        import numpy as np
+        from audio_metrics import analyze_pitch_and_purity
+
+        y2 = np.stack([y, y], axis=1).astype(np.float32)
+        bands = {"sub": 0.0, "bass": 0.0, "low_mid": 0.1, "mid": 0.4, "harsh": 0.3, "air": 0.2}
+        return analyze_pitch_and_purity(y2, y.astype(np.float32), sr, bands, r_harm=0.6)
+
+    def test_bell_with_strong_inharmonic_partials_keeps_true_root(self):
+        import numpy as np
+
+        sr = 44100
+        t = np.arange(int(1.2 * sr)) / sr
+        bell = 0.25 * np.sin(2 * np.pi * 440 * t) + 1.0 * np.sin(2 * np.pi * 440 * 2.76 * t) + 0.7 * np.sin(2 * np.pi * 440 * 5.40 * t)
+        r = self._analyze(bell, sr)
+        self.assertEqual(r["midi_root"], 69)  # A4, not the 2.76x partial (D#)
+        self.assertTrue(r["playable_chromatically"])  # single stable pitch bell stays playable
+
+    def test_chord_and_dyad_are_not_playable_chromatically(self):
+        import numpy as np
+
+        sr = 44100
+        t = np.arange(int(1.2 * sr)) / sr
+        chord = 0.4 * np.sin(2 * np.pi * 261.63 * t) + 0.4 * np.sin(2 * np.pi * 329.63 * t) + 0.4 * np.sin(2 * np.pi * 392.0 * t)
+        r = self._analyze(chord, sr)
+        self.assertEqual(r["sample_nature"], "poly_chord_or_dyad")
+        self.assertFalse(r["playable_chromatically"])
+        dyad = 0.5 * np.sin(2 * np.pi * 261.63 * t) + 0.3 * np.sin(2 * np.pi * 523.25 * t) + 0.25 * np.sin(2 * np.pi * 466.16 * t)
+        r2 = self._analyze(dyad, sr)
+        self.assertFalse(r2["playable_chromatically"])
+
+    def test_sine_oneshot_detected_and_playable(self):
+        import numpy as np
+
+        sr = 44100
+        t = np.arange(int(0.8 * sr)) / sr
+        r = self._analyze(0.5 * np.sin(2 * np.pi * 440 * t), sr)
+        self.assertEqual(r["midi_root"], 69)
+        self.assertTrue(r["playable_chromatically"])
+
+    def test_key_fit_penalty(self):
+        from audio_metrics import key_fit_penalty, key_scale_pcs
+
+        self.assertEqual(key_scale_pcs("F minor"), {5, 7, 8, 10, 0, 1, 3})
+        self.assertEqual(key_fit_penalty(65, "F minor", "lead_melody"), 0.0)  # F in scale
+        self.assertEqual(key_fit_penalty(36, "C major", "kick"), 0.0)  # percussive: ignored
+        self.assertLessEqual(key_fit_penalty(66, "C major", "lead_melody"), 0.03)  # 1 st away max in 12-TET
+
+
+class TestPresenceFloorsAndBlueprintWiring(unittest.TestCase):
+    def test_role_targets_respect_presence_floors(self):
+        from gain_staging_lib import ROLE_PRESENCE_FLOOR_DB, _effective_profile_offsets
+
+        for prof in ("trap_rap", "pop_rnb", "lofi_chill", "classical_ambient"):
+            _, _, offsets = _effective_profile_offsets(prof, prof != "classical_ambient", None)
+            for role, fl in ROLE_PRESENCE_FLOOR_DB.items():
+                self.assertGreaterEqual(offsets[role][1], fl, f"{prof}/{role}")
+
+    def test_high_centroid_lift_in_session_balance(self):
+        from gain_staging_lib import balance_tracks_in_session
+
+        channels = [{"channel": 1, "name": "LeadBell", "muted": False}]
+        mcp = StubMCP(channels, {1: -30.0})
+        tracks = [{"name": "LeadBell", "channel": 1, "pattern": 1, "role": "lead", "volume": 0.74, "centroid_hz": 5200.0}]
+        rep = balance_tracks_in_session(mcp, tracks, profile="trap_rap", has_drums=True)
+        t = rep["tracks"][0]
+        # trap_rap lead offset is -1.0 dB (above the -3 floor) + high-centroid +2 dB
+        # => target = -16 + (-1.0 + 2.0) = -15.0 LUFS
+        self.assertEqual(t["target_lufs"], -15.0)
+        self.assertEqual(t["status"], "TRIMMED")  # -30 measured -> big boost, bounded
+        self.assertLessEqual(t["delta_db"], 6.0)
+
+    def test_apply_palette_to_blueprint_writes_root_note(self):
+        import json as _json
+        from loop_first_runner import LoopFirstStateMachine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bp = {"title": "t", "tracks": [{"name": "Lead", "role": "lead_melody", "source_type": "gridline_native", "plugin": "gl.pluck", "mixer_track": 3}]}
+            with open(os.path.join(tmp, "song_blueprint.json"), "w", encoding="utf-8") as fh:
+                _json.dump(bp, fh)
+            sm = LoopFirstStateMachine(tmp)
+            palette = {"blueprint_tracks": [
+                {"name": "bell_lead_d5.wav", "role": "lead_melody", "source_type": "sample", "sample_path": "samples/bell_lead_d5.wav", "mixer_track": 3, "root_note": 63, "fine_tune_ct": -8},
+            ]}
+            res = sm.apply_palette_to_blueprint(palette)
+            self.assertEqual(res["tracks_merged"], 1)
+            bp2 = _json.load(open(os.path.join(tmp, "song_blueprint.json"), encoding="utf-8"))
+            tr = bp2["tracks"][0]
+            self.assertEqual(tr["source_type"], "sample")
+            self.assertEqual(tr["root_note"], 63)
+            self.assertEqual(tr["fine_tune_ct"], -8)
+
+    def test_schema_requires_root_note_for_sample_tracks(self):
+        import jsonschema
+
+        with open(os.path.join(ROOT, "schemas", "song_blueprint.schema.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        with open(os.path.join(ROOT, "projects", "validation_fm_dark", "song_blueprint.json"), encoding="utf-8") as fh:
+            base = json.load(fh)
+        bad = dict(base)
+        bad["tracks"] = [{"name": "X", "role": "lead_melody", "source_type": "sample", "sample_path": "x.wav", "mixer_track": 2}]  # no root_note
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(bad, schema)
+        jsonschema.validate(base, schema)  # example blueprint valid
+
+
 if __name__ == "__main__":
     unittest.main()
