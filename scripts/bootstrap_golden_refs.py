@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(ROOT, "scripts")
 ANALYZER_DIR = os.path.join(ROOT, "mcp-servers", "audio-analyzer")
 for _p in (SCRIPTS_DIR, ANALYZER_DIR):

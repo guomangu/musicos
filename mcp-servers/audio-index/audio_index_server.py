@@ -671,12 +671,15 @@ def select_best_samples(
     bpm_max: float | None = None,
     use_clap: bool = True,
     valence: float | None = None,
+    user_samples_locked: bool = False,
 ) -> str:
     """
     Sélectionne les meilleurs samples depuis la base unifiée `samples.db` (+ `sample_dsp_metrics`)
     sans jamais déclencher d'indexation CLAP CPU synchrone.
     Si `use_clap=True` et que `clap_embedding IS NULL`, bascule immédiatement sur le scoring DSP pur
     et retourne `warning="clap_index_missing_fallback_dsp"`.
+    Si `user_samples_locked=True` (samples fournis par l'utilisateur), `auto_fetch` est ignoré :
+    aucun sample externe n'est jamais téléchargé (Invariant #1).
     """
     from select_sample import DEFAULT_REFS_PATH, select_best_from_db
 
@@ -700,6 +703,7 @@ def select_best_samples(
         min_low_mid_corr=min_low_mid_corr,
         bpm_range=bpm_range,
         valence=valence,
+        user_samples_locked=user_samples_locked,
     )
     return json.dumps(res, ensure_ascii=False, indent=2)
 
@@ -825,10 +829,14 @@ def propose_palettes(
     allow_gl_synths: bool = True,
     num_palettes: int = 3,
     db_path: str = "",
+    bpm: float = 0.0,
+    bpm_tolerance: float = 6.0,
 ) -> str:
     """
     Génère 3 palettes sonores complémentaires (4–6 rôles) en < 50 ms sans PyTorch (Bark24 + relais d'attaques + ancres).
     Si `project_samples_dir` est renseigné, n'utilise STRICTEMENT que les samples du projet (0 import externe).
+    `bpm` pénalise/exclut les boucles dont le BPM détecté est incompatible (> 2x `bpm_tolerance`).
+    Chaque palette fournit `blueprint_tracks` (avec `root_note`/`fine_tune_ct`) à recopier dans `song_blueprint.json`.
     """
     from palette_builder import propose_palettes as _propose_palettes
 
@@ -841,6 +849,8 @@ def propose_palettes(
         allow_gl_synths=allow_gl_synths,
         num_palettes=num_palettes,
         db_path=db_path.strip() or DEFAULT_DB_PATH,
+        bpm=(float(bpm) if bpm else None),
+        bpm_tolerance=float(bpm_tolerance),
     )
     return json.dumps(res, ensure_ascii=False, indent=2)
 

@@ -345,6 +345,11 @@ class MultimodalAudioListener(ListenerBackend):
                 return self._fallback.evaluate_track(wav_path, track_spec, dsp_report, blueprint)
 
         if self.endpoint_url and os.path.isfile(wav_path):
+            if not self.endpoint_url.lower().startswith("https://"):
+                return self._fallback.evaluate_track(wav_path, track_spec, dsp_report, blueprint)
+            max_bytes = 10 * 1024 * 1024  # 10 Mo max envoyés en base64 à l'endpoint externe
+            if os.path.getsize(wav_path) > max_bytes:
+                return self._fallback.evaluate_track(wav_path, track_spec, dsp_report, blueprint)
             try:
                 with open(wav_path, "rb") as fh:
                     wav_b64 = base64.b64encode(fh.read()).decode("ascii")

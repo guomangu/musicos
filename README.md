@@ -29,6 +29,8 @@ chmod +x install.sh
 Le script [`install.sh`](install.sh) détecte automatiquement les paquets système (`dnf`), Gridline, les modèles Demucs, Python `.venv`, PyTorch CPU + Essentia + LAION CLAP, Spotify Basic Pitch ONNX, OpenUTAU, les plugins Linux natifs (`CLAP`/`VST3`/`LV2`), configure Zed/Antigravity/Gridline et indexe vos samples.
 Options utiles : `./install.sh --check-only`, `--skip-plugins`, `--skip-clap`, `--no-sudo`.
 
+**Portabilité du clone** : aucun chemin machine n'est codé en dur. La racine se résout via `AI_STUDIO_DIR` (sinon dossier parent de `scripts/`) ; le template projet vide retombe sur `assets/empty_with_mixer_tracks.gridline` si Gridline n'est pas installé (`GRIDLINE_EMPTY_TEMPLATE` pour forcer un autre template). `requirements.txt` est installable depuis PyPI (`essentia>=2.1b6.dev1389`) ; `essentia`/`onnxruntime` sont optionnels au démarrage (dégradation librosa / erreur explicite pour Basic Pitch). Tests : `.venv/bin/python -m unittest discover -s tests -v` (les tests nécessitant le binaire `gridline` ou des données gitignorées sont automatiquement ignorés sur un clone frais).
+
 ## Démarrage rapide
 ```bash
 # Option A (recommandée) : ouvrir Gridline en direct puis lancer Antigravity ou Zed

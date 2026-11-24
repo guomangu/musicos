@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 import unittest
+import shutil
 
 import numpy as np
 import pyloudnorm as pyln
@@ -134,6 +135,7 @@ def _sample_arrangement_plan() -> dict:
 
 
 class TestPhase7ExpressivityAutonomy(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_p1_arrangement_plan_schema_compile_and_autofix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             plan_p = os.path.join(tmp, "arrangement_plan.json")
@@ -219,6 +221,7 @@ class TestPhase7ExpressivityAutonomy(unittest.TestCase):
         l_refrain = min(n["start"] % 1.0 for n in out_tracks["lead"] if abs((n["start"] % 4.0) - 0.5) < 0.08 and n["start"] >= 32.0)
         self.assertGreater(l_couplet, l_refrain)
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_p3_bark_masking_lra_and_bass_translation_headless_autofix(self) -> None:
         sr = 44100
         # Check LRA match against pyloudnorm
@@ -344,6 +347,7 @@ class TestPhase7ExpressivityAutonomy(unittest.TestCase):
                 contract = json.load(fh)
             self.assertEqual(contract["source"], "user_taste_memory")
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_p5_checkpoint_e2_and_cache_resume(self) -> None:
         sr = 44100
         with tempfile.TemporaryDirectory() as tmp:
@@ -392,6 +396,7 @@ class TestPhase7ExpressivityAutonomy(unittest.TestCase):
                 st = json.load(fh)
             self.assertTrue(st["e2_checkpoint_approved"])
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_p6_vocal_arrangement_sync_ustx_wav_and_autofix(self) -> None:
         sr = 44100
         with tempfile.TemporaryDirectory() as tmp:

@@ -12,6 +12,10 @@
 
 ## Chapitre 1 — Arbre de Décision : Sélection & Mémoire Sonore Unifiée (`samples.db`)
 
+* **Classification par tokens** (`indexer._infer_category_and_pack`) : les mots-clés de catégorie (`kick`, `snare`, `open hat`, `808`…) sont comparés aux **tokens** du nom de fichier (séparateurs `-_ .` ignorés, pluriels singularisés), jamais par sous-chaîne : `"chat"` ne matche pas `hat`, `"scalplover"` ne matche pas `cp`. `is_loop` = durée >= 2.2 s ou token `loop/stem/full/drumless/instrumental/acapella` (un one-shot nommé reste one-shot si < 2.5 s).
+* **BPM détecté** : nom de fichier (`140 BPM`, `140bpm`) puis, pour les boucles, estimation `librosa.beat.beat_track` (stocké dans `samples_catalog.json` et `samples.db`) ; utilisé par `propose_palettes(bpm=...)` pour exclure les boucles hors tempo.
+* **Hauteur détectée** : `midi_root` + `recommended_gl_fine_tune_ct` (YIN + pic FFT sub-cent) stockés dans le catalogue et remontés dans `propose_palettes` → `blueprint_tracks[].root_note` / `fine_tune_ct` → appliqués à `gl.sampler` par `song_builder`.
+
 Suivre cet ordre exact :
 
 1. **Projet / Samples fournis initialement (`scripts/index_project_samples.py`)** :
@@ -48,6 +52,8 @@ Suivre cet ordre exact :
 ## Chapitre 4 — APIs Audio en Ligne (`Freesound v2` & `Lots of Sounds`)
 
 Clés dans `.env` (`FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`). Client : `scripts/fetch_samples_api.py` ou `audio-index:fetch_samples_online`.
+* **Sécurité des téléchargements** : URLs **HTTPS uniquement** (`_safe_download_bytes`), plafond **25 Mo** par fichier (streaming), refus des réponses JSON sans URL audio. **Jamais de fetch automatique quand `user_samples_locked=True`** (samples fournis : `auto_fetch` est ignoré dans `select_best_from_db`, Invariant #1).
+* **Listener multimodal externe** (`listener_backend.py`) : endpoint **HTTPS uniquement**, WAV envoyé en base64 plafonné à **10 Mo**, sinon repli déterministe local.
 * **Freesound v2 (`https://freesound.org/apiv2`)** : header `Authorization: Token <KEY>`, requête courte en anglais (`"warm rhodes C4"`, `"acoustic snare dry"`), filtre CC0 automatique, `fields=id,name,duration,tags,previews,license`.
 * **Lots of Sounds (`https://api.lotsofsounds.com`)** : 100 % CC0, mots-clés courts (`1–2` mots), conversion obligatoire FFmpeg `-c:a pcm_s24le -ar 44100`.
 * **Exemple CLI rapide (DB SQLite < 25 ms & API CC0 sans CLAP)** :

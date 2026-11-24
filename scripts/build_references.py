@@ -20,8 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from audio_metrics import ClapEmbedder, VALID_ROLES, load_and_normalize_audio
 
 AUDIO_EXTS = {".wav", ".flac", ".ogg", ".mp3", ".aiff", ".aif"}
-DEFAULT_REF_DIR = "/home/gamo/Bureau/musicos/golden_references"
-DEFAULT_OUT_REFS = "/home/gamo/Bureau/musicos/mcp-servers/audio-index/golden_embeddings.npz"
+DEFAULT_REF_DIR = os.path.join(os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "golden_references")
+DEFAULT_OUT_REFS = os.path.join(os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcp-servers", "audio-index", "golden_embeddings.npz")
 
 
 def build_golden_references(ref_dir: str, output_refs: str, device: str = "cpu") -> dict[str, Any]:

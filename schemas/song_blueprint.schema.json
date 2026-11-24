@@ -3,38 +3,112 @@
   "title": "AI-Studio Song Blueprint",
   "description": "Contrat de structure musicale généré avant la production dans Gridline.",
   "type": "object",
-  "required": ["title", "genre", "bpm", "time_signature", "key", "harmonic_core", "structure", "tracks"],
+  "required": [
+    "title",
+    "genre",
+    "bpm",
+    "time_signature",
+    "key",
+    "harmonic_core",
+    "structure",
+    "tracks"
+  ],
   "properties": {
-    "title": { "type": "string", "minLength": 1 },
-    "genre": { "type": "string", "minLength": 1 },
-    "mood": { "type": "string" },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "genre": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mood": {
+      "type": "string"
+    },
     "mix_profile": {
       "type": "string",
-      "enum": ["trap_rap", "pop_rnb", "edm_club", "rock_metal", "lofi_chill", "jazz_acoustic", "classical_ambient"],
+      "enum": [
+        "trap_rap",
+        "pop_rnb",
+        "edm_club",
+        "rock_metal",
+        "lofi_chill",
+        "jazz_acoustic",
+        "classical_ambient"
+      ],
       "default": "trap_rap"
     },
-    "has_drums": { "type": "boolean", "default": true },
+    "has_drums": {
+      "type": "boolean",
+      "default": true
+    },
     "emotion_vector": {
       "type": "object",
       "properties": {
-        "valence": { "type": "number", "minimum": -1, "maximum": 1 },
-        "tension": { "type": "number", "minimum": 0, "maximum": 1 },
-        "energy": { "type": "number", "minimum": 0, "maximum": 1 },
-        "depth": { "type": "number", "minimum": 0, "maximum": 1 }
+        "valence": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "tension": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "energy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "depth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
       }
     },
-    "bpm": { "type": "number", "minimum": 40, "maximum": 300 },
+    "bpm": {
+      "type": "number",
+      "minimum": 40,
+      "maximum": 300
+    },
     "time_signature": {
       "type": "object",
-      "required": ["numerator", "denominator"],
+      "required": [
+        "numerator",
+        "denominator"
+      ],
       "properties": {
-        "numerator": { "type": "integer", "minimum": 1, "maximum": 16 },
-        "denominator": { "type": "integer", "enum": [2, 4, 8, 16] }
+        "numerator": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "denominator": {
+          "type": "integer",
+          "enum": [
+            2,
+            4,
+            8,
+            16
+          ]
+        }
       }
     },
-    "key": { "type": "string", "minLength": 1 },
-    "swing": { "type": "number", "minimum": 0, "maximum": 1 },
-    "target_lufs": { "type": "number", "minimum": -30, "maximum": -4 },
+    "key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "swing": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "target_lufs": {
+      "type": "number",
+      "minimum": -30,
+      "maximum": -4
+    },
     "harmonic_core": {
       "type": "object",
       "required": [
@@ -80,10 +154,21 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["bar", "symbol", "bass_midi", "voicing_midi"],
+            "required": [
+              "bar",
+              "symbol",
+              "bass_midi",
+              "voicing_midi"
+            ],
             "properties": {
-              "bar": { "type": "integer", "minimum": 1 },
-              "symbol": { "type": "string", "description": "Ex: 'Em7', 'Cmaj7', 'Am9', 'B7', 'Fmaj9'" },
+              "bar": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "symbol": {
+                "type": "string",
+                "description": "Ex: 'Em7', 'Cmaj7', 'Am9', 'B7', 'Fmaj9'"
+              },
               "bass_midi": {
                 "type": "integer",
                 "minimum": 24,
@@ -94,12 +179,20 @@
                 "type": "array",
                 "minItems": 2,
                 "maxItems": 6,
-                "items": { "type": "integer", "minimum": 36, "maximum": 84 },
+                "items": {
+                  "type": "integer",
+                  "minimum": 36,
+                  "maximum": 84
+                },
                 "description": "Notes MIDI déjà renversées pour voice leading minimal (plage 48-67 recommandée, <= 2.5 st moyen)"
               },
               "chord_tones_pc": {
                 "type": "array",
-                "items": { "type": "integer", "minimum": 0, "maximum": 11 },
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 11
+                },
                 "description": "Pitch classes (0=C..11=B) autorisées sur temps forts"
               }
             }
@@ -107,19 +200,27 @@
         },
         "motif_cell": {
           "type": "object",
-          "required": ["intervals_from_tonic", "rhythm_beats", "apex_midi"],
+          "required": [
+            "intervals_from_tonic",
+            "rhythm_beats",
+            "apex_midi"
+          ],
           "properties": {
             "intervals_from_tonic": {
               "type": "array",
               "minItems": 2,
               "maxItems": 12,
-              "items": { "type": "integer" }
+              "items": {
+                "type": "integer"
+              }
             },
             "rhythm_beats": {
               "type": "array",
               "minItems": 2,
               "maxItems": 12,
-              "items": { "type": "number" }
+              "items": {
+                "type": "number"
+              }
             },
             "apex_midi": {
               "type": "integer",
@@ -131,7 +232,13 @@
         },
         "phrase_plan": {
           "type": "string",
-          "enum": ["A-A'-A''-B", "A-B-A'-C", "A-A'-B-B'", "A-A-B-A", "free_ambient"],
+          "enum": [
+            "A-A'-A''-B",
+            "A-B-A'-C",
+            "A-A'-B-B'",
+            "A-A-B-A",
+            "free_ambient"
+          ],
           "default": "A-A'-A''-B"
         }
       }
@@ -141,25 +248,58 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["section", "bars", "start_bar"],
+        "required": [
+          "section",
+          "bars",
+          "start_bar"
+        ],
         "properties": {
-          "section": { "type": "string" },
-          "start_bar": { "type": "integer", "minimum": 1 },
-          "bars": { "type": "integer", "minimum": 1 },
-          "energy": { "type": "number", "minimum": 0, "maximum": 1 },
-          "active_roles": { "type": "array", "items": { "type": "string" } },
-          "notes": { "type": "string" }
+          "section": {
+            "type": "string"
+          },
+          "start_bar": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bars": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "energy": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "active_roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string"
+          }
         }
       }
     },
     "frequency_plan": {
       "type": "object",
       "properties": {
-        "sub_20_60": { "type": "string" },
-        "bass_60_250": { "type": "string" },
-        "low_mids_250_500": { "type": "string" },
-        "mids_500_4000": { "type": "string" },
-        "highs_4000_20000": { "type": "string" }
+        "sub_20_60": {
+          "type": "string"
+        },
+        "bass_60_250": {
+          "type": "string"
+        },
+        "low_mids_250_500": {
+          "type": "string"
+        },
+        "mids_500_4000": {
+          "type": "string"
+        },
+        "highs_4000_20000": {
+          "type": "string"
+        }
       }
     },
     "tracks": {
@@ -167,34 +307,96 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["name", "role", "source_type", "mixer_track"],
+        "required": [
+          "name",
+          "role",
+          "source_type",
+          "mixer_track"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "role": { "type": "string" },
-          "source_type": { "type": "string", "enum": ["gridline_native", "sample", "vocaloid", "loop"] },
-          "plugin": { "type": "string" },
-          "preset": { "type": "string" },
-          "sample_path": { "type": "string" },
-          "mixer_track": { "type": "integer", "minimum": 1, "maximum": 128 },
-          "freq_lane": { "type": "string" },
-          "pan": { "type": "number", "minimum": -1, "maximum": 1 },
-          "notes": { "type": "string" }
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "gridline_native",
+              "sample",
+              "vocaloid",
+              "loop"
+            ]
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string"
+          },
+          "sample_path": {
+            "type": "string"
+          },
+          "mixer_track": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 128
+          },
+          "freq_lane": {
+            "type": "string"
+          },
+          "pan": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          "notes": {
+            "type": "string"
+          },
+          "root_note": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127,
+            "description": "Root note (MIDI) of the sample in gl.sampler; defaults to detected midi_root from the palette/catalog, NOT C4."
+          },
+          "fine_tune_ct": {
+            "type": "number",
+            "minimum": -1200,
+            "maximum": 1200,
+            "description": "Fine tune in cents applied on top of root_note (A4=440 Hz +/-5 ct target)."
+          }
         }
       }
     },
     "vocals": {
       "type": "object",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "language": { "type": "string", "enum": ["fr", "en", "ja"] },
-        "singer": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "fr",
+            "en",
+            "ja"
+          ]
+        },
+        "singer": {
+          "type": "string"
+        },
         "lyrics_sections": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "section": { "type": "string" },
-              "lyrics": { "type": "string" }
+              "section": {
+                "type": "string"
+              },
+              "lyrics": {
+                "type": "string"
+              }
             }
           }
         }

@@ -18,7 +18,7 @@ import unittest
 
 import pretty_midi
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _p in (ROOT, os.path.join(ROOT, "scripts"), os.path.join(ROOT, "mcp-servers", "audio-analyzer"), os.path.join(ROOT, "mcp-servers", "audio-index")):
     if _p not in sys.path:
         sys.path.insert(0, _p)

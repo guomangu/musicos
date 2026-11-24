@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _p in (ROOT, os.path.join(ROOT, "scripts"), os.path.join(ROOT, "mcp-servers", "audio-analyzer")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -91,8 +91,16 @@ class TestPhase3AutofixAndStems(unittest.TestCase):
             sm = compute_spectral_match(master_mix, sr, profile="trap_rap", profiles_path=DEFAULT_PROFILES_PATH)
             self.assertGreaterEqual(sm["spectral_match_score"], 0.0)
             self.assertLessEqual(sm["spectral_match_score"], 1.0)
-            self.assertEqual(sm["reference_source"], "measured")
+            if os.path.isfile(DEFAULT_PROFILES_PATH):
+                self.assertEqual(sm["reference_source"], "measured")
+            else:
+                # golden_references/ est gitignore : profil analytique par défaut sur un clone frais
+                self.assertEqual(sm["reference_source"], "analytic_default")
 
+    @unittest.skipUnless(
+        os.path.isdir(os.path.join(ROOT, "projects", "validation_fm_dark", "renders", "stems_bus")),
+        "projects/*/renders/ est gitignore : absent sur un clone frais",
+    )
     def test_stem_hierarchy_on_real_validation_stems(self) -> None:
         real_dir = os.path.join(ROOT, "projects", "validation_fm_dark", "renders", "stems_bus")
         self.assertTrue(os.path.isdir(real_dir))
@@ -101,6 +109,7 @@ class TestPhase3AutofixAndStems(unittest.TestCase):
         self.assertIn("kick_bass_transient_overlap", res["metrics"])
         self.assertLess(res["metrics"]["kick_bass_transient_overlap"], 0.0)
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_render_and_audit_autofix_fixes_broken_mix_in_max_2_passes(self) -> None:
         src_dir = os.path.join(ROOT, "projects", "validation_fm_dark")
         src_proj = os.path.join(src_dir, "projet.gridline")

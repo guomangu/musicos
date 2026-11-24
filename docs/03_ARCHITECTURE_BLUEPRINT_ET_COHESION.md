@@ -15,6 +15,9 @@
 * **Métadonnées** : `title`, `genre`, `mood`, **`mix_profile`** (`trap_rap`, `pop_rnb`, `edm_club`, `rock_metal`, `lofi_chill`, `jazz_acoustic`, `classical_ambient`), **`has_drums`** (`bool`, défaut `true` ; mettre `false` en Classique/Ambient sans batterie pour assouplir le Quality Gate), `emotion_vector` (`valence`, `tension`, `energy`, `depth`), `bpm`, `time_signature` (`numerator`, `denominator`), `key`, `swing`, `target_lufs`.
 * **`harmonic_core`** : `key`, `mode`, `progression_bars`, `chord_progression` (`bass_midi` `31–48` ou `36–42` en `C..F#`, `voicing_midi` `48–67` via `optimize_voice_leading`, `chord_tones_pc`), `motif_cell`, `phrase_plan` (`A-A'-A''-B`, `A-B-A'-C`, `A-A'-B-B'`, `A-A-B-A`, `free_ambient`).
 * **`structure`**, **`frequency_plan`**, **`tracks`**, **`vocals`**. Carte complète → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md).
+* **`tracks[]`** : chaque piste sample porte **`root_note`** (MIDI détecté, ex. 57 pour un La3) et **`fine_tune_ct`** (cents) issus de `propose_palettes` → `blueprint_tracks` ; `song_builder` les applique à `gl.sampler` (`channel/N/Root note`, `Fine tune`). Ne jamais laisser un sample non-C sur le root par défaut C4=60 (dissonance systématique).
+* **`swing`** : appliqué réellement aux croches off-beat (`groove_lib.apply_swing`, délai = `swing × 0.25` temps) ; les notes syncopées hors grille 8ᵦ restent en place.
+* **BPM des boucles** : `propose_palettes(bpm=...)` exclut les boucles dont le BPM détecté (nom de fichier ou estimation librosa dans `index_project_samples`) s'écarte de plus de 2× la tolérance (défaut 6 BPM), pénalise entre 1× et 2×.
 
 ### 1.2 Templates Structurels Multi-Genres (Choisir selon Durée & Style)
 

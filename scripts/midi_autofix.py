@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pretty_midi
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANALYZER_DIR = os.path.join(ROOT, "mcp-servers", "audio-analyzer")
 if ANALYZER_DIR not in sys.path:
     sys.path.insert(0, ANALYZER_DIR)

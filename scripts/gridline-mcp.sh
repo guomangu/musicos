@@ -14,10 +14,20 @@ if python3 -c "import socket; s=socket.socket(); s.settimeout(0.3); s.connect(('
 fi
 
 # Sinon, si le fichier projet n'existe pas encore, on le crée depuis le template propre.
+# Ordre de repli : $GRIDLINE_EMPTY_TEMPLATE > template système Gridline > template embarqué (assets/).
 if [ ! -f "$ACTIVE_PROJECT" ]; then
-  TEMPLATE="/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline"
+  TEMPLATE="${GRIDLINE_EMPTY_TEMPLATE:-}"
+  if [ -z "$TEMPLATE" ] || [ ! -f "$TEMPLATE" ]; then
+    TEMPLATE="/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline"
+  fi
+  if [ ! -f "$TEMPLATE" ]; then
+    TEMPLATE="$STUDIO_DIR/assets/empty_with_mixer_tracks.gridline"
+  fi
   if [ -f "$TEMPLATE" ]; then
     cp "$TEMPLATE" "$ACTIVE_PROJECT"
+  else
+    echo "[WARN] Aucun template .gridline trouvé : $ACTIVE_PROJECT sera créé vide." >&2
+    : > "$ACTIVE_PROJECT"
   fi
 fi
 

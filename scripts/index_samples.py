@@ -17,7 +17,7 @@ import os
 import sys
 from typing import Any
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_SERVER_DIR = os.path.join(ROOT, "mcp-servers", "audio-index")
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 for _p in (SCRIPTS_DIR, INDEX_SERVER_DIR):

@@ -254,6 +254,7 @@ def _select_best_from_sqlite(
     min_score: float = 0.0,
     query_filter: str = "",
     auto_fetch: bool = False,
+    user_samples_locked: bool = False,
     fetch_query: str = "",
     with_clap: bool = True,
     monophonic_only: bool = False,
@@ -264,6 +265,8 @@ def _select_best_from_sqlite(
     bpm_range: tuple[float, float] | None = None,
     valence: float | None = None,
 ) -> dict[str, Any]:
+    if user_samples_locked and auto_fetch:
+        auto_fetch = False
     abs_db = os.path.abspath(os.path.expanduser(db_path))
     if not os.path.isfile(abs_db):
         raise FileNotFoundError(f"Unified SQLite index not found: {abs_db}")
@@ -643,7 +646,7 @@ def _select_best_from_sqlite(
         warning = "clap_index_missing_fallback_dsp"
 
     online_fetch: dict[str, Any] | None = None
-    if auto_fetch and (not top or top[0]["final_score"] < 0.70):
+    if auto_fetch and not user_samples_locked and (not top or top[0]["final_score"] < 0.70):
         fq = fetch_query.strip() or f"{role.replace('_', ' ')} {target_key}".strip()
         online_fetch = fetch_and_filter_samples(
             query=fq,
@@ -693,6 +696,7 @@ def select_best_from_db(
     min_low_mid_corr: float | None = None,
     bpm_range: tuple[float, float] | None = None,
     valence: float | None = None,
+    user_samples_locked: bool = False,
 ) -> dict[str, Any]:
     """
     Select best samples using unified SQLite (`samples.db`) by default.
@@ -722,6 +726,7 @@ def select_best_from_db(
             min_low_mid_corr=min_low_mid_corr,
             bpm_range=bpm_range,
             valence=valence,
+            user_samples_locked=user_samples_locked,
         )
 
     # Legacy JSON fallback (never runs synchronous CLAP indexing)

@@ -9,15 +9,28 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import essentia
+try:
+    import essentia
 
-essentia.log.infoActive = False
-essentia.log.warningActive = False
-import essentia.standard as es
+    essentia.log.infoActive = False
+    essentia.log.warningActive = False
+    import essentia.standard as es
+
+    _HAS_ESSENTIA = True
+except Exception:  # pragma: no cover
+    es = None
+    _HAS_ESSENTIA = False
 import librosa
 import mido
 import numpy as np
-import onnxruntime as ort
+
+try:
+    import onnxruntime as ort
+
+    _HAS_ORT = True
+except Exception:  # pragma: no cover - heavy native dep, optional until transcription is used
+    ort = None
+    _HAS_ORT = False
 import soundfile as sf
 from mcp.server.mcpserver import MCPServer
 from scipy import signal
@@ -46,13 +59,18 @@ mcp = MCPServer(
     ),
 )
 
-_BP_SESSION: ort.InferenceSession | None = None
+_BP_SESSION: "ort.InferenceSession | None" = None
 
 NOTE_NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
 
-def _get_bp_session() -> ort.InferenceSession:
+def _get_bp_session() -> "ort.InferenceSession":
     global _BP_SESSION
+    if not _HAS_ORT:
+        raise RuntimeError(
+            "onnxruntime n'est pas installé : la transcription Audio->MIDI (Basic Pitch) est indisponible. "
+            "Installez-le via `pip install onnxruntime` (voir requirements.txt)."
+        )
     if _BP_SESSION is None:
         if not os.path.isfile(BASIC_PITCH_ONNX):
             raise FileNotFoundError(f"Modèle Basic Pitch ONNX introuvable : {BASIC_PITCH_ONNX}")
@@ -393,7 +411,10 @@ def analyze_song_for_rap_flip(audio_path: str, target_rap_bpm: float = 140.0) ->
     src_bpm = round(float(np.atleast_1d(tempo)[0]), 2)
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
-    key, scale, key_conf = es.KeyExtractor(sampleRate=float(sr))(y.astype(np.float32))
+    if _HAS_ESSENTIA:
+        key, scale, key_conf = es.KeyExtractor(sampleRate=float(sr))(y.astype(np.float32))
+    else:
+        key, scale, key_conf = "C", "minor", 0.0
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
 
     # Estimation d'accords toutes les 4 pulsations (1 mesure 4/4)

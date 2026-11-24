@@ -190,8 +190,10 @@ def apply_haas_pocket(
     to create pocket groove & separate Kick/Bass transients cleanly.
     """
     out: dict[str, list[dict[str, Any]]] = {}
+    beat_ms = 60000.0 / float(bpm) if bpm else 500.0
+    max_shift_ms = 0.05 * beat_ms  # never smear more than 5% of a beat (fast tempos)
     for tr_name, notes in tracks_dict.items():
-        shift_ms = _pocket_shift_for_track(tr_name, profile)
+        shift_ms = min(_pocket_shift_for_track(tr_name, profile), max_shift_ms)
         shift_beats = ms_to_beats(shift_ms, bpm)
         updated: list[dict[str, Any]] = []
         for n in notes:
@@ -202,16 +204,44 @@ def apply_haas_pocket(
     return out
 
 
+def apply_swing(
+    notes: list[dict[str, Any]],
+    swing: float = 0.0,
+    beats_per_bar: float = 4.0,
+) -> list[dict[str, Any]]:
+    """
+    Delay off-beat 8th notes by `swing * 0.25` beats (swing in [0, 1), blueprint convention).
+
+    Only notes sitting exactly on an off-beat 8th grid position (odd multiple of 0.5 beat)
+    are moved, so syncopated notes keep their exact placement.
+    """
+    if not notes or swing <= 0.0:
+        return notes
+    delay_beats = max(0.0, min(0.75, float(swing))) * 0.25
+    out = []
+    for n in notes:
+        nc = copy.copy(n)
+        t = float(nc["start"])
+        eighth_idx = t / 0.5
+        if abs(eighth_idx - round(eighth_idx)) < 1e-3 and int(round(eighth_idx)) % 2 == 1:
+            nc["start"] = round(t + delay_beats, 5)
+        out.append(nc)
+    return out
+
+
 def apply_anti_machine_gun(
     notes: list[dict[str, Any]],
     subdivision_thresh_beats: float = 0.25,
     vel_jitter_pct: float = 5.0,
     beats_per_bar: float = 4.0,
     seed: int = 42,
+    humanize_sparse: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Apply a metric accent curve + deterministic velocity jitter (`seed`) to any note sequence
     containing dense subdivisions (`IOI <= subdivision_thresh_beats`, i.e., >= 1/16 notes).
+    With `humanize_sparse=True`, sparse notes also get a gentle metric accent (no jitter) so
+    long chords/leads do not sound like a drum machine.
     """
     if not notes:
         return []
@@ -228,19 +258,29 @@ def apply_anti_machine_gun(
             in_rapid[i + 1] = True
 
     for i, note in enumerate(copied):
-        if not in_rapid[i]:
-            continue
         t = float(note["start"])
         bar_phase = t % max(1.0, float(beats_per_bar))
         beat_frac = bar_phase % 1.0
-        # Strong quarter beat > 8th offbeat > 16th in-between
-        if beat_frac < 0.06 or beat_frac > 0.94:
-            metric_mult = 1.06 if (bar_phase < 0.06 or abs(bar_phase - 2.0) < 0.06) else 1.02
-        elif abs(beat_frac - 0.5) < 0.06:
-            metric_mult = 0.92
+        if in_rapid[i]:
+            # Strong quarter beat > 8th offbeat > 16th in-between
+            if beat_frac < 0.06 or beat_frac > 0.94:
+                metric_mult = 1.06 if (bar_phase < 0.06 or abs(bar_phase - 2.0) < 0.06) else 1.02
+            elif abs(beat_frac - 0.5) < 0.06:
+                metric_mult = 0.92
+            else:
+                metric_mult = 0.82
+            jit_mult = 1.0 + rng.uniform(-frac_jit, frac_jit)
+        elif humanize_sparse:
+            # Gentle metric accent only (no jitter) for sparse notes
+            if beat_frac < 0.06 or beat_frac > 0.94:
+                metric_mult = 1.04 if (bar_phase < 0.06 or abs(bar_phase - 2.0) < 0.06) else 1.01
+            elif abs(beat_frac - 0.5) < 0.06:
+                metric_mult = 0.96
+            else:
+                metric_mult = 0.90
+            jit_mult = 1.0
         else:
-            metric_mult = 0.82
-        jit_mult = 1.0 + rng.uniform(-frac_jit, frac_jit)
+            continue
         orig_v = float(note.get("velocity", 90))
         note["velocity"] = _clamp_vel(orig_v * metric_mult * jit_mult)
 

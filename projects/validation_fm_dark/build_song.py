@@ -15,7 +15,7 @@ import sys
 import pretty_midi
 from jsonschema import validate
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.extend([f"{ROOT}/scripts", f"{ROOT}/mcp-servers/audio-analyzer"])
 
 from studio_lib import (

@@ -23,11 +23,12 @@ import sys
 import tempfile
 import time
 import unittest
+import shutil
 
 import numpy as np
 import soundfile as sf
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _p in (
     ROOT,
     os.path.join(ROOT, "scripts"),
@@ -291,6 +292,7 @@ class TestPhase5LoopFirst(unittest.TestCase):
             mcp_pal = json.loads(audio_index_server.propose_palettes(project_samples_dir=proj_dir, db_path=db_path))
             self.assertEqual(len(mcp_pal["palettes"]), 3)
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_phase_b_soundcheck_synthetic_headless_preview_and_listener(self) -> None:
         sr = 44100
         t = np.linspace(0.0, 2.0, sr * 2, endpoint=False)
@@ -368,6 +370,7 @@ class TestPhase5LoopFirst(unittest.TestCase):
             mcp_sc = json.loads(audio_analyzer_server.audit_track_soundcheck(wav_path=p_sil, role="lead_melody"))
             self.assertEqual(mcp_sc["verdict"], "SWAP")
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_phase_c_vertical_incremental_headless_trap_and_ambient(self) -> None:
         sr = 44100
         t = np.linspace(0.0, 2.0, sr * 2, endpoint=False)

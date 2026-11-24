@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -32,15 +35,42 @@ from gl_dsl import (
     to_mixer_params,
 )
 
-ROOT = "/home/gamo/Bureau/musicos"
-TEMPLATE_EMPTY_MIXER = "/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline"
+def studio_root() -> str:
+    """Universal repo root: `AI_STUDIO_DIR` env var wins, else the directory that contains `scripts/`."""
+    env = os.environ.get("AI_STUDIO_DIR", "").strip()
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return str(Path(__file__).resolve().parents[1])
+
+
+ROOT = studio_root()
+
+SYSTEM_EMPTY_TEMPLATE = "/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline"
+BUNDLED_EMPTY_TEMPLATE = os.path.join(ROOT, "assets", "empty_with_mixer_tracks.gridline")
+
+
+def resolve_empty_template() -> str:
+    """Pick the first available empty-project template: `GRIDLINE_EMPTY_TEMPLATE` env > system Gridline > bundled fallback."""
+    candidates = [
+        os.environ.get("GRIDLINE_EMPTY_TEMPLATE", "").strip(),
+        SYSTEM_EMPTY_TEMPLATE,
+        BUNDLED_EMPTY_TEMPLATE,
+    ]
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            return cand
+    return BUNDLED_EMPTY_TEMPLATE
+
+
+TEMPLATE_EMPTY_MIXER = resolve_empty_template()
 
 
 class GridlineMCP:
     """Persistent stdio JSON-RPC client for `gridline mcp <proj> --export-dir <dir>`."""
 
-    def __init__(self, proj_path: str, export_dir: str, client_name: str = "ai_studio"):
+    def __init__(self, proj_path: str, export_dir: str, client_name: str = "ai_studio", rpc_timeout_s: float = 180.0):
         os.makedirs(export_dir, exist_ok=True)
+        self.rpc_timeout_s = float(rpc_timeout_s)
         self.proc = subprocess.Popen(
             ["gridline", "mcp", proj_path, "--export-dir", export_dir],
             stdin=subprocess.PIPE,
@@ -49,6 +79,10 @@ class GridlineMCP:
             text=True,
         )
         self._id = 0
+        self._rbuf = b""
+        self._stderr_lines: list[str] = []
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
         self._rpc(
             "initialize",
             {
@@ -58,6 +92,38 @@ class GridlineMCP:
             },
         )
         self._notify("notifications/initialized", {})
+
+    def _drain_stderr(self) -> None:
+        """Continuously drain the child stderr pipe so it can never deadlock on a full buffer."""
+        proc_stderr = self.proc.stderr
+        if proc_stderr is None:
+            return
+        try:
+            for line in proc_stderr:
+                self._stderr_lines.append(line.rstrip("\n"))
+                del self._stderr_lines[:-200]
+        except Exception:
+            pass
+
+    def _readline_timeout(self, timeout_s: float) -> str | None:
+        """Read one line from child stdout with a hard timeout (select on the raw fd). Returns None on EOF."""
+        assert self.proc.stdout is not None
+        fd = self.proc.stdout.fileno()
+        deadline = time.monotonic() + float(timeout_s)
+        while True:
+            if b"\n" in self._rbuf:
+                line, self._rbuf = self._rbuf.split(b"\n", 1)
+                return line.decode("utf-8", "replace")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f"MCP RPC timeout after {timeout_s}s (waiting for response)")
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready:
+                continue
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return None
+            self._rbuf += chunk
 
     def _notify(self, method: str, params: dict[str, Any]) -> None:
         assert self.proc.stdin is not None
@@ -71,9 +137,9 @@ class GridlineMCP:
         self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n")
         self.proc.stdin.flush()
         while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                err = self.proc.stderr.read() if self.proc.stderr else ""
+            line = self._readline_timeout(self.rpc_timeout_s)
+            if line is None or not line.strip():
+                err = "\n".join(self._stderr_lines[-20:])
                 raise RuntimeError(f"MCP EOF on {method}: {err}")
             resp = json.loads(line)
             if resp.get("id") == rid:
@@ -111,13 +177,26 @@ class GridlineMCP:
             self.call("set_parameters", {"changes": chunk})
 
     def close(self) -> None:
-        for stream in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
+        try:
+            if self.proc.stdin:
+                self.proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            self.proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        for stream in (self.proc.stdout, self.proc.stderr):
             if stream:
                 try:
                     stream.close()
                 except Exception:
                     pass
-        self.proc.wait(timeout=15)
+        self._stderr_thread.join(timeout=2)
 
 
 def clean_audio_sample(

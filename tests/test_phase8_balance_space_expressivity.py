@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 import soundfile as sf
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for _p in (ROOT, os.path.join(ROOT, "scripts"), os.path.join(ROOT, "mcp-servers", "audio-analyzer")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -160,6 +160,7 @@ class TestPhase8BalanceSpaceExpressivity(unittest.TestCase):
             self.assertTrue(sm.validate_edit_target("Chords")["allowed"])
 
     # ------------------------------------------------------------------ Q3
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_q3_fx_buses_and_stereo_audits(self) -> None:
         dly = gl_dsl.delay_send_fx(bpm=140.0, valence=0.0)
         self.assertEqual(dly["Dry"], 0.0)
@@ -353,6 +354,7 @@ class TestPhase8BalanceSpaceExpressivity(unittest.TestCase):
         self.assertGreaterEqual(split["gap_st"], 5.0)
 
     # ------------------------------------------------------------------ Q6
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_q6_expressive_synth_and_multizone(self) -> None:
         catalog = json.loads(
             subprocess.run(["gridline", "plugin-params"], capture_output=True, text=True, check=True, timeout=60).stdout

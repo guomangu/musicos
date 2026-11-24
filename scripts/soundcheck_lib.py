@@ -443,11 +443,17 @@ def audit_soundcheck_wav(
         tuning_err: float | None = None
         measured_f0: float | None = None
         fine_tune_delta = 0
+        root_note_delta = 0
         if role in TONAL_ROLES:
             tuning_err, measured_f0 = _measure_played_tuning_cents(mono, sr, expected_midis=expected_midis)
             if tuning_err is not None:
                 checks["tuning_ok"] = abs(tuning_err) <= 8.0
                 fine_tune_delta = int(-round(tuning_err))
+                if abs(tuning_err) >= 50.0:
+                    # ~un demi-ton ou plus d'écart : le Fine tune (cents) ne suffit pas,
+                    # c'est le Root note du sampler qui est faux d'un nombre entier de demi-tons.
+                    checks["root_note_mismatch_suspected"] = True
+                    root_note_delta = int(round(tuning_err / 100.0))
 
         # 3) Chromatic integrity (for played samples)
         if is_sample and role in TONAL_ROLES:
@@ -460,6 +466,7 @@ def audit_soundcheck_wav(
             if 2000.0 <= b["freq_hz"] <= 5000.0
             and b.get("is_local_peak", True)
             and b["local_excess_db"] > 5.0
+            and b.get("peak_width_bands", 99) <= 2
         ]
         # Avoid false-positive narrow peak on clean tonal fundamentals when total harsh energy is tiny
         if r_harsh < 0.08:
@@ -555,6 +562,7 @@ def audit_soundcheck_wav(
             "tuning_error_cents": tuning_err,
             "measured_f0_hz": measured_f0,
             "recommended_fine_tune_delta_ct": fine_tune_delta,
+            "recommended_root_note_delta_st": root_note_delta,
             "worst_2_5khz_peak": worst_peak,
             "estimated_decay_ms": decay_ms,
             "envelope_issue": env_issue,
@@ -607,6 +615,7 @@ def audit_soundcheck_wav(
         "recommended_volume_auto": metrics.get("recommended_volume_auto"),
         "spectral_centroid_hz": metrics.get("spectral_centroid_hz"),
         "tuning_error_cents": metrics.get("tuning_error_cents"),
+        "recommended_root_note_delta_st": metrics.get("recommended_root_note_delta_st", 0),
         "micro_glitches": metrics.get("micro_glitches", 0),
         "estimated_decay_ms": metrics.get("estimated_decay_ms"),
         "sustained_spectral_flux": metrics.get("sustained_spectral_flux"),
