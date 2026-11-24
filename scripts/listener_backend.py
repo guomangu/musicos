@@ -132,6 +132,7 @@ class DeterministicSemanticListener(ListenerBackend):
         findings: list[tuple[int, str, dict[str, Any], str]] = []  # (priority, severity, action, msg)
 
         tuning_ok = checks.get("tuning_ok", True)
+        gain_headroom_ok = checks.get("gain_headroom_ok", True)
         cents_err = metrics.get("tuning_error_cents")
         fine_tune_delta = int(metrics.get("recommended_fine_tune_delta_ct") or 0)
         chromatic_ok = checks.get("chromatic_integrity_ok", True)
@@ -151,6 +152,27 @@ class DeterministicSemanticListener(ListenerBackend):
                 "SWAP",
                 {"code": "RESTRICT_RANGE_OR_SWAP", "params": {"track": track_name, "role": role}},
                 f"Intégrité chromatique dégradée (glitches={glitches}, r_harm={metrics.get('r_harm')}) : sample inadapté à cet ambitus.",
+            ))
+
+        if not gain_headroom_ok:
+            act_lufs = metrics.get("active_lufs", -50.0)
+            targ_lufs = metrics.get("target_active_lufs", -20.0)
+            rec_db = metrics.get("recommended_gain_db", 0.0)
+            score -= 0.30
+            findings.append((
+                2,
+                "FIX",
+                {
+                    "code": "BOOST_TRACK_GAIN",
+                    "params": {
+                        "track": track_name,
+                        "role": role,
+                        "active_lufs": act_lufs,
+                        "target_active_lufs": targ_lufs,
+                        "recommended_gain_db": rec_db,
+                    },
+                },
+                f"Sonie active insuffisante ({act_lufs:.1f} LUFS < {targ_lufs - 10.0:.1f} LUFS) sans marge de crête suffisante -> BOOST_TRACK_GAIN / compresser source.",
             ))
 
         if not tuning_ok and cents_err is not None:

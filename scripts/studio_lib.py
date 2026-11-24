@@ -23,9 +23,11 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from gl_dsl import (
+    delay_send_fx,
     eq_band as dsl_eq_band,
     eq_params as dsl_eq_params,
     limiter_master,
+    reverb_hall,
     reverb_room,
     to_mixer_params,
 )
@@ -366,15 +368,21 @@ def setup_standard_buses(
     bus_808: int = 18,
     bus_music: int = 19,
     fx_room: int = 20,
+    fx_delay: int = 21,
+    fx_hall: int = 22,
     limiter_ceiling_db: float = -2.35,
     limiter_gain_db: float = 7.5,
     fx_room_vol: float = 0.30,
+    fx_delay_vol: float = 0.32,
+    fx_hall_vol: float = 0.30,
     profile: str = "trap_rap",
     valence: float = 0.0,
+    apply_dark_mid_dip: bool = True,
 ) -> None:
     """
     Instantiate calibrated Master + BUS Drums + BUS 808/Bass + BUS Music (Timbral Glue)
-    + FX Room (Dry=0, Dry full=0, Decay <= T_noire), adapted to `profile` and `valence`:
+    + FX Room (Dry=0, Dry full=0, Decay <= T_noire) + FX Delay (21) + FX Hall (22),
+    adapted to `profile` and `valence`:
     - BUS Music places `gl.dist` (Slot 1, Tone <= 7500 Hz) BEFORE `gl.eq` (Slot 2, HPF + LPF)
       so any saturation harmonics above LPF are cleanly filtered out.
     - trap_rap: smooth Kick->808 sidechain (Ratio 2.4, Threshold -18 dB, Release 65 ms) to preserve 808 body,
@@ -389,11 +397,12 @@ def setup_standard_buses(
     lofi_mode = profile == "lofi_chill"
     dark_mode = valence < -0.2
     rt60 = round(min(1.10 if acoustic_mode else 0.42, max(0.18, t_noire_s * (1.2 if acoustic_mode else 0.65))), 3)
+    hall_decay = 2.3 if acoustic_mode else 1.8
 
     # Ensure mixer tracks up to max bus index exist (Empty template only has 0..16)
     mixer_info = mcp.call("get_mixer", {})
     existing_count = len(mixer_info.get("tracks", []))
-    max_needed = max(bus_drums, bus_808, bus_music, fx_room)
+    max_needed = max(bus_drums, bus_808, bus_music, fx_room, fx_delay, fx_hall)
     if existing_count <= max_needed:
         add_tracks = [
             {"tool": "add_mixer_track", "arguments": {"name": f"Insert {idx}"}}
@@ -415,7 +424,16 @@ def setup_standard_buses(
         {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.eq"}},
         {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.comp"}},
         {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.comp"}},
+        # BUS Music mid/high stereo widener (keeps < 250 Hz mono, symmetric => no L/R drift)
+        {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.stereo"}},
+        {"tool": "add_plugin", "arguments": {"mixer": bus_music, "plugin": "gl.stereo"}},
         {"tool": "add_plugin", "arguments": {"mixer": fx_room, "plugin": "gl.reverb"}},
+        # FX Delay (21): gl.delay -> gl.eq (wet-only, band-limited)
+        {"tool": "add_plugin", "arguments": {"mixer": fx_delay, "plugin": "gl.delay"}},
+        {"tool": "add_plugin", "arguments": {"mixer": fx_delay, "plugin": "gl.eq"}},
+        # FX Hall (22): gl.reverb -> gl.eq (wet-only, band-limited)
+        {"tool": "add_plugin", "arguments": {"mixer": fx_hall, "plugin": "gl.reverb"}},
+        {"tool": "add_plugin", "arguments": {"mixer": fx_hall, "plugin": "gl.eq"}},
     ]
     mcp.batch(fx_adds)
 
@@ -425,7 +443,8 @@ def setup_standard_buses(
     elif acoustic_mode:
         music_lpf = 12000 if dark_mode else 13500
     else:
-        music_lpf = 10500 if dark_mode else 12500
+        # Q3.3 anti-over-filtering: dark trap/pop must keep BUS Music LPF >= 11.5 kHz
+        music_lpf = 11500 if (dark_mode and profile in ("trap_rap", "pop_rnb")) else (10500 if dark_mode else 12500)
     music_dist_mix = 0.0 if acoustic_mode else (0.10 if lofi_mode else 0.08)
     music_dist_tone = 6500 if (lofi_mode or dark_mode) else 7500
     drums_air_gain = 0.0 if (acoustic_mode or lofi_mode or dark_mode) else 1.8
@@ -466,9 +485,17 @@ def setup_standard_buses(
         (f"mixer/{bus_music}/slot/1/Mode", 0), (f"mixer/{bus_music}/slot/1/Drive", 3.5),
         (f"mixer/{bus_music}/slot/1/Tone", music_dist_tone), (f"mixer/{bus_music}/slot/1/Mix", music_dist_mix),
         (f"mixer/{bus_music}/slot/1/Output", 0.0), (f"mixer/{bus_music}/slot/1/Oversampling", 2), (f"mixer/{bus_music}/slot/1/Remove DC", 1),
-        *dsl_eq_params(bus_music, [dsl_eq_band(1, "hpf", music_hpf), dsl_eq_band(7, "lpf", music_lpf)], slot=2),
+        *dsl_eq_params(
+            bus_music,
+            [
+                dsl_eq_band(1, "hpf", music_hpf),
+                dsl_eq_band(5, "high_shelf", 9500.0, 0.8 if (acoustic_mode or lofi_mode) else 1.2),
+                dsl_eq_band(7, "lpf", music_lpf),
+            ],
+            slot=2,
+        ),
     ]
-    if dark_mode:
+    if dark_mode and apply_dark_mid_dip:
         changes.extend(to_mixer_params(bus_music, 2, dsl_eq_band(6, "peak", 3200, -2.0, q=1.4)))
     fx_room_params = reverb_room(
         decay_sec=rt60,
@@ -486,8 +513,36 @@ def setup_standard_buses(
         (f"mixer/{bus_music}/slot/4/Detector input", 1),
         (f"mixer/{bus_music}/slot/4/Threshold", -21.0), (f"mixer/{bus_music}/slot/4/Ratio", sc_ratio_music),
         (f"mixer/{bus_music}/slot/4/Attack", 0.005), (f"mixer/{bus_music}/slot/4/Release", 0.085), (f"mixer/{bus_music}/slot/4/Lookahead", 1),
+        # Q3.2 default stereo width (legacy engine = real side synthesis, symmetric)
+        (f"mixer/{bus_music}/slot/5/Reference engine", 0),
+        (f"mixer/{bus_music}/slot/5/Width", 1.60 if acoustic_mode else 2.00),
+        (f"mixer/{bus_music}/slot/5/Side level", 10.0 if acoustic_mode else 12.0),
+        (f"mixer/{bus_music}/slot/5/Mono below", 250.0),
+        (f"mixer/{bus_music}/slot/5/Dephase", 0.0),
+        # Second gentle stage: lifts very mono/synth-only arrangements into the Q3.2 width window
+        (f"mixer/{bus_music}/slot/6/Reference engine", 0),
+        (f"mixer/{bus_music}/slot/6/Width", 1.10),
+        (f"mixer/{bus_music}/slot/6/Side level", 4.0),
+        (f"mixer/{bus_music}/slot/6/Mono below", 250.0),
+        (f"mixer/{bus_music}/slot/6/Dephase", 0.0),
         # FX Room (Dry=0, Dry full=0, Decay <= T_noire for rhythmic genres)
         *to_mixer_params(fx_room, 1, fx_room_params),
+        # FX Delay (21) — BPM-synced, Dry=0, band-limited feedback
+        *to_mixer_params(fx_delay, 1, delay_send_fx(bpm=bpm, valence=valence)),
+        *dsl_eq_params(
+            fx_delay,
+            [dsl_eq_band(1, "hpf", 400.0), dsl_eq_band(7, "lpf", 2800.0 if dark_mode else 3500.0)],
+            slot=2,
+            quality=0,
+        ),
+        # FX Hall (22) — long decay, Dry=0, band-limited
+        *to_mixer_params(fx_hall, 1, reverb_hall(decay_sec=hall_decay, valence=valence)),
+        *dsl_eq_params(
+            fx_hall,
+            [dsl_eq_band(1, "hpf", 500.0), dsl_eq_band(7, "lpf", 4500.0 if dark_mode else 5500.0)],
+            slot=2,
+            quality=0,
+        ),
     ])
     mcp.set_params(changes)
     mcp.batch([
@@ -495,4 +550,6 @@ def setup_standard_buses(
         {"tool": "edit_mixer_track", "arguments": {"mixer": bus_808, "name": "BUS Bass", "routeTo": 0, "volume": 1.0, "pan": 0.0}},
         {"tool": "edit_mixer_track", "arguments": {"mixer": bus_music, "name": "BUS Music", "routeTo": 0, "volume": 1.0, "pan": 0.0}},
         {"tool": "edit_mixer_track", "arguments": {"mixer": fx_room, "name": "FX Room", "routeTo": 0, "volume": fx_room_vol, "pan": 0.0}},
+        {"tool": "edit_mixer_track", "arguments": {"mixer": fx_delay, "name": "FX Delay", "routeTo": 0, "volume": fx_delay_vol, "pan": 0.0}},
+        {"tool": "edit_mixer_track", "arguments": {"mixer": fx_hall, "name": "FX Hall", "routeTo": 0, "volume": fx_hall_vol, "pan": 0.0}},
     ])

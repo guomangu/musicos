@@ -44,6 +44,7 @@ from deep_diagnostics import (
     analyze_sustained_spectral_flux,
 )
 from gl_dsl import SYNTH_REGISTRY, _default_cutoff_hz, eq_band, eq_params, synth_voice
+from gain_staging_lib import compute_gain_staging_plan, measure_active_loudness
 from groove_lib import apply_anti_machine_gun
 from indexer import build_timbre_card_from_dsp
 from listener_backend import ListenerBackend, get_listener_backend
@@ -354,8 +355,9 @@ def audit_soundcheck_wav(
     contract: dict[str, Any] | None = None,
     listener: ListenerBackend | None = None,
     diagnostics_dir: str = "",
+    current_volume: float = 0.80,
 ) -> dict[str, Any]:
-    """Run all 6 Sound Check verifications on a rendered isolated track WAV."""
+    """Run all 6 Sound Check verifications + Phase 8 Q1 active loudness staging on a rendered isolated track WAV."""
     abs_wav = os.path.abspath(os.path.expanduser(wav_path))
     if not os.path.isfile(abs_wav):
         raise FileNotFoundError(f"Sound check WAV not found: {abs_wav}")
@@ -369,16 +371,54 @@ def audit_soundcheck_wav(
     rms_dbfs = round(20.0 * math.log10(max(rms, 1e-12)), 2)
     peak_dbfs = round(20.0 * math.log10(max(peak, 1e-12)), 2)
 
-    audibility_ok = (rms_dbfs > -42.0) and (peak_dbfs > -24.0)
+    active_loud = measure_active_loudness(data, sr)
+    mix_profile = str((blueprint or {}).get("mix_profile") or "trap_rap")
+    has_drums = bool((blueprint or {}).get("has_drums", mix_profile != "classical_ambient"))
+    gs_plan = compute_gain_staging_plan(
+        {
+            t_name: {
+                "role": role,
+                "active_lufs": active_loud["active_lufs"],
+                "peak_dbfs": active_loud["peak_dbfs"],
+                "current_volume": float(current_volume),
+                "is_effectively_silent": active_loud["is_effectively_silent"],
+            }
+        },
+        mix_profile=mix_profile,
+        has_drums=has_drums,
+    )
+    gs_entry = gs_plan["tracks"][t_name]
+
+    audibility_ok = (
+        (not active_loud["is_effectively_silent"])
+        and ((rms_dbfs > -52.0) or (active_loud["active_rms_db"] > -45.0))
+        and (peak_dbfs > -24.0)
+    )
+    needed_db = float(gs_entry["target_active_lufs"]) - float(active_loud["active_lufs"])
+    can_compensate_no_clip = (float(active_loud["peak_dbfs"]) + needed_db) <= -1.0
+    gain_headroom_ok = True
+    if audibility_ok and (float(active_loud["active_lufs"]) < float(gs_entry["target_active_lufs"]) - 10.0) and not can_compensate_no_clip:
+        gain_headroom_ok = False
 
     metrics: dict[str, Any] = {
         "wav_path": abs_wav,
         "duration_s": round(len(mono) / float(sr), 3),
         "rms_dbfs": rms_dbfs,
         "peak_dbfs": peak_dbfs,
+        "active_rms_db": active_loud["active_rms_db"],
+        "active_lufs": active_loud["active_lufs"],
+        "crest_factor_db": active_loud["crest_factor_db"],
+        "active_frame_ratio": active_loud["active_frame_ratio"],
+        "is_effectively_silent": active_loud["is_effectively_silent"],
+        "target_active_lufs": gs_entry["target_active_lufs"],
+        "recommended_gain_db": gs_entry["recommended_gain_db"],
+        "recommended_volume_auto": gs_entry["recommended_volume"],
+        "gain_staging_status": gs_entry["status"],
+        "rendered_volume": float(current_volume),
     }
     checks: dict[str, bool] = {
         "audibility_ok": audibility_ok,
+        "gain_headroom_ok": gain_headroom_ok,
         "tuning_ok": True,
         "chromatic_integrity_ok": True,
         "spectral_clean_ok": True,
@@ -550,9 +590,21 @@ def audit_soundcheck_wav(
     result["s1_h_flux"] = metrics.get("sustained_spectral_flux")
     result["static_timbre_warning"] = metrics.get("static_timbre_warning")
     result["s2_h_onset_lag_ms"] = metrics.get("onset_lag_ms")
+    result["active_rms_db"] = metrics.get("active_rms_db")
+    result["active_lufs"] = metrics.get("active_lufs")
+    result["crest_factor_db"] = metrics.get("crest_factor_db")
+    result["target_active_lufs"] = metrics.get("target_active_lufs")
+    result["recommended_gain_db"] = metrics.get("recommended_gain_db")
+    result["recommended_volume_auto"] = metrics.get("recommended_volume_auto")
     result["metrics_summary"] = {
         "rms_dbfs": rms_dbfs,
         "peak_dbfs": peak_dbfs,
+        "active_rms_db": metrics.get("active_rms_db"),
+        "active_lufs": metrics.get("active_lufs"),
+        "crest_factor_db": metrics.get("crest_factor_db"),
+        "target_active_lufs": metrics.get("target_active_lufs"),
+        "recommended_gain_db": metrics.get("recommended_gain_db"),
+        "recommended_volume_auto": metrics.get("recommended_volume_auto"),
         "spectral_centroid_hz": metrics.get("spectral_centroid_hz"),
         "tuning_error_cents": metrics.get("tuning_error_cents"),
         "micro_glitches": metrics.get("micro_glitches", 0),
@@ -568,6 +620,35 @@ def audit_soundcheck_wav(
         with open(diag_path, "w", encoding="utf-8") as fh:
             json.dump({"result": result, "raw_dsp": dsp_report}, fh, indent=2, ensure_ascii=False)
         result["diagnostics_path"] = diag_path
+
+        metrics_path = os.path.join(diagnostics_dir, "soundcheck_metrics.json")
+        agg: dict[str, Any] = {}
+        if os.path.isfile(metrics_path):
+            try:
+                with open(metrics_path, encoding="utf-8") as mfh:
+                    agg = json.load(mfh) or {}
+            except Exception:
+                agg = {}
+        agg[t_name] = {
+            "track": t_name,
+            "slug": _safe_slug(t_name),
+            "role": role,
+            "wav_path": abs_wav,
+            "active_rms_db": metrics.get("active_rms_db"),
+            "active_lufs": metrics.get("active_lufs"),
+            "peak_dbfs": peak_dbfs,
+            "crest_factor_db": metrics.get("crest_factor_db"),
+            "is_effectively_silent": metrics.get("is_effectively_silent"),
+            "target_active_lufs": metrics.get("target_active_lufs"),
+            "recommended_gain_db": metrics.get("recommended_gain_db"),
+            "recommended_volume_auto": metrics.get("recommended_volume_auto"),
+            "rendered_volume": float(current_volume),
+            "verdict": result.get("verdict"),
+        }
+        tmp_mp = metrics_path + ".tmp"
+        with open(tmp_mp, "w", encoding="utf-8") as mfh:
+            json.dump(agg, mfh, indent=2, ensure_ascii=False)
+        os.replace(tmp_mp, metrics_path)
 
     return result
 
@@ -648,6 +729,7 @@ def audit_track_soundcheck(
             cached = get_cached_verdict(project_dir, e1_key, e1_hash)
             if cached is not None:
                 return cached
+        cur_vol_wav = float(track_spec.volume if isinstance(track_spec, ChannelSpec) else (track_spec or {}).get("volume", 0.80))
         res_wav = audit_soundcheck_wav(
             wav_path,
             role=role,
@@ -661,6 +743,7 @@ def audit_track_soundcheck(
             contract=eff_contract,
             listener=listener,
             diagnostics_dir=diag_dir,
+            current_volume=cur_vol_wav,
         )
         if use_cache and project_dir and e1_hash:
             set_cached_verdict(project_dir, e1_key, e1_hash, res_wav)
@@ -828,6 +911,7 @@ def audit_track_soundcheck(
         contract=eff_contract,
         listener=listener,
         diagnostics_dir=diag_dir,
+        current_volume=float(spec.get("volume", 0.80)),
     )
 
     if use_cache and project_dir and e1_hash:

@@ -34,6 +34,7 @@ from audio_metrics import BARK_EDGES_HZ
 from deep_diagnostics import compute_pink_slope_db_per_oct
 
 DEFAULT_PROFILES_PATH = os.path.join(ROOT, "golden_references", "spectral_profiles.json")
+DEFAULT_EXTERNAL_DIR = os.path.join(ROOT, "golden_references", "external_masters")
 PROFILES = (
     "trap_rap",
     "pop_rnb",
@@ -128,6 +129,65 @@ def _find_project_master(proj_dir: str) -> str | None:
             if hits:
                 return hits[0]
     return None
+
+
+def _discover_external_masters(external_dir: str = DEFAULT_EXTERNAL_DIR) -> list[tuple[str, str, str]]:
+    """Return `(mix_profile, audio_path, label)` from `external_masters/<profile>/` (never versioned)."""
+    found: list[tuple[str, str, str]] = []
+    if not external_dir or not os.path.isdir(external_dir):
+        return found
+    for prof in PROFILES:
+        pdir = os.path.join(external_dir, prof)
+        if not os.path.isdir(pdir):
+            continue
+        for p in sorted(Path(pdir).rglob("*")):
+            if p.suffix.lower() in (".wav", ".flac", ".mp3", ".ogg"):
+                found.append((prof, str(p), f"external_masters/{prof}/{p.name}"))
+    return found
+
+
+def _compute_band_ratios(mono: np.ndarray, sr: int) -> dict[str, float]:
+    """Relative energy ratios (`%`) for sub / bass / low_mid / high_mid / air bands."""
+    n = min(len(mono), 1 << 18)
+    seg = mono[:n] if n == len(mono) else mono[len(mono) // 2 - n // 2 : len(mono) // 2 + n // 2]
+    win = np.hanning(len(seg))
+    spec = np.abs(np.fft.rfft(seg * win)) ** 2
+    freqs = np.fft.rfftfreq(len(seg), 1.0 / float(sr))
+    bands = {"sub": (20.0, 60.0), "bass": (60.0, 250.0), "low_mid": (250.0, 500.0), "high_mid": (500.0, 2000.0), "air": (2000.0, 12000.0)}
+    total = float(np.sum(spec[(freqs >= 20.0) & (freqs <= 12000.0)])) + 1e-18
+    out: dict[str, float] = {}
+    for name, (lo, hi) in bands.items():
+        e = float(np.sum(spec[(freqs >= lo) & (freqs < hi)]))
+        out[name] = round(100.0 * e / total, 2)
+    return out
+
+
+def _analyze_external_master(audio_path: str) -> dict[str, Any] | None:
+    """Extract Phase 8 Q4.1 statistical fingerprint from one commercial master (0 PyTorch)."""
+    try:
+        data, sr = sf.read(audio_path, dtype="float64", always_2d=True)
+    except Exception:
+        return None
+    if len(data) < int(sr * 4):
+        return None
+    mono = np.mean(data, axis=1)
+    peak = float(np.max(np.abs(mono)))
+    rms = float(np.sqrt(np.mean(mono**2)))
+    if rms < 1e-4 or peak > 1.05:
+        return None
+    from deep_diagnostics import analyze_stereo_image, compute_ebu_r128_stats
+
+    ebu = compute_ebu_r128_stats(data, int(sr))
+    stereo = analyze_stereo_image(data, int(sr), target_genre="")
+    return {
+        "bark_24": compute_bark24_distribution(mono, int(sr)),
+        "pink_slope_db_per_oct": compute_pink_slope_db_per_oct(mono, int(sr)),
+        "lufs_integrated": round(float(ebu.get("integrated_lufs", -70.0)), 2),
+        "lra_lu": round(float(ebu.get("lra_lu", 0.0)), 2),
+        "crest_factor_db": round(20.0 * math.log10(max(peak, 1e-12) / max(rms, 1e-12)), 2),
+        "mid_high_side_to_mid_db": stereo["mid_high_side_to_mid_db"],
+        "band_ratios": _compute_band_ratios(mono, int(sr)),
+    }
 
 
 def _discover_project_renders() -> list[tuple[str, str, str]]:
@@ -234,8 +294,24 @@ def build_spectral_profiles(
     min_pq: float | None = 7.8,
     use_neural: bool = False,
     extra_sources: list[tuple[str, str, str]] | None = None,
+    external_dir: str = DEFAULT_EXTERNAL_DIR,
 ) -> dict[str, Any]:
-    """Builds `golden_references/spectral_profiles.json` across all 7 genres."""
+    """
+    Builds `golden_references/spectral_profiles.json` across all 7 genres.
+
+    Priority (Phase 8 Q4.1): `external_masters/<profile>/` commercial masters are used
+    exclusively when present and marked `"provenance": "external_pro_reference"`;
+    otherwise internal studio renders / analytic fallback are marked `"internal_bootstrap"`.
+    """
+    found_external = _discover_external_masters(external_dir)
+    external_by_profile: dict[str, list[dict[str, Any]]] = {p: [] for p in PROFILES}
+    for prof, apath, label in found_external:
+        sig = _analyze_external_master(apath)
+        if sig is None:
+            continue
+        sig["label"] = label
+        external_by_profile.setdefault(prof, []).append(sig)
+
     discovered = list(extra_sources) if extra_sources is not None else _discover_project_renders()
     by_profile: dict[str, list[dict[str, Any]]] = {p: [] for p in PROFILES}
 
@@ -248,16 +324,20 @@ def build_spectral_profiles(
 
     profiles_out: dict[str, Any] = {}
     for prof in PROFILES:
-        items = by_profile.get(prof, [])
+        ext_items = external_by_profile.get(prof, [])
+        internal_items = by_profile.get(prof, [])
+        items = ext_items if ext_items else internal_items
+        provenance = "external_pro_reference" if ext_items else "internal_bootstrap"
         if items:
             mat = np.asarray([it["bark_24"] for it in items], dtype=np.float64)
             mean_b = np.mean(mat, axis=0)
             mean_b /= max(1e-18, float(np.sum(mean_b)))
             std_b = np.std(mat, axis=0)
             slopes = np.asarray([it["pink_slope_db_per_oct"] for it in items], dtype=np.float64)
-            profiles_out[prof] = {
+            entry: dict[str, Any] = {
                 "mix_profile": prof,
-                "source_type": "measured",
+                "source_type": "measured_external" if ext_items else "measured",
+                "provenance": provenance,
                 "source_count": len(items),
                 "sources": [it["label"] for it in items],
                 "pink_slope_mean": round(float(np.mean(slopes)), 3),
@@ -265,8 +345,24 @@ def build_spectral_profiles(
                 "bark_24_mean": [round(float(x), 6) for x in mean_b],
                 "bark_24_std": [round(float(x), 6) for x in std_b],
             }
+            if ext_items:
+                for key in ("lufs_integrated", "lra_lu", "crest_factor_db", "mid_high_side_to_mid_db"):
+                    vals = [float(it[key]) for it in items if it.get(key) is not None]
+                    if vals:
+                        entry[key] = round(float(np.median(vals)), 2)
+                band_keys = ("sub", "bass", "low_mid", "high_mid", "air")
+                band_items = [it for it in items if isinstance(it.get("band_ratios"), dict)]
+                if band_items:
+                    entry["band_ratios"] = {
+                        b: round(float(np.median([float(it["band_ratios"][b]) for it in band_items if b in it["band_ratios"]])), 2)
+                        for b in band_keys
+                        if any(b in it["band_ratios"] for it in band_items)
+                    }
+            profiles_out[prof] = entry
         else:
-            profiles_out[prof] = _analytic_bark24_profile(prof)
+            entry = _analytic_bark24_profile(prof)
+            entry["provenance"] = "internal_bootstrap"
+            profiles_out[prof] = entry
 
     payload = {
         "version": 1,
@@ -280,7 +376,14 @@ def build_spectral_profiles(
     return {
         "output_path": output_path,
         "measured_profiles": {p: v["source_count"] for p, v in profiles_out.items() if v["source_count"] > 0},
+        "external_pro_profiles": sorted([p for p, v in profiles_out.items() if v.get("provenance") == "external_pro_reference"]),
         "analytic_fallback_profiles": [p for p, v in profiles_out.items() if v["source_count"] == 0],
+        "warning": (
+            "No external_pro_reference master found for profiles: "
+            + ", ".join([p for p, v in profiles_out.items() if v.get("provenance") != "external_pro_reference"])
+            if any(v.get("provenance") != "external_pro_reference" for v in profiles_out.values())
+            else ""
+        ),
     }
 
 
@@ -340,9 +443,15 @@ def main() -> None:
     ap.add_argument("--out", default=DEFAULT_PROFILES_PATH, help="Output spectral_profiles.json path")
     ap.add_argument("--min-pq", type=float, default=7.8, help="Optional min PQ threshold (applied when PQ is known or --use-neural is set)")
     ap.add_argument("--use-neural", action="store_true", help="Optionally evaluate Audiobox PQ on renders without cached audit JSON")
+    ap.add_argument("--external-dir", default=DEFAULT_EXTERNAL_DIR, help="Commercial masters root (external_masters/<profile>/)")
     args = ap.parse_args()
 
-    res = build_spectral_profiles(output_path=args.out, min_pq=args.min_pq, use_neural=args.use_neural)
+    res = build_spectral_profiles(
+        output_path=args.out,
+        min_pq=args.min_pq,
+        use_neural=args.use_neural,
+        external_dir=args.external_dir,
+    )
     print(json.dumps(res, indent=2, ensure_ascii=False))
 
 

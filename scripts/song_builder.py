@@ -36,6 +36,7 @@ from gl_dsl import (  # noqa: F401 (re-exported for song scripts)
     INT_TO_EQ_KIND,
     SYNTH_REGISTRY,
     SynthVoiceConfig,
+    clamp,
     db_to_auto,
     eq_band as _dsl_eq_band,
     eq_params,
@@ -47,6 +48,7 @@ from gl_dsl import (  # noqa: F401 (re-exported for song scripts)
     synth_voice,
     to_mixer_params,
 )
+from gain_staging_lib import compute_gain_staging_plan, normalize_role_for_gain_staging  # noqa: E402
 from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     apply_anti_machine_gun,
     apply_haas_pocket,
@@ -64,8 +66,11 @@ from studio_lib import (
     verify_midi_gate,
 )
 from transitions_lib import (  # noqa: F401 (re-exported for song scripts)
+    add_transition_fx,
+    apply_harmonic_anticipation,
     beat4_dropout,
     filter_sweep,
+    generate_drum_fill,
     outro_fade,
     section_gain_arc,
 )
@@ -161,6 +166,8 @@ class ChannelSpec:
     voice: SynthVoiceConfig | None = None
     # Routing & arrangement behavior
     fx_send: float = 0.0
+    delay_send: float = 0.0
+    hall_send: float = 0.0
     sidechain_buses: list[tuple[int, float]] = field(default_factory=list)
     single_shot_clips: bool = False  # True for isolated FX triggers (creates 1-bar clip per event)
 
@@ -302,6 +309,169 @@ def _resolve_bus(bus: str | int) -> int:
     return BUS_MAP[str(bus).lower()]
 
 
+def _load_soundcheck_metrics(proj_dir: str) -> dict[str, dict[str, Any]]:
+    """Load É1 soundcheck measurements from `renders/diagnostics/soundcheck_metrics.json` or `soundcheck_*.json`."""
+    diag_dir = os.path.join(proj_dir, "renders", "diagnostics")
+    out: dict[str, dict[str, Any]] = {}
+    agg_path = os.path.join(diag_dir, "soundcheck_metrics.json")
+    if os.path.isfile(agg_path):
+        try:
+            with open(agg_path, encoding="utf-8") as fh:
+                raw = json.load(fh) or {}
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(v, dict):
+                        out[str(k).lower()] = v
+                        if v.get("slug"):
+                            out[str(v["slug"]).lower()] = v
+        except Exception:
+            pass
+    if os.path.isdir(diag_dir):
+        for fn in sorted(os.listdir(diag_dir)):
+            if fn.startswith("soundcheck_") and fn.endswith(".json") and fn != "soundcheck_metrics.json":
+                try:
+                    with open(os.path.join(diag_dir, fn), encoding="utf-8") as fh:
+                        obj = json.load(fh) or {}
+                    res = obj.get("result") or {}
+                    raw_m = ((obj.get("raw_dsp") or {}).get("metrics") or {})
+                    tname = str(res.get("track") or "").strip()
+                    if tname and ("active_lufs" in res or "active_lufs" in raw_m):
+                        entry = {
+                            "track": tname,
+                            "role": res.get("role") or (obj.get("raw_dsp") or {}).get("role") or "",
+                            "active_rms_db": res.get("active_rms_db", raw_m.get("active_rms_db")),
+                            "active_lufs": res.get("active_lufs", raw_m.get("active_lufs")),
+                            "peak_dbfs": raw_m.get("peak_dbfs", (res.get("metrics_summary") or {}).get("peak_dbfs")),
+                            "rendered_volume": raw_m.get("rendered_volume", 0.80),
+                            "recommended_volume_auto": res.get("recommended_volume_auto"),
+                            "recommended_gain_db": res.get("recommended_gain_db"),
+                        }
+                        out.setdefault(tname.lower(), entry)
+                except Exception:
+                    continue
+    return out
+
+
+def _apply_auto_gain_staging(
+    proj_dir: str,
+    channels: list[ChannelSpec],
+    meta: dict[str, Any],
+    *,
+    auto_gain_stage: bool = True,
+) -> tuple[list[ChannelSpec], dict[int, float], dict[str, Any]]:
+    """
+    Apply Q1 active-loudness gain staging from É1 soundcheck metrics + Q2 persisted
+    `gain_staging_overrides.json` trims, and write `renders/gain_staging_report.json`.
+    """
+    eff_channels = [copy.copy(ch) for ch in channels]
+    insert_vol_overrides: dict[int, float] = {}
+    sc_metrics = _load_soundcheck_metrics(proj_dir) if auto_gain_stage else {}
+
+    ov_path = os.path.join(proj_dir, "gain_staging_overrides.json")
+    overrides: dict[str, Any] = {}
+    if os.path.isfile(ov_path):
+        try:
+            with open(ov_path, encoding="utf-8") as fh:
+                overrides = json.load(fh) or {}
+        except Exception:
+            overrides = {}
+
+    meas_for_plan: dict[str, dict[str, Any]] = {}
+    ch_by_key: dict[str, ChannelSpec] = {}
+    for ch in eff_channels:
+        cands = [
+            ch.track_key.lower(),
+            ch.name.lower(),
+            ch.name.lower().replace(" ", "_"),
+        ]
+        hit = next((sc_metrics[c] for c in cands if c in sc_metrics), None)
+        if hit and hit.get("active_lufs") is not None:
+            role_hint = normalize_role_for_gain_staging(f"{ch.name} {ch.role or ''} {ch.track_key} {hit.get('role', '')}")
+            meas_for_plan[ch.track_key] = {
+                "role": role_hint,
+                "active_lufs": float(hit["active_lufs"]),
+                "peak_dbfs": float(hit.get("peak_dbfs") if hit.get("peak_dbfs") is not None else -6.0),
+                "current_volume": float(hit.get("rendered_volume") or ch.volume or 0.80),
+                "is_effectively_silent": bool(hit.get("is_effectively_silent", False)),
+            }
+            ch_by_key[ch.track_key] = ch
+
+    plan: dict[str, Any] = {}
+    if auto_gain_stage and meas_for_plan:
+        plan = compute_gain_staging_plan(
+            meas_for_plan,
+            mix_profile=str(meta.get("mix_profile", "trap_rap")),
+            has_drums=bool(meta.get("has_drums", True)),
+        )
+
+    report_tracks: list[dict[str, Any]] = []
+    for ch in eff_channels:
+        vol_before = round(float(ch.volume), 4)
+        plan_entry = (plan.get("tracks") or {}).get(ch.track_key)
+        status = "UNCHANGED"
+        delta_db = 0.0
+        insert_vol = None
+
+        if plan_entry is not None:
+            ch.volume = float(plan_entry["recommended_volume"])
+            delta_db = float(plan_entry["recommended_gain_db"])
+            res_db = float(plan_entry.get("residual_gain_db") or 0.0)
+            # Soundcheck renders at insert volume 1.0, so match 1.0 reference on calibrated channels
+            insert_vol = round(clamp(1.0 * (10.0 ** (res_db / 40.0)), 0.15, 1.25), 4)
+            insert_vol_overrides[ch.mixer] = insert_vol
+            status = str(plan_entry["status"])
+
+        # Apply persisted Q2 ADJUST_TRACK_FADER overrides (`volume_trim_db`) if present
+        ov_entry = None
+        for cand in (ch.track_key, ch.name, ch.name.lower(), ch.track_key.lower(), str(ch.mixer)):
+            if cand in overrides and isinstance(overrides[cand], dict):
+                ov_entry = overrides[cand]
+                break
+        if ov_entry and ov_entry.get("volume_trim_db") is not None:
+            trim_db = float(clamp(float(ov_entry["volume_trim_db"]), -8.0, 8.0))
+            if abs(trim_db) > 0.01:
+                raw_fader = db_to_auto(trim_db, ref_fader=float(ch.volume)) * 1.25
+                new_ch_vol = round(clamp(raw_fader, 0.10, 1.15), 4)
+                applied_ch_db = 40.0 * math.log10(max(new_ch_vol, 1e-6) / max(float(ch.volume), 1e-6))
+                ch.volume = new_ch_vol
+                rem_db = trim_db - applied_ch_db
+                if abs(rem_db) > 0.1:
+                    base_ins = insert_vol_overrides.get(ch.mixer, 0.80)
+                    insert_vol = round(clamp(base_ins * (10.0 ** (rem_db / 40.0)), 0.15, 1.25), 4)
+                    insert_vol_overrides[ch.mixer] = insert_vol
+                delta_db = round(delta_db + trim_db, 2)
+                status = "OVERRIDE_APPLIED"
+
+        report_tracks.append({
+            "name": ch.name,
+            "track_key": ch.track_key,
+            "mixer": ch.mixer,
+            "role": normalize_role_for_gain_staging(f"{ch.name} {ch.role or ''} {ch.track_key}"),
+            "volume_before": vol_before,
+            "volume_after": round(float(ch.volume), 4),
+            "insert_volume": insert_vol,
+            "delta_db": round(delta_db, 2),
+            "status": status,
+        })
+
+    report = {
+        "auto_gain_stage": bool(auto_gain_stage),
+        "mix_profile": str(meta.get("mix_profile", "trap_rap")),
+        "has_drums": bool(meta.get("has_drums", True)),
+        "soundcheck_matched_count": len(meas_for_plan),
+        "tracks": report_tracks,
+        "plan": plan,
+    }
+    renders_dir = os.path.join(proj_dir, "renders")
+    os.makedirs(renders_dir, exist_ok=True)
+    report_path = os.path.join(renders_dir, "gain_staging_report.json")
+    tmp_rp = report_path + ".tmp"
+    with open(tmp_rp, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2, ensure_ascii=False)
+    os.replace(tmp_rp, report_path)
+    return eff_channels, insert_vol_overrides, report
+
+
 def build_gridline_project(
     proj_path: str,
     export_dir: str,
@@ -320,13 +490,23 @@ def build_gridline_project(
     limiter_gain_db: float = 12.0,
     fx_room_vol: float = 0.32,
     min_pattern_lufs: float = -32.0,
+    auto_gain_stage: bool = True,
 ) -> None:
     """
     Build a complete `.gridline` project in one atomic MCP session enforcing strict isolation
     (`1 sonorité = 1 canal + 1 insert mixeur + patterns dédiés + 1 piste Playlist nommée`).
     """
-    os.makedirs(os.path.dirname(os.path.abspath(proj_path)), exist_ok=True)
+    abs_proj_path = os.path.abspath(proj_path)
+    proj_dir = os.path.dirname(abs_proj_path)
+    os.makedirs(proj_dir, exist_ok=True)
     shutil.copyfile(TEMPLATE_EMPTY_MIXER, proj_path)
+
+    channels, insert_vol_overrides, _gs_report = _apply_auto_gain_staging(
+        proj_dir, channels, meta, auto_gain_stage=auto_gain_stage
+    )
+    # Q3.3 makeup compensation is applied by the Q1 auto-gain stage (soundcheck metrics present),
+    # so hand-tuned reference builds without É1 metrics keep their calibrated faders.
+    apply_makeup = bool(((_gs_report or {}).get("soundcheck_matched_count") or 0) > 0)
 
     bpm = float(meta["bpm"])
     beats_per_bar = int(meta["beats_per_bar"])
@@ -345,17 +525,42 @@ def build_gridline_project(
             limiter_ceiling_db=limiter_ceiling_db,
             limiter_gain_db=limiter_gain_db,
             fx_room_vol=fx_room_vol,
+            apply_dark_mid_dip=not all(
+                (ch.plugin != "gl.sampler" and (bool(ch.role) or ch.lpf_hz is not None or ch.cutoff_hz is not None))
+                for ch in channels
+                if any(k in ch.track_key.lower() for k in ("chord", "pad", "lead", "melody", "counter"))
+            ),
         )
 
-        # Ensure any mixer tracks > 20 exist before adding channels
+        # Ensure any mixer tracks > 22 (FX Delay/Hall buses) exist before adding channels
         max_mixer_needed = max(ch.mixer for ch in channels)
-        if max_mixer_needed > 20:
+        if max_mixer_needed > 22:
             mixer_by_idx = {ch.mixer: ch.name for ch in channels}
             add_extras = [
                 {"tool": "add_mixer_track", "arguments": {"name": mixer_by_idx.get(idx, f"Insert {idx}")}}
-                for idx in range(21, max_mixer_needed + 1)
+                for idx in range(23, max_mixer_needed + 1)
             ]
             mcp.batch(add_extras)
+
+        # Pre-compute synth voices so LPF makeup gain can trim the channel fader deterministically
+        voice_by_idx: dict[int, SynthVoiceConfig] = {}
+        for idx, ch in enumerate(channels, start=1):
+            if ch.voice is not None:
+                voice_by_idx[idx] = ch.voice
+            elif ch.plugin != "gl.sampler" and ch.role and ch.plugin in SYNTH_REGISTRY:
+                voice_by_idx[idx] = synth_voice(
+                    ch.plugin,
+                    ch.role,  # type: ignore[arg-type]
+                    valence=ch.valence if ch.valence != 0.0 else valence,
+                    cutoff_hz=ch.lpf_hz if ch.lpf_hz is not None else ch.cutoff_hz,
+                )
+        eff_volumes: dict[int, float] = {}
+        for idx, ch in enumerate(channels, start=1):
+            v = float(ch.volume)
+            mk = float(voice_by_idx[idx].makeup_gain_db) if (idx in voice_by_idx and apply_makeup) else 0.0
+            if mk > 0.0:
+                v = clamp(db_to_auto(mk, ref_fader=v) * 1.25, 0.10, 1.15)
+            eff_volumes[idx] = round(v, 4)
 
         # Add channels (1 sonorité = 1 canal + 1 insert dédié)
         mcp.batch([
@@ -365,11 +570,11 @@ def build_gridline_project(
                     "name": ch.name,
                     "plugin": ch.plugin,
                     "mixer": ch.mixer,
-                    "volume": ch.volume,
+                    "volume": eff_volumes[idx],
                     "pan": ch.pan,
                 },
             }
-            for ch in channels
+            for idx, ch in enumerate(channels, start=1)
         ])
 
         # Load optional manifest.json for automatic fine-tune lookup when fine_tune is None
@@ -384,14 +589,7 @@ def build_gridline_project(
         auto_insert_lpf_params: list[tuple[str, Any]] = []
         auto_insert_eq_mixers: list[int] = []
         for idx, ch in enumerate(channels, start=1):
-            voice_cfg: SynthVoiceConfig | None = ch.voice
-            if voice_cfg is None and ch.plugin != "gl.sampler" and ch.role and ch.plugin in SYNTH_REGISTRY:
-                voice_cfg = synth_voice(
-                    ch.plugin,
-                    ch.role,  # type: ignore[arg-type]
-                    valence=ch.valence if ch.valence != 0.0 else valence,
-                    cutoff_hz=ch.lpf_hz if ch.lpf_hz is not None else ch.cutoff_hz,
-                )
+            voice_cfg: SynthVoiceConfig | None = voice_by_idx.get(idx)
 
             if ch.plugin == "gl.sampler":
                 spath = ch.sample_file if os.path.isabs(ch.sample_file) else os.path.join(samples_dir, ch.sample_file)
@@ -434,7 +632,12 @@ def build_gridline_project(
         mcp.batch([
             {
                 "tool": "edit_mixer_track",
-                "arguments": {"mixer": ch.mixer, "name": ch.name, "routeTo": _resolve_bus(ch.bus)},
+                "arguments": {
+                    "mixer": ch.mixer,
+                    "name": ch.name,
+                    "routeTo": _resolve_bus(ch.bus),
+                    **({"volume": insert_vol_overrides[ch.mixer]} if ch.mixer in insert_vol_overrides else {}),
+                },
             }
             for ch in channels
         ])
@@ -447,7 +650,7 @@ def build_gridline_project(
                 parts = p_str.split("/")
                 if len(parts) >= 2 and parts[0] == "mixer":
                     m_id = int(parts[1])
-                    if m_id not in (0, 17, 18, 19, 20) and m_id not in seen_m:
+                    if m_id not in (0, 17, 18, 19, 20, 21, 22) and m_id not in seen_m:
                         seen_m.add(m_id)
                         eq_mixers.append(m_id)
 
@@ -487,6 +690,10 @@ def build_gridline_project(
                 })
             if ch.fx_send > 0.0:
                 sends.append({"tool": "set_send", "arguments": {"mixer": ch.mixer, "to": 20, "level": ch.fx_send}})
+            if ch.delay_send > 0.0:
+                sends.append({"tool": "set_send", "arguments": {"mixer": ch.mixer, "to": 21, "level": min(0.18, float(ch.delay_send))}})
+            if ch.hall_send > 0.0:
+                sends.append({"tool": "set_send", "arguments": {"mixer": ch.mixer, "to": 22, "level": min(0.30, float(ch.hall_send))}})
         if sends:
             mcp.batch(sends)
 
@@ -627,6 +834,7 @@ def build_core_loop_project(
     limiter_gain_db: float = 12.0,
     fx_room_vol: float = 0.32,
     min_pattern_lufs: float = -36.0,
+    auto_gain_stage: bool = True,
 ) -> dict[str, Any]:
     """
     Build a compact 4- or 8-bar `core_loop.gridline` containing only the densest
@@ -677,6 +885,7 @@ def build_core_loop_project(
         limiter_gain_db=limiter_gain_db,
         fx_room_vol=fx_room_vol,
         min_pattern_lufs=min_pattern_lufs,
+        auto_gain_stage=auto_gain_stage,
     )
     return {
         "core_gridline": os.path.abspath(proj_path),
@@ -705,13 +914,16 @@ def run_song_cli(
     limiter_gain_db: float = 12.0,
     fx_room_vol: float = 0.32,
     samples_subdir: str = "samples",
+    auto_gain_stage: bool = True,
 ) -> None:
     """Turnkey CLI entrypoint (`--midi-only`, `--core-only`, or full build) for per-song scripts."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--midi-only", action="store_true", help="Only export master_sketch.mid and run verify_midi_gate")
     ap.add_argument("--core-only", action="store_true", help="Build only the 4-8 bar Refrain/Drop into core_loop.gridline for vertical testing")
     ap.add_argument("--core-bars", type=int, default=8, help="Max bars for --core-only (4 or 8)")
+    ap.add_argument("--no-auto-gain-stage", action="store_true", help="Disable Q1 active-loudness auto-gain staging")
     args = ap.parse_args()
+    eff_auto_gs = bool(auto_gain_stage) and (not args.no_auto_gain_stage)
 
     bp_path = os.path.join(proj_dir, "song_blueprint.json")
     _bp, meta = load_blueprint(bp_path, validate=True)
@@ -766,6 +978,7 @@ def run_song_cli(
             limiter_ceiling_db=limiter_ceiling_db,
             limiter_gain_db=limiter_gain_db,
             fx_room_vol=fx_room_vol,
+            auto_gain_stage=eff_auto_gs,
         )
         print(f"Built core loop {info['core_gridline']} ({info['bars']} bars from '{info['source_section']}')")
         return
@@ -788,6 +1001,7 @@ def run_song_cli(
         limiter_ceiling_db=limiter_ceiling_db,
         limiter_gain_db=limiter_gain_db,
         fx_room_vol=fx_room_vol,
+        auto_gain_stage=eff_auto_gs,
     )
     print(f"Built {out_gridline} ({meta['total_bars']} bars @ {meta['bpm']} BPM, {meta['key']})")
 
@@ -984,6 +1198,119 @@ def _tile_and_modify_section_notes(
     return tiled
 
 
+def _fold_group_into_register(group: list[dict[str, Any]], lo: int, hi: int) -> None:
+    """Shift a simultaneous chord/lead group by whole octaves to fit `[lo, hi]` (keeps intervals)."""
+    if not group:
+        return
+    center = (lo + hi) / 2.0
+    best_shift = 0
+    best_cost = float("inf")
+    for shift in (-24, -12, 0, 12, 24):
+        pitches = [int(ev["pitch"]) + shift for ev in group]
+        if min(pitches) < lo or max(pitches) > hi:
+            continue
+        cost = abs(sum(pitches) / len(pitches) - center)
+        if cost < best_cost:
+            best_cost = cost
+            best_shift = shift
+    for ev in group:
+        ev["pitch"] = int(max(lo, min(hi, int(ev["pitch"]) + best_shift)))
+
+
+def _apply_dark_register_split(
+    tracks: dict[str, list[dict[str, Any]]],
+    valence: float,
+    chords_keys: list[str],
+    lead_keys: list[str],
+) -> dict[str, Any]:
+    """
+    Phase 8 Q5.2 — When `V < -0.2`, fold Chords/Pad into `[48, 60]` and Lead into `[60, 72]`
+    by whole-octave groups (no interval distortion), guaranteeing a >= 5-semitone centroid gap.
+    """
+    if float(valence) >= -0.2:
+        return {"applied": False, "valence": float(valence)}
+
+    def _process(keys: list[str], lo: int, hi: int) -> list[dict[str, Any]]:
+        all_notes: list[dict[str, Any]] = []
+        for k in keys:
+            notes = tracks.get(k) or []
+            if not notes:
+                continue
+            groups: dict[float, list[dict[str, Any]]] = {}
+            for ev in notes:
+                groups.setdefault(round(float(ev["start"]), 3), []).append(ev)
+            for grp in groups.values():
+                _fold_group_into_register(grp, lo, hi)
+            notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+            all_notes.extend(notes)
+        return all_notes
+
+    ch_notes = _process(chords_keys, 48, 60)
+    ld_notes = _process(lead_keys, 60, 72)
+    if not ch_notes or not ld_notes:
+        return {"applied": True, "chords_notes": len(ch_notes), "lead_notes": len(ld_notes), "gap_st": None}
+
+    ch_centroid = sum(int(n["pitch"]) for n in ch_notes) / len(ch_notes)
+    ld_centroid = sum(int(n["pitch"]) for n in ld_notes) / len(ld_notes)
+    gap = ld_centroid - ch_centroid
+    if gap < 5.0 and min(int(n["pitch"]) for n in ch_notes) >= 48:
+        for n in ch_notes:
+            if int(n["pitch"]) - 12 >= 48:
+                n["pitch"] = int(n["pitch"]) - 12
+        for k in chords_keys:
+            if tracks.get(k):
+                tracks[k].sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+        ch_centroid = sum(int(n["pitch"]) for n in ch_notes) / len(ch_notes)
+        gap = ld_centroid - ch_centroid
+    return {
+        "applied": True,
+        "chords_notes": len(ch_notes),
+        "lead_notes": len(ld_notes),
+        "chords_centroid_midi": round(ch_centroid, 2),
+        "lead_centroid_midi": round(ld_centroid, 2),
+        "gap_st": round(gap, 2),
+    }
+
+
+def _apply_trim_db_to_volume(base_vol: float, trim_db: float) -> float:
+    clamped_trim = clamp(float(trim_db), -8.0, 8.0)
+    raw_fader = db_to_auto(clamped_trim, ref_fader=float(base_vol)) * 1.25
+    return round(clamp(raw_fader, 0.10, 1.15), 4)
+
+
+DEFAULT_PITCH_ZONES: tuple[tuple[int, int], ...] = ((48, 55), (56, 63), (64, 72))
+
+
+def split_notes_by_pitch_zones(
+    notes: list[dict[str, Any]],
+    zones: list[tuple[int, int]] | tuple[tuple[int, int], ...] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Phase 8 Q6.2 — Route notes to 3 pitch-split sampler zones while guaranteeing each
+    note stays within +/-4 semitones of its zone centre (whole-octave folding only).
+    The caller routes every zone sub-channel to the same mixer insert.
+    """
+    eff_zones = [tuple(int(v) for v in z) for z in (zones or DEFAULT_PITCH_ZONES)]
+    out: dict[str, list[dict[str, Any]]] = {f"zone_{i + 1}": [] for i in range(len(eff_zones))}
+
+    def _dist(p: int, lo: int, hi: int) -> int:
+        return 0 if lo <= p <= hi else (lo - p if p < lo else p - hi)
+
+    for ev in notes:
+        p = int(ev.get("pitch", 60))
+        idx = min(range(len(eff_zones)), key=lambda i: _dist(p, *eff_zones[i]))
+        lo, hi = eff_zones[idx]
+        while p < lo:
+            p += 12
+        while p > hi:
+            p -= 12
+        p = int(max(lo, min(hi, p)))
+        out[f"zone_{idx + 1}"].append({**ev, "pitch": p})
+    for k in out:
+        out[k].sort(key=lambda e: (float(e["start"]), int(e["pitch"])))
+    return out
+
+
 def _default_channels_for_plan(
     plan: dict[str, Any],
     roles_ordered: list[str],
@@ -999,7 +1326,11 @@ def _default_channels_for_plan(
             elif isinstance(item, dict):
                 kw = dict(item)
                 kw.setdefault("mixer", i)
-                out.append(ChannelSpec(**kw))
+                trim_db = kw.pop("volume_trim_db", None)
+                spec = ChannelSpec(**kw)
+                if trim_db is not None:
+                    spec.volume = _apply_trim_db_to_volume(spec.volume, float(trim_db))
+                out.append(spec)
         return out
 
     bp_tracks: dict[str, dict[str, Any]] = {}
@@ -1033,15 +1364,17 @@ def _default_channels_for_plan(
         elif any(k in rl for k in ("bass", "808", "sub")):
             spec = ChannelSpec("Bass", role, idx, "bass", plugin="gl.warmsynth", role="bass", valence=valence, volume=0.62)
         elif any(k in rl for k in ("pad", "string")):
-            spec = ChannelSpec("Pad", role, idx, "music", plugin="gl.warmsynth", role="pad", valence=valence, volume=0.46, fx_send=0.18)
+            spec = ChannelSpec("Pad", role, idx, "music", plugin="gl.warmsynth", role="pad", valence=valence, volume=0.46, fx_send=0.18, hall_send=0.22)
         elif any(k in rl for k in ("chord", "keys")):
-            spec = ChannelSpec("Chords", role, idx, "music", plugin="gl.keys", role="chords", valence=valence, volume=0.50, fx_send=0.14)
+            spec = ChannelSpec("Chords", role, idx, "music", plugin="gl.keys", role="chords", valence=valence, volume=0.50, fx_send=0.14, hall_send=0.14)
         elif "counter" in rl:
-            spec = ChannelSpec("Counter Harmony", role, idx, "music", plugin="gl.fm", role="bell", valence=valence, volume=0.52, pan=-0.25, fx_send=0.18)
+            spec = ChannelSpec("Counter Harmony", role, idx, "music", plugin="gl.fm", role="bell", valence=valence, volume=0.52, pan=-0.25, fx_send=0.12, delay_send=0.10, hall_send=0.16)
         elif "fx" in rl:
-            spec = ChannelSpec("FX", role, idx, "music", plugin="gl.fm", role="bell", valence=valence, volume=0.44, pan=0.35, fx_send=0.25, single_shot_clips=True)
+            spec = ChannelSpec("FX", role, idx, "music", plugin="gl.fm", role="bell", valence=valence, volume=0.44, pan=0.35, fx_send=0.20, delay_send=0.12, hall_send=0.25, single_shot_clips=True)
+        elif any(k in rl for k in ("vocal", "vox")):
+            spec = ChannelSpec("Vocals", role, idx, "music", plugin="gl.warmsynth", role="lead", valence=valence, volume=0.74, delay_send=0.12, hall_send=0.18)
         else:
-            spec = ChannelSpec(role.capitalize(), role, idx, "music", plugin="gl.pluck", role="lead", valence=valence, volume=0.74, fx_send=0.16)
+            spec = ChannelSpec(role.capitalize(), role, idx, "music", plugin="gl.pluck", role="lead", valence=valence, volume=0.74, fx_send=0.16, delay_send=0.12, hall_send=0.10)
 
         if bp_tr:
             if bp_tr.get("source_type") == "sample" and bp_tr.get("sample_path"):
@@ -1054,6 +1387,8 @@ def _default_channels_for_plan(
         for k, v in ov.items():
             if hasattr(spec, k):
                 setattr(spec, k, v)
+        if ov.get("volume_trim_db") is not None:
+            spec.volume = _apply_trim_db_to_volume(spec.volume, float(ov["volume_trim_db"]))
         channels.append(spec)
     return channels
 
@@ -1074,6 +1409,7 @@ def compile_arrangement_plan(
     limiter_ceiling_db: float = -2.55,
     limiter_gain_db: float = 12.0,
     fx_room_vol: float = 0.30,
+    auto_gain_stage: bool = True,
 ) -> dict[str, Any]:
     """
     Phase 7 P1 compiler: validate `arrangement_plan.json`, expand motifs & `role_modifiers`,
@@ -1183,6 +1519,87 @@ def compile_arrangement_plan(
                 auto_track_cursor = max(auto_track_cursor, int(pa.get("track", auto_track_cursor)) + 1)
         except ImportError:
             pass
+
+    # Phase 8 Q5 — Rich transitions (fills/risers/anticipation) & dark register split
+    bass_keys_all = [r for r in roles_ordered if any(k in r.lower() for k in ("bass", "808", "sub"))]
+    chords_keys_all = [r for r in roles_ordered if any(k in r.lower() for k in ("chord", "pad", "keys", "harmony"))]
+    lead_keys_all = [r for r in roles_ordered if any(k in r.lower() for k in ("lead", "melody", "topline"))]
+    fx_ch = next((ch for ch in eff_channels if any(k in ch.track_key.lower() for k in ("fx", "riser", "ear_candy"))), None)
+    fx_ch_idx = (eff_channels.index(fx_ch) + 1) if fx_ch is not None else None
+    fx_mixer_idx = fx_ch.mixer if fx_ch is not None else 21
+
+    declared_transitions: list[dict[str, Any]] = []
+    for tr in plan.get("transitions") or []:
+        if isinstance(tr, dict):
+            declared_transitions.append(tr)
+    for sec in plan["sections"]:
+        raw_tr = sec.get("transitions")
+        if isinstance(raw_tr, list):
+            declared_transitions.extend([t for t in raw_tr if isinstance(t, dict)])
+
+    transition_reports: list[dict[str, Any]] = []
+    for tr in declared_transitions:
+        bar_1 = int(tr.get("bar", 0) or 0)
+        if bar_1 <= 0:
+            continue
+        t_beat = float(bar_1 - 1) * float(bpb)
+        typ = str(tr.get("type") or "").strip().lower()
+        rep: dict[str, Any] = {"bar": bar_1, "type": typ, "beat": round(t_beat, 3)}
+        if "anticipation" in typ:
+            pivots: list[float] = []
+            for nm, s_bar, n_bars, _k in sections_tuples:
+                for local_b in (2, 4):
+                    if local_b < n_bars:
+                        pivots.append(float((s_bar + local_b) * bpb))
+            anticipation = apply_harmonic_anticipation(
+                tracks.get(chords_keys_all[0], []) if chords_keys_all else [],
+                tracks.get(bass_keys_all[0], []) if bass_keys_all else [],
+                pivots,
+                offset_beats=float(tr.get("offset_beats", 0.5)),
+                ratio=float(tr.get("ratio", 0.35)),
+            )
+            rep["anticipation"] = anticipation
+        else:
+            if "fill" in typ:
+                rep["drum_fill"] = generate_drum_fill(
+                    tracks,
+                    t_beat,
+                    bpb=float(bpb),
+                    profile=str(meta["mix_profile"]),
+                    style=str(tr.get("style") or "auto"),
+                    bpm=bpm,
+                )
+            if any(k in typ for k in ("riser", "impact", "fx")):
+                rep["fx"] = add_transition_fx(
+                    tracks,
+                    autos,
+                    t_beat,
+                    bpb=float(bpb),
+                    kind="riser_impact" if ("riser" in typ or "fx" in typ) else "impact",
+                    fx_track_idx=min(31, auto_track_cursor),
+                    fx_channel_idx=fx_ch_idx,
+                    fx_mixer_idx=fx_mixer_idx,
+                    impact=("impact" in typ or "riser" in typ or "fx" in typ),
+                )
+                auto_track_cursor = min(31, auto_track_cursor + 1)
+        transition_reports.append(rep)
+
+    # Merge helper-generated keys that have no dedicated channel back into the nearest real track
+    for synth_key, kw_tuple in (("Snare", ("snare", "clap", "kick", "hat")), ("FX", ("fx", "riser", "ear_candy"))):
+        if synth_key in tracks and synth_key not in role_to_ch:
+            fallback = next((k for k in eff_channels if any(kw in k.track_key.lower() for kw in kw_tuple)), None)
+            if fallback is not None and fallback.track_key != synth_key:
+                tracks.setdefault(fallback.track_key, []).extend(tracks.pop(synth_key))
+                tracks[fallback.track_key].sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+            else:
+                tracks.pop(synth_key, None)
+
+    register_split = _apply_dark_register_split(
+        tracks,
+        valence,
+        chords_keys=chords_keys_all,
+        lead_keys=lead_keys_all,
+    )
 
     # Insert EQ params for kick / chords / section cutoffs (+ vocal formant ducking Band 5 if vocal present)
     insert_eq_params: list[tuple[str, Any]] = []
@@ -1379,6 +1796,7 @@ def compile_arrangement_plan(
             limiter_gain_db=limiter_gain_db,
             fx_room_vol=fx_room_vol,
             min_pattern_lufs=-38.0,
+            auto_gain_stage=auto_gain_stage,
         )
         return {
             "gridline_path": abs_out,
@@ -1387,6 +1805,8 @@ def compile_arrangement_plan(
             "meta": meta,
             "sections": sections_tuples,
             "midi_gate": gate_res,
+            "transitions": transition_reports,
+            "register_split": register_split,
         }
 
     build_gridline_project(
@@ -1405,6 +1825,7 @@ def compile_arrangement_plan(
         limiter_gain_db=limiter_gain_db,
         fx_room_vol=fx_room_vol,
         min_pattern_lufs=-38.0,
+        auto_gain_stage=auto_gain_stage,
     )
     return {
         "gridline_path": abs_out,
@@ -1412,4 +1833,6 @@ def compile_arrangement_plan(
         "meta": meta,
         "sections": sections_tuples,
         "midi_gate": gate_res,
+        "transitions": transition_reports,
+        "register_split": register_split,
     }

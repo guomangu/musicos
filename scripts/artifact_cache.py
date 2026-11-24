@@ -76,6 +76,10 @@ def compute_e1_track_hash(
     key: str = "",
     valence: float = 0.0,
     project_dir: str = "",
+    gain_staging_overrides: dict[str, Any] | None = None,
+    delay_send: float | None = None,
+    hall_send: float | None = None,
+    expressive: bool | None = None,
 ) -> str:
     """E1 cache key: `sha256(sample_path_mtime + plugin_params + notes_slice_2_4_bars + bpm)`."""
     eff_sample = _resolve_sample_path(sample_path, project_dir)
@@ -98,6 +102,10 @@ def compute_e1_track_hash(
         "role": str(role or spec_norm.get("role") or ""),
         "key": str(key),
         "valence": round(float(valence), 4),
+        "gain_staging_overrides": gain_staging_overrides or {},
+        "delay_send": spec_norm.get("delay_send", delay_send),
+        "hall_send": spec_norm.get("hall_send", hall_send),
+        "expressive": spec_norm.get("expressive", expressive),
     }
     return sha256_json(payload)
 
@@ -167,6 +175,8 @@ def compute_e2_vertical_hash(
     contract: dict[str, Any] | None = None,
     wav_path: str = "",
     render_stems: bool = True,
+    gain_staging_overrides: dict[str, Any] | None = None,
+    expressive: bool | None = None,
 ) -> str:
     """
     E2 cache key: `sha256(core_loop_channels_hash + mixer_params_hash)` plus active layer metadata.
@@ -242,6 +252,8 @@ def compute_e2_vertical_hash(
         "range_bars": str(range_bars),
         "render_stems": bool(render_stems),
         "wav": file_fingerprint(wav_path) if wav_path else None,
+        "gain_staging_overrides": gain_staging_overrides or {},
+        "expressive": expressive,
         "contract_s1_s2": {
             "s1": (contract or {}).get("s1_physical"),
             "s2": (contract or {}).get("s2_acoustic"),

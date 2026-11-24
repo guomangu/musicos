@@ -144,6 +144,66 @@ def measure_fft_tuning(path: str, skip_start_s: float = 0.15, fmin: float = 25.0
     }
 
 
+def build_multizone_samples(
+    src_wav: str,
+    out_dir: str,
+    base_midi: int,
+    zones: list[tuple[int, int]] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Phase 8 Q6.2 — Build a 3-zone pitch-split sampler set from one tonal one-shot.
+    Each zone is pre-transposed to the zone centre so no played note ever exceeds
+    +/-4 semitones from its sample; formants are softly preserved and stereo low-mids
+    stabilised. Returns one descriptor per zone (`wav_path`, `base_midi`, `zone`,
+    `shift_from_source_st`, `tuning_ct`).
+    """
+    abs_src = os.path.abspath(os.path.expanduser(src_wav))
+    y, sr = read_stereo(abs_src)
+    eff_zones = zones or [(48, 55), (56, 63), (64, 72)]
+    stem = os.path.splitext(os.path.basename(abs_src))[0]
+    os.makedirs(out_dir, exist_ok=True)
+    out: list[dict[str, Any]] = []
+    for i, (lo, hi) in enumerate(eff_zones, start=1):
+        if lo > hi:
+            raise ValueError(f"Invalid zone {i}: ({lo}, {hi})")
+        center = int(round((lo + hi) / 2.0))
+        shift_st = float(center - int(base_midi))
+        z = pitch_shift_stereo(y, sr, shift_st)
+        tmp = os.path.join(out_dir, f"{stem}_zone{i}_tmp.wav")
+        os.makedirs(os.path.dirname(os.path.abspath(tmp)), exist_ok=True)
+        sf.write(tmp, z.astype(np.float32), sr, subtype="PCM_24")
+        tuning: dict[str, Any] = {}
+        final_wav = os.path.join(out_dir, f"{stem}_zone{i}_midi{center}.wav")
+        try:
+            # Gentle stereo low-mid stabilisation (formant-preserving, no mono collapse above 650 Hz)
+            mid_p = os.path.join(out_dir, f"{stem}_zone{i}_mid.wav")
+            stabilize_stereo_low_mid(tmp, mid_p, cutoff_hz=650.0, side_keep_low=0.18, side_keep_high=0.85)
+            tuning = measure_fft_tuning(mid_p)
+            ct = tuning.get("fft_cents_offset")
+            if ct is not None and abs(float(ct)) > 3.0:
+                z_corr = pitch_shift_stereo(y, sr, shift_st - float(ct) / 100.0)
+                sf.write(mid_p, z_corr.astype(np.float32), sr, subtype="PCM_24")
+                stabilize_stereo_low_mid(mid_p, mid_p, cutoff_hz=650.0, side_keep_low=0.18, side_keep_high=0.85)
+                tuning = measure_fft_tuning(mid_p)
+            final_wav = os.path.join(out_dir, f"{stem}_zone{i}_midi{center}.wav")
+            os.replace(mid_p, final_wav)
+        finally:
+            for p in (tmp,):
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+        out.append({
+            "wav_path": final_wav,
+            "zone": [int(lo), int(hi)],
+            "base_midi": center,
+            "shift_from_source_st": round(shift_st, 3),
+            "tuning_ct": tuning.get("fft_cents_offset"),
+        })
+    return out
+
+
 def build_sample_from_spec(src_dir: str, out_dir: str, spec: dict[str, Any]) -> str:
     """
     Transform one source sample into `out_dir/<out>` according to declarative `spec`.

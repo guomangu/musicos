@@ -276,6 +276,253 @@ def section_gain_arc(
     return clip
 
 
+def _find_track_key(tracks: dict[str, list[dict[str, Any]]], keywords: tuple[str, ...]) -> str | None:
+    for k in tracks:
+        low = k.lower()
+        if any(kw in low for kw in keywords):
+            return k
+    return None
+
+
+def _remove_or_clip(tracks: dict[str, list[dict[str, Any]]], key: str, t0: float, t1: float) -> int:
+    """Remove notes starting in `[t0, t1)` and clip those crossing `t0`; return removed count."""
+    removed = 0
+    kept: list[dict[str, Any]] = []
+    for ev in tracks.get(key, []):
+        st = float(ev["start"])
+        ln = _note_len(ev)
+        en = st + ln
+        if t0 - 1e-4 <= st < t1 - 1e-4:
+            removed += 1
+            continue
+        if st < t0 - 1e-4 and en > t0 + 1e-4:
+            _set_note_len(ev, max(0.05, t0 - st))
+        kept.append(ev)
+    tracks[key] = kept
+    return removed
+
+
+def generate_drum_fill(
+    tracks: dict[str, list[dict[str, Any]]],
+    transition_beat: float,
+    bpb: float = 4.0,
+    profile: str = "trap_rap",
+    style: str = "auto",
+    bpm: float = 140.0,
+) -> dict[str, Any]:
+    """
+    Phase 8 Q5.1 — deterministic idiomatic drum fill over the last 2 beats before
+    `transition_beat` (0-indexed beats), profile-aware (`trap_rap`, `edm_club`,
+    `pop_rnb`, `rock_metal`, `lofi_chill`, `jazz_acoustic`, `classical_ambient`).
+    """
+    t_end = float(transition_beat)
+    t_start = max(0.0, t_end - 2.0)
+    snare_key = _find_track_key(tracks, ("snare", "clap", "rim"))
+    kick_key = _find_track_key(tracks, ("kick", "bd"))
+    if snare_key is None:
+        snare_key = "Snare"
+        tracks.setdefault(snare_key, [])
+    if kick_key is None:
+        kick_key = "Kick"
+        tracks.setdefault(kick_key, [])
+
+    prof = str(profile or "trap_rap").strip().lower()
+    stl = "auto" if str(style).strip().lower() in ("", "auto") else str(style).strip().lower()
+    added = 0
+    kind = "snare_roll"
+    if prof == "classical_ambient":
+        return {"profile": prof, "added_notes": 0, "kind": "noop", "transition_beat": t_end}
+
+    if prof in ("trap_rap", "edm_club") or stl in ("snare_roll", "trap_roll"):
+        kind = "snare_roll"
+        # Accelerando 1/8 -> 1/16 -> 1/32 over the last 2 beats
+        offsets: list[float] = []
+        step_groups = ((0.0, 0.5, 1.0), (1.0, 0.25, 1.5), (1.5, 0.125, 2.0))
+        for base, step, span_end in step_groups:
+            n = max(1, int(round((span_end - base) / step)))
+            offsets.extend([base + i * step for i in range(n)])
+        base_pitch = 38
+        for i, off in enumerate(offsets):
+            st = round(t_start + off, 5)
+            if st >= t_end - 1e-4:
+                continue
+            vel = int(round(55 + (112 - 55) * (i / max(1, len(offsets) - 1))))
+            pitch = base_pitch - (i - (len(offsets) - 4) + 1) if i >= len(offsets) - 4 else base_pitch
+            tracks[snare_key].append({"start": st, "length": 0.08, "pitch": int(max(24, pitch)), "velocity": max(24, min(127, vel))})
+            added += 1
+        _remove_or_clip(tracks, kick_key, max(t_start, t_end - 0.5), t_end)
+    elif prof in ("pop_rnb", "rock_metal", "lofi_chill") or stl in ("tom_fill", "tom"):
+        kind = "tom_fill"
+        tom_pitches = [52, 50, 47, 45]
+        for i, (off, pitch) in enumerate(zip((0.0, 0.5, 1.0, 1.5), tom_pitches)):
+            st = round(t_start + off, 5)
+            tracks[snare_key].append({"start": st, "length": 0.12, "pitch": int(pitch), "velocity": int(78 + i * 10)})
+            added += 1
+        # Ghost notes + final accent on the last half-beat
+        for off in (0.75, 1.25, 1.75):
+            st = round(t_start + off, 5)
+            tracks[snare_key].append({"start": st, "length": 0.06, "pitch": int(38), "velocity": 42})
+            added += 1
+    else:
+        kind = "pickup"
+        st = round(max(t_start, t_end - 0.5), 5)
+        tracks[snare_key].append({"start": st, "length": 0.1, "pitch": 40, "velocity": 62})
+        added += 1
+
+    tracks[snare_key].sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+    return {
+        "profile": prof,
+        "kind": kind,
+        "transition_beat": round(t_end, 3),
+        "added_notes": added,
+        "snare_track": snare_key,
+        "kick_cut": prof in ("trap_rap", "edm_club"),
+        "bpm": float(bpm),
+    }
+
+
+def add_transition_fx(
+    tracks: dict[str, list[dict[str, Any]]],
+    automations: list[dict[str, Any]],
+    transition_beat: float,
+    bpb: float = 4.0,
+    kind: str = "riser_impact",
+    fx_track_idx: int | None = None,
+    *,
+    fx_channel_idx: int | None = None,
+    fx_mixer_idx: int | None = None,
+    fx_track_key: str | None = None,
+    impact: bool = True,
+) -> dict[str, Any]:
+    """
+    Phase 8 Q5.1 — 4-beat riser (filter 300 Hz -> 9000 Hz + rising volume), 0.25-beat
+    breathing silence before the downbeat, then an impact/crash on `transition_beat`.
+    """
+    t_end = float(transition_beat)
+    t_start = max(0.0, t_end - 4.0)
+    key = fx_track_key or _find_track_key(tracks, ("riser", "fx", "noise", "impact", "sweep"))
+    if key is None:
+        key = "FX"
+        tracks.setdefault(key, [])
+    k_norm = str(kind or "riser_impact").strip().lower()
+    summary: dict[str, Any] = {"kind": k_norm, "transition_beat": round(t_end, 3), "fx_track": key}
+    if "riser" in k_norm or "sweep" in k_norm:
+        tracks[key].append({"start": round(t_start, 5), "length": round(max(0.25, 3.75), 5), "pitch": 55, "velocity": 96})
+        lane = int(fx_track_idx) if fx_track_idx is not None else 11
+        if fx_channel_idx is not None:
+            filter_sweep(
+                automations,
+                mixer_idx=None,
+                slot_idx=None,
+                start_beat=t_start,
+                end_beat=max(t_start + 0.25, t_end - 0.25),
+                start_hz=300.0,
+                end_hz=9000.0,
+                curve="exp",
+                param="Cutoff",
+                channel_idx=int(fx_channel_idx),
+                track_idx=lane,
+                name="Riser Cutoff",
+            )
+        elif fx_mixer_idx is not None:
+            filter_sweep(
+                automations,
+                mixer_idx=int(fx_mixer_idx),
+                slot_idx=1,
+                start_beat=t_start,
+                end_beat=max(t_start + 0.25, t_end - 0.25),
+                start_hz=300.0,
+                end_hz=9000.0,
+                curve="exp",
+                track_idx=lane,
+                name="Riser Cutoff",
+            )
+        auto_clip: dict[str, Any] = {
+            "name": "Riser Volume",
+            "param": "volume",
+            "track": lane,
+            "start": round(t_start, 4),
+            "length": round(max(0.5, t_end - t_start), 4),
+            "points": [
+                {"position": 0.0, "value": 0.30},
+                {"position": round(max(0.25, t_end - t_start - 0.5), 4), "value": 0.88},
+                {"position": round(max(0.26, t_end - t_start - 0.27), 4), "value": 0.90},
+                {"position": round(max(0.27, t_end - t_start - 0.25), 4), "value": 0.0, "shape": "hold"},
+            ],
+        }
+        if fx_channel_idx is not None:
+            auto_clip["channel"] = int(fx_channel_idx)
+        elif fx_mixer_idx is not None:
+            auto_clip["mixer"] = int(fx_mixer_idx)
+        if fx_channel_idx is not None or fx_mixer_idx is not None:
+            automations.append(auto_clip)
+        summary["riser"] = True
+    if impact and ("impact" in k_norm or k_norm == "riser_impact"):
+        tracks[key].append({"start": round(t_end, 5), "length": 0.5, "pitch": 48, "velocity": 120})
+        summary["impact"] = True
+    tracks[key].sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+    return summary
+
+
+def apply_harmonic_anticipation(
+    chords_notes: list[dict[str, Any]],
+    bass_notes: list[dict[str, Any]],
+    bar_boundaries: list[float],
+    offset_beats: float = 0.5,
+    ratio: float = 0.35,
+) -> dict[str, Any]:
+    """
+    Phase 8 Q5.1 — Anticipate chord/bass notes by one eighth on a deterministic fraction
+    of phrase pivots, shortening the previous note so no overlap or negative start remains.
+    """
+    pivots = sorted({round(float(b), 4) for b in bar_boundaries if float(b) > float(offset_beats) + 1e-4})
+    if not pivots or not chords_notes and not bass_notes:
+        return {"applied": 0, "pivots": pivots, "moved_chords": 0, "moved_bass": 0}
+    n_apply = max(1, int(round(len(pivots) * clamp(float(ratio), 0.0, 1.0))))
+    stride = max(1, len(pivots) // n_apply)
+    selected = pivots[::stride][:n_apply]
+
+    moved_ch = moved_bs = 0
+
+    def _process(notes: list[dict[str, Any]], pivot: float) -> int:
+        moved = 0
+        for ev in notes:
+            st = float(ev["start"])
+            if abs(st - pivot) > 0.06:
+                continue
+            new_start = round(max(0.0, pivot - float(offset_beats)), 5)
+            # Shorten any previous overlapping note to end just before the anticipation
+            prev = [p for p in notes if float(p["start"]) < new_start - 1e-4]
+            ok = True
+            if prev:
+                pe = max(prev, key=lambda p: float(p["start"]))
+                p_end = float(pe["start"]) + _note_len(pe)
+                if p_end > new_start + 1e-4:
+                    new_len = round(new_start - float(pe["start"]) - 0.01, 5)
+                    if new_len < 0.05:
+                        ok = False
+                    else:
+                        _set_note_len(pe, new_len)
+            if ok:
+                ev["start"] = new_start
+                moved += 1
+        return moved
+
+    for p in selected:
+        moved_ch += _process(chords_notes, p)
+        moved_bs += _process(bass_notes, p)
+    chords_notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+    bass_notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+    return {
+        "applied": len(selected),
+        "pivots": selected,
+        "moved_chords": moved_ch,
+        "moved_bass": moved_bs,
+        "offset_beats": float(offset_beats),
+        "ratio": float(ratio),
+    }
+
+
 def outro_fade(
     automations: list[dict[str, Any]],
     master_or_bus_idx: int,

@@ -136,12 +136,14 @@ def _extract_monophonic_topline(notes: List[pretty_midi.Note]) -> List[pretty_mi
     return topline
 
 
-def _compute_stepwise_and_gap_fill(topline: List[pretty_midi.Note]) -> Tuple[float, float, int]:
+def _compute_stepwise_and_gap_fill(
+    topline: List[pretty_midi.Note],
+    sec_per_beat: Optional[float] = None,
+) -> Tuple[float, float, int]:
     if len(topline) < 2:
         return 1.0, 1.0, 0
     diffs = [topline[i + 1].pitch - topline[i].pitch for i in range(len(topline) - 1)]
     stepwise = sum(1 for d in diffs if abs(d) <= 4)
-    stepwise_ratio = stepwise / len(diffs)
 
     leaps = 0
     filled = 0
@@ -152,6 +154,33 @@ def _compute_stepwise_and_gap_fill(topline: List[pretty_midi.Note]) -> Tuple[flo
             if (d * nxt < 0) and (1 <= abs(nxt) <= 3):
                 filled += 1
     gap_fill = (filled / leaps) if leaps > 0 else 1.0
+
+    # Phase 8 Q5.3 — up to 2 expressive leaps (>= 7 st) per 8 bars are not penalised
+    # when resolved by a contrary gap-fill or a >= 0.5 beat breathing rest.
+    spb = float(sec_per_beat) if sec_per_beat else None
+    expressive = 0
+    if spb is not None:
+        window_s = 32.0 * spb
+        leap_times: List[float] = []
+        for i, d in enumerate(diffs):
+            if abs(d) < 7:
+                continue
+            idx_next = i + 1
+            nxt = diffs[idx_next] if idx_next < len(diffs) else 0
+            gap_filled = (d * nxt < 0) and (1 <= abs(nxt) <= 3)
+            rest_after = (
+                idx_next + 1 < len(topline)
+                and (topline[idx_next + 1].start - topline[idx_next].end) >= 0.5 * spb
+            )
+            if not (gap_filled or rest_after):
+                continue
+            t_leap = topline[idx_next].start
+            leap_times = [t for t in leap_times if t_leap - t < window_s]
+            if len(leap_times) < 2:
+                leap_times.append(t_leap)
+                expressive += 1
+
+    stepwise_ratio = (stepwise + expressive) / len(diffs)
     ambitus = max(n.pitch for n in topline) - min(n.pitch for n in topline)
     return round(stepwise_ratio, 3), round(gap_fill, 3), int(ambitus)
 
@@ -309,13 +338,30 @@ def _compute_strong_beat_chord_tone_ratio(
     if len(strong_beats) == 0:
         return 1.0
 
-    strong_notes = [
-        n for n in topline if np.min(np.abs(strong_beats - n.start)) <= 0.09
-    ]
+    tempos = pm.get_tempo_changes()[1]
+    sec_per_beat = 60.0 / float(tempos[0]) if len(tempos) else 0.5
+
+    # Phase 8 Q5.3 — an eighth-note anticipation is credited against the following
+    # downbeat chord; unmatched anticipations are ignored (never create false negatives).
+    strong_notes: list[pretty_midi.Note] = []
+    anticipated_matches = 0
+    for n in topline:
+        idx = int(np.argmin(np.abs(strong_beats - n.start)))
+        dt = float(strong_beats[idx] - n.start)
+        if abs(dt) <= 0.09:
+            strong_notes.append(n)
+        elif 0.0 < dt <= 0.55 * sec_per_beat:
+            next_pcs = {
+                c.pitch % 12
+                for c in (chord_notes + bass_notes)
+                if c.start - 0.05 <= float(strong_beats[idx]) <= c.end + 0.05
+            }
+            if (n.pitch % 12) in next_pcs:
+                anticipated_matches += 1
     if not strong_notes:
         return 1.0
 
-    matches = 0
+    matches = anticipated_matches
     for n in strong_notes:
         active_pcs = {
             c.pitch % 12
@@ -324,7 +370,27 @@ def _compute_strong_beat_chord_tone_ratio(
         }
         if not active_pcs or (n.pitch % 12) in active_pcs:
             matches += 1
-    return round(matches / len(strong_notes), 3)
+    return round(min(1.0, matches / len(strong_notes)), 3)
+
+
+def _compute_chords_lead_register_gap(
+    chord_notes: List[pretty_midi.Note],
+    lead_notes: List[pretty_midi.Note],
+) -> Optional[float]:
+    """
+    Phase 8 Q5.2 — Mean MIDI centroid gap (semitones) between simultaneously playing
+    Chords/Pad and Lead notes (informative warning when < 4.0 st).
+    """
+    if not chord_notes or not lead_notes:
+        return None
+    gaps: List[float] = []
+    for ln in lead_notes:
+        active = [c.pitch for c in chord_notes if c.start - 0.05 <= ln.start <= c.end + 0.05]
+        if active:
+            gaps.append(float(ln.pitch) - float(np.mean(active)))
+    if not gaps:
+        return None
+    return round(float(np.mean(gaps)), 2)
 
 
 def _compute_lead_overlap_conflict(
@@ -997,13 +1063,17 @@ def evaluate_midi_musicality(
         inst not in roles["chords"] for inst in roles["lead"]
     )
 
-    stepwise_ratio, gap_fill, ambitus = _compute_stepwise_and_gap_fill(topline)
+    stepwise_ratio, gap_fill, ambitus = _compute_stepwise_and_gap_fill(
+        topline,
+        sec_per_beat=(60.0 / float(pm.get_tempo_changes()[1][0])) if len(pm.get_tempo_changes()[1]) else None,
+    )
     rest_ratio = _compute_rest_ratio(topline, total_dur)
     slices = _extract_chord_slices(chord_notes)
     vl_avg = _compute_voice_leading(slices)
     strong_beat_ratio = _compute_strong_beat_chord_tone_ratio(
         pm, topline, chord_notes, bass_notes, time_signature=eff_ts
     )
+    register_gap = _compute_chords_lead_register_gap(chord_notes, lead_notes)
     overlap_conflict = _compute_lead_overlap_conflict(roles["lead"], roles["counter"])
     contrary_ratio = (
         _compute_contrary_oblique_ratio(topline, bass_notes)
@@ -1046,6 +1116,9 @@ def evaluate_midi_musicality(
     )
 
     failures: List[str] = []
+    warnings: List[str] = []
+    if register_gap is not None and register_gap < 4.0 and has_explicit_lead and chord_notes:
+        warnings.append(f"chords_lead_register_gap_st={register_gap} < 4.0 (registres Chords/Lead trop proches)")
     if has_explicit_lead:
         if not is_free_ambient and stepwise_ratio < th.stepwise_ratio_min:
             failures.append(f"stepwise_ratio={stepwise_ratio} < {th.stepwise_ratio_min} (mélodie trop sautillante)")
@@ -1088,6 +1161,7 @@ def evaluate_midi_musicality(
             "melody_ambitus_semitones": ambitus,
             "melody_rest_ratio": rest_ratio,
             "strong_beat_chord_tone_ratio": strong_beat_ratio,
+            "chords_lead_register_gap_st": register_gap,
             "voice_leading_avg_semitones": vl_avg,
             "lead_overlap_conflict": overlap_conflict,
             "contrary_or_oblique_ratio": contrary_ratio,
@@ -1111,4 +1185,5 @@ def evaluate_midi_musicality(
         "blocking_minor_2nd_clashes": blocking_clashes,
         "detected_roles": {k: [i.name for i in v] for k, v in roles.items()},
         "failures": failures,
+        "warnings": warnings,
     }

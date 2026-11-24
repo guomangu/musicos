@@ -455,14 +455,16 @@ def analyze_stem_hierarchy(
     range_bars: str = "",
     stems_dir: str = "",
     has_drums: bool = True,
+    mix_profile: str = "trap_rap",
 ) -> str:
-    """Audite la hiérarchie inter-stems (Lead vs Harmonie 800Hz-3.5kHz, chevauchement Kick/Bass <150Hz, pente rose 60Hz-12kHz)."""
+    """Audite la hiérarchie inter-stems (matrice bilatérale active_lufs + Lead vs Harmonie 800Hz-3.5kHz, chevauchement Kick/Bass <150Hz, pente rose)."""
     return json.dumps(
         _analyze_stem_hierarchy_impl(
             project_path=project_path,
             range_bars=range_bars,
             stems_dir=stems_dir,
             has_drums=has_drums,
+            mix_profile=mix_profile,
         ),
         ensure_ascii=False,
         indent=2,

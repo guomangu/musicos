@@ -37,10 +37,12 @@ from deep_diagnostics import (
     _load_and_sum_stems,
     analyze_bass_harmonic_translation,
     analyze_dynamic_bark_masking,
+    analyze_stem_hierarchy,
     compute_lra_ebu,
     run_deep_audit,
 )
-from gl_dsl import clamp, eq_band, eq_params, limiter_master, to_mixer_params
+from gain_staging_lib import normalize_role_for_gain_staging
+from gl_dsl import clamp, db_to_auto, eq_band, eq_params, limiter_master, to_mixer_params
 from macro_structure_audit import analyze_macro_structure
 from studio_lib import GridlineMCP
 from target_fingerprint import load_multi_scale_contract
@@ -322,6 +324,17 @@ def render_and_evaluate(
     lm_corr = deep["room_and_transients"]["low_mid_200_800hz_correlation"]
     if lm_corr < 0.55:
         gate_failures.append(f"low_mid_corr={lm_corr} < 0.55")
+    stereo_img = deep.get("stereo_image") or {}
+    if stereo_img:
+        bal_db = float(stereo_img.get("stereo_balance_db", 0.0))
+        if abs(bal_db) > 1.2:
+            gate_failures.append(f"stereo_balance={bal_db:+.2f}dB > 1.2dB")
+        w_db = float(stereo_img.get("mid_high_side_to_mid_db", 0.0))
+        w_lo, w_hi = (float(v) for v in (stereo_img.get("mid_high_width_range_db") or [-14.0, -1.5]))
+        if w_db < w_lo:
+            gate_failures.append(f"stereo_width={w_db}dB < {w_lo}dB")
+        elif w_db > w_hi:
+            gate_failures.append(f"stereo_width={w_db}dB > {w_hi}dB")
     sharp = deep["psychoacoustics"].get("sharpness_din_acum", 0.0)
     if sharp >= sharp_max:
         gate_failures.append(f"sharpness={sharp} >= {sharp_max}")
@@ -363,6 +376,7 @@ def render_and_evaluate(
     )
     bass_trans_res: dict[str, Any] | None = None
     bark_mask_res: dict[str, Any] | None = None
+    stem_hier_res: dict[str, Any] | None = None
     if eff_stems_dir and os.path.isdir(eff_stems_dir):
         st_roles = _find_role_stems_in_dir(eff_stems_dir)
         if st_roles.get("bass"):
@@ -380,6 +394,18 @@ def render_and_evaluate(
                 gate_failures.append(
                     f"bark_masking_lead_harmony={bark_mask_res['masked_ratio']} > 0.25 @ {bark_mask_res['f_mask_hz']}Hz"
                 )
+        if any(fn.lower().endswith(".wav") for fn in os.listdir(eff_stems_dir)):
+            stem_hier_res = analyze_stem_hierarchy(
+                stems_dir=eff_stems_dir,
+                has_drums=has_drums,
+                mix_profile=profile,
+            )
+            if isinstance(stem_hier_res, dict) and not stem_hier_res.get("error"):
+                if not (stem_hier_res.get("checks") or {}).get("bounded_hierarchy_ok", True):
+                    for rec in stem_hier_res.get("recommendations") or []:
+                        gate_failures.append(
+                            f"stem_balance_{rec.get('metric', 'pair')}={rec.get('measured_diff_db')}dB"
+                        )
 
     macro_res: dict[str, Any] | None = None
     if run_macro_audit and not range_bars:
@@ -433,12 +459,14 @@ def render_and_evaluate(
         with open(fp_path, "w", encoding="utf-8") as fh:
             json.dump(fp_obj, fh, indent=2, ensure_ascii=False)
         if record_taste and _should_record_taste(proj_dir, taste_memory_path, approve_taste):
+            pq_score = (((deep.get("neural_perception") or {}).get("audiobox_aesthetics") or {}).get("PQ"))
             taste_res = record_validated_taste(
                 project_dir=proj_dir,
                 blueprint_path=blueprint_used or "",
                 fingerprint_path=fp_path,
                 approved_by_user=bool(approve_taste),
                 taste_path=taste_memory_path or None,
+                pq_score=None if pq_score is None else float(pq_score),
                 extra_metrics={"lra_lu": lra_lu},
             )
 
@@ -468,6 +496,7 @@ def render_and_evaluate(
         "max_sample_jump": max_jump,
         "bands_pct": {k: v["energy_pct"] for k, v in base["spectral_bands"].items()},
         "stereo": base["stereo"],
+        "stereo_image": stereo_img,
         "spectral_match": spectral_match,
         "recommendations": base["recommendations"],
         "psychoacoustics": deep["psychoacoustics"],
@@ -476,7 +505,9 @@ def render_and_evaluate(
             "lra_range": [lra_min, lra_max],
             "bass_harmonic_translation": bass_trans_res,
             "dynamic_bark_masking": bark_mask_res,
+            "stem_hierarchy": stem_hier_res,
         },
+        "stem_hierarchy": stem_hier_res,
         "micro_glitches": deep["glitches_and_artifacts"]["micro_glitch_or_crackle_events"],
         "resonances_third_oct": deep["third_octave_resonances"],
         "low_mid_corr": lm_corr,
@@ -532,6 +563,160 @@ def _slots_for_plugin(track: dict[str, Any] | None, plugin_id: str) -> list[int]
         for e in track.get("effects", [])
         if e.get("plugin") == plugin_id and "slot" in e
     ]
+
+
+def _insert_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return instrument insert tracks (exclude Master, buses 17..22 and FX buses)."""
+    out: list[dict[str, Any]] = []
+    for t in tracks:
+        try:
+            m_i = int(t.get("mixer", -1))
+        except Exception:
+            continue
+        if m_i <= 0 or m_i in (17, 18, 19, 20, 21, 22):
+            continue
+        nm = str(t.get("name") or "")
+        if any(k in nm.lower() for k in ("bus ", "fx room", "fx delay", "fx hall")):
+            continue
+        out.append(t)
+    return out
+
+
+def _fix_stereo_balance_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+    balance_db: float,
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Phase 8 Q3.2 `FIX_STEREO_BALANCE`: nudge 1-2 panoramic inserts toward the quieter
+    channel by `+/-0.10..0.16 pan` (max 2 passes, bounded to `[-1, 1]`).
+    """
+    passes = int(state.get("stereo_balance_passes", 0))
+    if passes >= 2:
+        return {"applied": False, "code": "FIX_STEREO_BALANCE", "reason": "max 2 passes reached"}
+    direction = 1.0 if balance_db > 0.0 else -1.0  # +1: left louder -> move content right
+    step = 0.10 if abs(balance_db) < 3.0 else 0.16
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for t in _insert_tracks(tracks):
+        role = normalize_role_for_gain_staging(str(t.get("name") or ""))
+        if role not in ("chords_pad", "hihat_perc", "counter_melody", "ear_candy_fx", "lead"):
+            continue
+        pan = float(t.get("pan", 0.0) or 0.0)
+        # Prefer tracks already offset opposite to the correction, then centred tracks
+        score = (1.0 if pan * direction < 0.0 else 0.5) - abs(pan)
+        candidates.append((score, t))
+    candidates.sort(key=lambda it: it[0], reverse=True)
+    edits: list[dict[str, Any]] = []
+    changed: list[str] = []
+    for _s, t in candidates[:2]:
+        pan = float(t.get("pan", 0.0) or 0.0)
+        new_pan = round(clamp(pan + direction * step, -1.0, 1.0), 3)
+        if abs(new_pan - pan) < 1e-4:
+            continue
+        edits.append({"tool": "edit_mixer_track", "arguments": {"mixer": int(t["mixer"]), "pan": new_pan}})
+        changed.append(str(t.get("name") or t.get("mixer")))
+    if not edits:
+        return {"applied": False, "code": "FIX_STEREO_BALANCE", "reason": "no pannable insert"}
+    mcp.batch(edits)
+    state["stereo_balance_passes"] = passes + 1
+    return {
+        "rule": "stereo_balance",
+        "applied": True,
+        "code": "FIX_STEREO_BALANCE",
+        "balance_db": round(balance_db, 2),
+        "tracks": changed,
+        "pan_delta": round(direction * step, 3),
+        "passes": passes + 1,
+    }
+
+
+def _widen_mix_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Phase 8 Q3.2 `WIDEN_HARMONY_OR_PERC`: complementary `+/-0.22` pans on Chords/Pad and
+    Counter/Hats/Perc, plus `+0.06` `FX Hall (22)` send on harmonic layers (once).
+    """
+    if state.get("widen_applied"):
+        return {"applied": False, "code": "WIDEN_HARMONY_OR_PERC", "reason": "already applied"}
+    inserts = _insert_tracks(tracks)
+    edits: list[dict[str, Any]] = []
+    param_changes: list[tuple[str, Any]] = []
+    changed: list[str] = []
+    wants_hall = any(int(t.get("mixer", -1)) == 22 for t in tracks)
+    for t in inserts:
+        role = normalize_role_for_gain_staging(str(t.get("name") or ""))
+        if wants_hall and role in ("chords_pad", "counter_melody"):
+            edits.append({"tool": "set_send", "arguments": {"mixer": int(t["mixer"]), "to": 22, "level": 0.22}})
+            changed.append(str(t.get("name") or t.get("mixer")))
+        elif role == "hihat_perc":
+            changed.append(str(t.get("name") or t.get("mixer")))
+    # Deterministic mid/high-only widener on BUS Music (legacy engine, keeps < 250 Hz mono)
+    bus_music = next((t for t in tracks if int(t.get("mixer", -1)) == 19), None)
+    if bus_music is not None:
+        st_slots = _slots_for_plugin(bus_music, "gl.stereo")
+        if not st_slots:
+            mcp.call("add_plugin", {"mixer": 19, "plugin": "gl.stereo"})
+            tracks = mcp.call("get_mixer", {}).get("tracks", [])
+            bus_music = next((t for t in tracks if int(t.get("mixer", -1)) == 19), None)
+            st_slots = _slots_for_plugin(bus_music, "gl.stereo") if bus_music else []
+        if st_slots:
+            sl = int(st_slots[-1])
+            param_changes.extend([
+                (f"mixer/19/slot/{sl}/Reference engine", 0),
+                (f"mixer/19/slot/{sl}/Width", 2.0),
+                (f"mixer/19/slot/{sl}/Side level", 6.0),
+                (f"mixer/19/slot/{sl}/Dephase", 0.0),
+                (f"mixer/19/slot/{sl}/Mono below", 250.0),
+            ])
+            changed.append("BUS Music gl.stereo")
+    if not edits and not param_changes:
+        return {"applied": False, "code": "WIDEN_HARMONY_OR_PERC", "reason": "no harmonic/perc insert"}
+    if edits:
+        mcp.batch(edits)
+    if param_changes:
+        mcp.set_params(param_changes)
+    state["widen_applied"] = True
+    return {"rule": "widen_stereo", "applied": True, "code": "WIDEN_HARMONY_OR_PERC", "tracks": changed}
+
+
+def _narrow_mix_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    """Phase 8 Q3.2 `NARROW_EXCESSIVE_SIDE`: cap gl.stereo widths and pull extreme pans inward."""
+    if state.get("narrow_applied"):
+        return {"applied": False, "code": "NARROW_EXCESSIVE_SIDE", "reason": "already applied"}
+    param_changes: list[tuple[str, Any]] = []
+    edits: list[dict[str, Any]] = []
+    for t in tracks:
+        m_i = int(t.get("mixer", -1))
+        for slot in _slots_for_plugin(t, "gl.stereo"):
+            if m_i in (17, 18, 19, 20, 21, 22):
+                param_changes.extend([
+                    (f"mixer/{m_i}/slot/{slot}/Reference engine", 1),
+                    (f"mixer/{m_i}/slot/{slot}/Width", 0.80),
+                    (f"mixer/{m_i}/slot/{slot}/Dephase", 0.0),
+                    (f"mixer/{m_i}/slot/{slot}/Side level", 0.0),
+                ])
+        if m_i in (17, 18, 19, 20, 21, 22, 0):
+            continue
+        pan = float(t.get("pan", 0.0) or 0.0)
+        if abs(pan) > 0.35:
+            new_pan = round(math.copysign(max(0.20, abs(pan) - 0.12), pan), 3)
+            edits.append({"tool": "edit_mixer_track", "arguments": {"mixer": m_i, "pan": new_pan}})
+    if param_changes:
+        mcp.set_params(param_changes)
+    if edits:
+        mcp.batch(edits)
+    if not param_changes and not edits:
+        return {"applied": False, "code": "NARROW_EXCESSIVE_SIDE", "reason": "no stereo width target"}
+    state["narrow_applied"] = True
+    return {"rule": "narrow_stereo", "applied": True, "code": "NARROW_EXCESSIVE_SIDE"}
 
 
 def _apply_autofix_mutations(
@@ -643,7 +828,7 @@ def _apply_autofix_mutations(
             if resonances:
                 top_res = sorted(
                     resonances,
-                    key=lambda r: float(r.get("excess_db", 0.0)),
+                    key=lambda r: float(r.get("local_excess_db", r.get("excess_db", 0.0))),
                     reverse=True,
                 )[:3]
                 if len(bm_eq_slots) >= 2:
@@ -657,7 +842,13 @@ def _apply_autofix_mutations(
                     surg_slot = bm_eq_slots[-1]
 
                 surg_bands = [
-                    eq_band(idx, "peak", float(r["freq_hz"]), -4.0, q=2.8)
+                    eq_band(
+                        idx,
+                        "peak",
+                        float(r["freq_hz"]),
+                        -min(12.0, max(6.0, float(r.get("local_excess_db", 5.0)) + 1.0)),
+                        q=2.8,
+                    )
                     for idx, r in enumerate(top_res, start=1)
                 ]
                 param_changes.extend(eq_params(bm_idx, surg_bands, slot=surg_slot, quality=0))
@@ -668,7 +859,7 @@ def _apply_autofix_mutations(
                         "rule": "resonances_surgical_eq",
                         "target": f"mixer/{bm_idx}/slot/{surg_slot}",
                         "freqs_hz": [float(r["freq_hz"]) for r in top_res],
-                        "gain_db": -4.0,
+                        "gain_db": [-min(12.0, max(6.0, float(r.get("local_excess_db", 5.0)) + 1.0)) for r in top_res],
                         "q": 2.8,
                     }
                 )
@@ -787,6 +978,63 @@ def _apply_autofix_mutations(
             b_res = _boost_bass_harmonics_mcp(mcp, tracks, f0_v)
             if b_res.get("applied"):
                 mutations.append(b_res)
+
+        # Phase 8 Q2 Rules: ADJUST_TRACK_FADER from bounded stem hierarchy & section audibility
+        fader_recs: list[dict[str, Any]] = []
+        sh_res = p3.get("stem_hierarchy") or summary.get("stem_hierarchy") or {}
+        for rec in sh_res.get("recommendations") or []:
+            if isinstance(rec, dict) and rec.get("action") == "ADJUST_TRACK_FADER":
+                fader_recs.append(rec)
+        sec_aud = (summary.get("macro_structure") or {}).get("section_track_audibility") or {}
+        for rec in sec_aud.get("recommendations") or []:
+            if isinstance(rec, dict) and rec.get("code") == "ADJUST_TRACK_FADER":
+                p = rec.get("params") or {}
+                fader_recs.append({
+                    "target_track": p.get("track", ""),
+                    "target_role": p.get("role", ""),
+                    "delta_db": p.get("delta_db", 0.0),
+                })
+        seen_fader_targets: set[str] = set()
+        for frec in fader_recs:
+            t_nm = str(frec.get("target_track") or "")
+            t_rl = str(frec.get("target_role") or "")
+            key_dedup = (t_nm or t_rl).lower()
+            if not key_dedup or key_dedup in seen_fader_targets:
+                continue
+            seen_fader_targets.add(key_dedup)
+            f_res = _adjust_track_fader_mcp(
+                mcp,
+                tracks,
+                track_name=t_nm,
+                role_hint=t_rl,
+                delta_db=float(frec.get("delta_db") or 0.0),
+                state=state,
+            )
+            if f_res.get("applied"):
+                mutations.append(f_res)
+                state["refresh_stems"] = True
+                tracks = mcp.call("get_mixer", {}).get("tracks", [])
+
+        # Phase 8 Q3.2 — Stereo image deterministic corrections
+        s_img = summary.get("stereo_image") or {}
+        bal_db = float(s_img.get("stereo_balance_db", 0.0))
+        w_db = float(s_img.get("mid_high_side_to_mid_db", 0.0))
+        w_lo, w_hi = (float(v) for v in (s_img.get("mid_high_width_range_db") or [-14.0, -1.5]))
+        if abs(bal_db) > 1.2:
+            b_res = _fix_stereo_balance_mcp(mcp, tracks, bal_db, state)
+            if b_res.get("applied"):
+                mutations.append(b_res)
+                tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        if w_db < w_lo:
+            w_res = _widen_mix_mcp(mcp, tracks, state)
+            if w_res.get("applied"):
+                mutations.append(w_res)
+                tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        elif w_db > w_hi:
+            n_res = _narrow_mix_mcp(mcp, tracks, state)
+            if n_res.get("applied"):
+                mutations.append(n_res)
+                tracks = mcp.call("get_mixer", {}).get("tracks", [])
 
         if param_changes:
             mcp.set_params(param_changes)
@@ -1000,6 +1248,138 @@ def _boost_bass_harmonics_mcp(
     }
 
 
+def _adjust_track_fader_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+    *,
+    track_name: str = "",
+    insert_idx: int | None = None,
+    role_hint: str = "",
+    delta_db: float = 0.0,
+    state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Phase 8 Q2: Deterministic `ADJUST_TRACK_FADER` mutation via `GridlineMCP` + `gl_dsl.db_to_auto`.
+    Enforces per-pass cap `|delta_db| <= 4.0` and cumulative cap `|sum delta_db| <= 8.0`.
+    """
+    step_req = clamp(float(delta_db), -4.0, 4.0)
+    if abs(step_req) < 0.05:
+        return {"applied": False, "code": "ADJUST_TRACK_FADER", "reason": "delta_db too small"}
+
+    target: dict[str, Any] | None = None
+    if insert_idx is not None:
+        idx_i = int(insert_idx)
+        target = next((t for t in tracks if int(t.get("mixer", -1)) == idx_i), None)
+
+    if target is None and track_name.strip():
+        tn_low = track_name.strip().lower()
+        # Exact match first, then substring match (excluding Master and buses unless explicitly named)
+        for t in tracks:
+            m_i = int(t.get("mixer", 0))
+            if m_i == 0:
+                continue
+            nm = str(t.get("name") or "").strip().lower()
+            if nm == tn_low:
+                target = t
+                break
+        if target is None:
+            for t in tracks:
+                m_i = int(t.get("mixer", 0))
+                if m_i == 0:
+                    continue
+                nm = str(t.get("name") or "").strip().lower()
+                if nm and (tn_low in nm or nm in tn_low):
+                    target = t
+                    break
+
+    if target is None and role_hint.strip():
+        canon = normalize_role_for_gain_staging(role_hint)
+        for t in tracks:
+            m_i = int(t.get("mixer", 0))
+            nm = str(t.get("name") or "").strip()
+            if m_i == 0 or not nm or nm.lower().startswith(("bus ", "fx ")):
+                continue
+            if normalize_role_for_gain_staging(nm) == canon:
+                target = t
+                break
+
+    if target is None or int(target.get("mixer", 0)) == 0:
+        return {
+            "applied": False,
+            "code": "ADJUST_TRACK_FADER",
+            "reason": f"Mixer insert not found for track={track_name!r}, role={role_hint!r}, insert={insert_idx}",
+        }
+
+    m_idx = int(target["mixer"])
+    t_label = str(target.get("name") or f"Insert {m_idx}")
+    st = state if state is not None else {}
+    cum_map = st.setdefault("fader_cumulative_db", {})
+    cum_key = f"mixer:{m_idx}"
+    prev_cum = float(cum_map.get(cum_key, 0.0))
+
+    new_cum = clamp(prev_cum + step_req, -8.0, 8.0)
+    eff_delta = round(new_cum - prev_cum, 3)
+    if abs(eff_delta) < 0.05:
+        return {
+            "applied": False,
+            "code": "ADJUST_TRACK_FADER",
+            "track": t_label,
+            "mixer": m_idx,
+            "cumulative_delta_db": prev_cum,
+            "escalate": "SWAP_SAMPLE",
+            "reason": f"Cumulative +-8.0 dB fader cap reached on '{t_label}'; escalate to SWAP_SAMPLE / CHECK_SOURCE_GAIN.",
+        }
+
+    cur_vol = float(target.get("volume", 0.80))
+    # gl_dsl.db_to_auto returns normalized [0, 1] automation scale (fader / 1.25)
+    auto_norm = db_to_auto(eff_delta, ref_fader=cur_vol)
+    new_vol = round(clamp(auto_norm * 1.25, 0.10, 1.25), 4)
+    mcp.call("edit_mixer_track", {"mixer": m_idx, "volume": new_vol})
+    cum_map[cum_key] = round(new_cum, 3)
+
+    return {
+        "applied": True,
+        "code": "ADJUST_TRACK_FADER",
+        "rule": "adjust_track_fader",
+        "track": t_label,
+        "mixer": m_idx,
+        "old_volume": round(cur_vol, 4),
+        "new_volume": new_vol,
+        "delta_db": eff_delta,
+        "cumulative_delta_db": cum_map[cum_key],
+    }
+
+
+def adjust_track_fader(
+    project_path: str,
+    *,
+    track_name: str = "",
+    insert_idx: int | None = None,
+    role_hint: str = "",
+    delta_db: float = 0.0,
+    state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Patch mixer insert volume in a `.gridline` file via `GridlineMCP` + `gl_dsl.db_to_auto`."""
+    abs_proj = os.path.abspath(project_path)
+    mcp = GridlineMCP(abs_proj, os.path.dirname(abs_proj))
+    try:
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        res = _adjust_track_fader_mcp(
+            mcp,
+            tracks,
+            track_name=track_name,
+            insert_idx=insert_idx,
+            role_hint=role_hint,
+            delta_db=delta_db,
+            state=state,
+        )
+        if res.get("applied"):
+            mcp.call("save_project", {})
+        return res
+    finally:
+        mcp.close()
+
+
 def apply_dynamic_mirror_eq(project_path: str, freq_hz: float, *, gain_db: float = -3.5, q: float = 1.8) -> dict[str, Any]:
     abs_proj = os.path.abspath(project_path)
     mcp = GridlineMCP(abs_proj, os.path.dirname(abs_proj))
@@ -1111,6 +1491,14 @@ def main() -> None:
             history_passes[-1]["mutations_applied"] = mutations
             if not mutations:
                 break
+
+            if state.pop("refresh_stems", False):
+                stems_auto_dir = os.path.join(os.path.dirname(os.path.abspath(args.project)), "renders", "stems")
+                if os.path.isdir(stems_auto_dir):
+                    cmd_st = ["gridline", "render", args.project, "-o", stems_auto_dir.rstrip("/") + "/", "--stems"]
+                    if args.range:
+                        cmd_st.extend(["--scope", f"range:{args.range}"])
+                    subprocess.run(cmd_st, capture_output=True, text=True, timeout=180)
 
             summary = render_and_evaluate(
                 project=args.project,

@@ -55,6 +55,29 @@
         "bars": { "type": "number", "exclusiveMinimum": 0.0 },
         "curve": { "type": "string", "enum": ["exp", "linear"] }
       }
+    },
+    "transitionEvent": {
+      "type": "object",
+      "required": ["bar", "type"],
+      "properties": {
+        "bar": { "type": "integer", "minimum": 1 },
+        "type": {
+          "type": "string",
+          "enum": [
+            "drum_fill",
+            "riser_impact",
+            "drum_fill_and_riser",
+            "harmonic_anticipation",
+            "impact"
+          ]
+        },
+        "style": {
+          "type": "string",
+          "enum": ["auto", "snare_roll", "tom_fill", "pickup"]
+        },
+        "offset_beats": { "type": "number", "minimum": 0.0, "maximum": 2.0 },
+        "ratio": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
     }
   },
   "properties": {
@@ -144,23 +167,36 @@
             "additionalProperties": { "$ref": "#/$defs/roleModifier" }
           },
           "transitions": {
-            "type": "object",
-            "properties": {
-              "beat4_dropout_bars": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "properties": {
+                  "beat4_dropout_bars": {
+                    "type": "array",
+                    "items": { "type": "integer" }
+                  },
+                  "filter_sweep": {
+                    "oneOf": [
+                      { "type": "null" },
+                      { "$ref": "#/$defs/filterSweep" }
+                    ]
+                  },
+                  "outro_fade_bars": { "type": "integer", "minimum": 0 }
+                }
+              },
+              {
                 "type": "array",
-                "items": { "type": "integer" }
-              },
-              "filter_sweep": {
-                "oneOf": [
-                  { "type": "null" },
-                  { "$ref": "#/$defs/filterSweep" }
-                ]
-              },
-              "outro_fade_bars": { "type": "integer", "minimum": 0 }
-            }
+                "items": { "$ref": "#/$defs/transitionEvent" }
+              }
+            ]
           }
         }
       }
+    },
+    "transitions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/transitionEvent" }
     }
   }
 }

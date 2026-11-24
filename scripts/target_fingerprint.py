@@ -251,6 +251,19 @@ def _analyze_single_reference(audio_path: str) -> dict[str, Any]:
     }
 
 
+def _load_spectral_profile_entry(mix_profile: str, profiles_path: str) -> dict[str, Any] | None:
+    """Return the raw `spectral_profiles.json` entry (including `provenance`) if any."""
+    if not profiles_path or not os.path.isfile(profiles_path):
+        return None
+    try:
+        with open(profiles_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        prof = (data.get("profiles") or {}).get(mix_profile)
+        return prof if isinstance(prof, dict) and len(prof.get("bark_24_mean") or []) == 24 else None
+    except Exception:
+        return None
+
+
 def _load_fallback_spectral_profile(mix_profile: str, profiles_path: str) -> tuple[list[float], float, float]:
     if os.path.isfile(profiles_path):
         try:
@@ -412,6 +425,7 @@ def extract_target_fingerprint(
     subgenre_tag: str = "",
     has_drums: bool | None = None,
     taste_memory_path: str | None = None,
+    approve_taste: bool = False,
 ) -> dict[str, Any]:
     """
     Extract multi-scale target fingerprint from 0..3 reference audio tracks (or fallback
@@ -494,18 +508,37 @@ def extract_target_fingerprint(
     else:
         taste_prior = query_taste_prior(eff_profile, ev_norm, top_k=3, taste_path=taste_memory_path)
         base_bark, base_slope, base_slope_std = _load_fallback_spectral_profile(eff_profile, profiles_path)
+        profile_entry = _load_spectral_profile_entry(eff_profile, profiles_path)
+        is_external_anchor = bool(profile_entry and profile_entry.get("provenance") == "external_pro_reference")
         if taste_prior is not None:
             source_mode = "user_taste_memory"
             b_prior = taste_prior.get("bark24_mean")
+            taste_bark: list[float] | None = None
             if isinstance(b_prior, list) and len(b_prior) == 24:
                 b_arr = np.maximum(0.0, np.asarray(b_prior, dtype=np.float64))
                 b_sum = float(np.sum(b_arr))
-                bark24_target = [round(float(x / b_sum), 6) for x in b_arr] if b_sum > 1e-12 else _modulate_bark_with_emotion(base_bark, ev_norm)
-            else:
-                bark24_target = _modulate_bark_with_emotion(base_bark, ev_norm)
-
+                if b_sum > 1e-12:
+                    taste_bark = list(b_arr / b_sum)
             tol = max(0.85, base_slope_std * 1.8)
-            eff_slope = float(taste_prior.get("pink_slope_db_per_oct", base_slope))
+            if taste_bark is not None and is_external_anchor:
+                # Q4.2 bounded merge: external pro anchor dominates automatic memory (>=70% / >=40% if approved)
+                w_taste = 0.60 if approve_taste else 0.30
+                w_ext = 1.0 - w_taste
+                ext_bark = np.maximum(0.0, np.asarray(base_bark, dtype=np.float64))
+                ext_bark = ext_bark / max(1e-18, float(np.sum(ext_bark)))
+                blended = w_ext * ext_bark + w_taste * np.asarray(taste_bark, dtype=np.float64)
+                blended = blended / max(1e-18, float(np.sum(blended)))
+                bark24_target = [round(float(x), 6) for x in blended]
+                slope_taste = float(taste_prior.get("pink_slope_db_per_oct", base_slope))
+                eff_slope = w_ext * float(profile_entry.get("pink_slope_mean", base_slope)) + w_taste * slope_taste
+                source_mode = "external_pro_reference+taste_memory"
+            else:
+                bark24_target = (
+                    [round(float(x), 6) for x in taste_bark]
+                    if taste_bark is not None
+                    else _modulate_bark_with_emotion(base_bark, ev_norm)
+                )
+                eff_slope = float(taste_prior.get("pink_slope_db_per_oct", base_slope))
             pink_slope_range = [round(eff_slope - tol, 2), round(eff_slope + tol, 2)]
 
             sw_prior = taste_prior.get("stereo_width_by_band") or {}
@@ -529,7 +562,7 @@ def extract_target_fingerprint(
             sharp_max = float(p_def["dark_sharp_max"] if is_dark else p_def["sharp_max"])
             ref_paths_resolved = []
         else:
-            source_mode = "profile_fallback"
+            source_mode = "external_pro_reference" if is_external_anchor else "profile_fallback"
             bark24_target = _modulate_bark_with_emotion(base_bark, ev_norm)
             slope_shift = -0.25 * abs(valence) if valence < -0.2 else (0.15 * valence if valence > 0.3 else 0.0)
             eff_slope = base_slope + slope_shift
@@ -660,6 +693,7 @@ def main() -> None:
     ap.add_argument("--depth", type=float, default=None)
     ap.add_argument("--no-drums", action="store_true")
     ap.add_argument("--taste-memory", default="", help="Optional user_taste_profile.json override")
+    ap.add_argument("--approve-taste", action="store_true", help="Allow up to 60% taste-memory weight over external pro anchors")
     ap.add_argument("--json-compact", action="store_true")
     args = ap.parse_args()
 
@@ -682,6 +716,7 @@ def main() -> None:
         subgenre_tag=args.subgenre,
         has_drums=False if args.no_drums else None,
         taste_memory_path=args.taste_memory or None,
+        approve_taste=bool(args.approve_taste),
     )
     if args.json_compact:
         c = res["multi_scale_contract"]

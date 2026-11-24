@@ -23,6 +23,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 from typing import Any
@@ -38,6 +39,7 @@ ROOT_DIR = os.path.dirname(SCRIPTS_DIR)
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
+from gain_staging_lib import measure_active_loudness, normalize_role_for_gain_staging
 from target_fingerprint import load_multi_scale_contract
 
 DEFAULT_SECTION_QUOTAS: dict[str, int] = {
@@ -260,30 +262,34 @@ def compute_bar_synchronized_ssm(
         }
 
     hop = 512
-    # 12-dim Chroma CQT (bins_per_octave=12, 5 octaves C2..B6; at 11025 Hz runs ~0.3s for 2-min tracks)
+    chroma_hop = 1024 if n_bars >= 16 else 512
+    # 12-dim Chroma CQT (bins_per_octave=12, 5 octaves C2..B6; hop=1024 on long tracks cuts CQT cost in half)
     chroma_frames = librosa.feature.chroma_cqt(
         y=mono_22k,
         sr=sr_22k,
-        hop_length=hop,
+        hop_length=chroma_hop,
         fmin=float(librosa.note_to_hz("C2")),
         n_octaves=5,
         bins_per_octave=12,
     )
-    # 13-dim MFCC 1..13 (skipping C0 DC coefficient)
+    # Single STFT + Mel spectrogram shared by MFCC, onset_strength, and spectral_centroid
     n_fft_mfcc = min(2048, max(512, 1 << int(math.log2(max(512, sr_22k // 12)))))
-    mfcc_all = librosa.feature.mfcc(
-        y=mono_22k,
-        sr=sr_22k,
-        n_mfcc=14,
-        hop_length=hop,
-        n_fft=n_fft_mfcc,
-    )
+    stft_mag = np.abs(librosa.stft(mono_22k, n_fft=n_fft_mfcc, hop_length=hop))
+    frame_rms = np.sqrt(np.mean(stft_mag * stft_mag, axis=0))
+    mel_pow = librosa.feature.melspectrogram(S=stft_mag * stft_mag, sr=sr_22k, n_fft=n_fft_mfcc, hop_length=hop)
+    mel_db = librosa.power_to_db(mel_pow, ref=1.0)
+    mfcc_all = librosa.feature.mfcc(S=mel_db, sr=sr_22k, n_mfcc=14)
     mfcc_frames = mfcc_all[1:14, :]
-    # Onset strength envelope folded to 16-step rhythm grid per bar
-    onset_env = librosa.onset.onset_strength(y=mono_22k, sr=sr_22k, hop_length=hop)
+    onset_env = librosa.onset.onset_strength(S=mel_db, sr=sr_22k, hop_length=hop)
 
-    n_frames = min(chroma_frames.shape[1], mfcc_frames.shape[1], len(onset_env))
+    n_frames = min(mfcc_frames.shape[1], len(onset_env))
     frame_times = librosa.frames_to_time(np.arange(n_frames), sr=sr_22k, hop_length=hop)
+    if chroma_hop == hop:
+        chroma_times = frame_times
+        n_cframes = min(n_frames, chroma_frames.shape[1])
+    else:
+        n_cframes = chroma_frames.shape[1]
+        chroma_times = librosa.frames_to_time(np.arange(n_cframes), sr=sr_22k, hop_length=chroma_hop)
 
     bar_chroma = np.zeros((n_bars, 12), dtype=np.float64)
     bar_mfcc = np.zeros((n_bars, 13), dtype=np.float64)
@@ -297,28 +303,35 @@ def compute_bar_synchronized_ssm(
         s0 = int(round(m * bar_samples_orig))
         s1 = min(len(mono_orig), int(round((m + 1) * bar_samples_orig)))
         seg_orig = mono_orig[s0:s1]
-        rms = float(np.sqrt(np.mean(seg_orig ** 2))) if len(seg_orig) else 0.0
+        rms = math.sqrt(float(np.dot(seg_orig, seg_orig)) / len(seg_orig)) if len(seg_orig) else 0.0
         bar_rms_db[m] = 20.0 * math.log10(rms + 1e-12)
+
+        c0 = int(np.searchsorted(chroma_times, t0, side="left"))
+        c1 = int(np.searchsorted(chroma_times, t1, side="left"))
+        if c1 <= c0:
+            c1 = min(n_cframes, c0 + 1)
+        if c0 < n_cframes:
+            bar_chroma[m] = np.mean(chroma_frames[:, c0:c1], axis=1)
 
         f0 = int(np.searchsorted(frame_times, t0, side="left"))
         f1 = int(np.searchsorted(frame_times, t1, side="left"))
         if f1 <= f0:
             f1 = min(n_frames, f0 + 1)
         if f0 < n_frames:
-            bar_chroma[m] = np.mean(chroma_frames[:, f0:f1], axis=1)
             bar_mfcc[m] = np.mean(mfcc_frames[:, f0:f1], axis=1)
-            sub_t = frame_times[f0:f1] - t0
-            steps = np.clip((sub_t / bar_s * 16.0).astype(int), 0, 15)
-            sub_o = onset_env[f0:f1]
+            # Bar-relative 16-step RMS: smooth, phase-insensitive, so identical bars stay identical
+            # (narrow onset peaks sampled at fixed midpoints jitter with non-integer frame counts).
+            rms_times = frame_times[:n_frames]
+            rms_vals = frame_rms[:n_frames]
             for st_idx in range(16):
-                mask = (steps == st_idx)
-                if np.any(mask):
-                    bar_rhythm[m, st_idx] = float(np.mean(sub_o[mask]))
+                a = t0 + st_idx * (bar_s / 16.0)
+                b = a + (bar_s / 16.0)
+                i0s = int(np.searchsorted(rms_times, a, side="left"))
+                i1s = int(np.searchsorted(rms_times, b, side="left"))
+                if i1s > i0s:
+                    bar_rhythm[m, st_idx] = float(np.mean(rms_vals[i0s:i1s]))
                 else:
-                    # Interpolate nearest onset sample if bar duration < 16 hops (very high BPM)
-                    rel_t = t0 + (st_idx + 0.5) * (bar_s / 16.0)
-                    nf_idx = min(n_frames - 1, max(0, int(np.searchsorted(frame_times, rel_t))))
-                    bar_rhythm[m, st_idx] = float(onset_env[nf_idx])
+                    bar_rhythm[m, st_idx] = float(np.interp((a + b) * 0.5, rms_times, rms_vals))
 
     active_bars = bar_rms_db > -45.0
 
@@ -373,6 +386,8 @@ def compute_bar_synchronized_ssm(
         "bar_rms_db": [round(float(x), 2) for x in bar_rms_db],
         "onset_env": onset_env,
         "onset_frame_times": frame_times,
+        "stft_mag": stft_mag,
+        "stft_n_fft": n_fft_mfcc,
         "chroma": bar_chroma,
         "mfcc": bar_mfcc,
         "rhythm": bar_rhythm,
@@ -657,7 +672,7 @@ def _extract_stems_per_bar_activity(
             data, s_sr = sf.read(src, dtype="float64", always_2d=True)
             mono = np.mean(data, axis=1)
         elif isinstance(src, (tuple, list)) and len(src) == 2 and isinstance(src[0], np.ndarray):
-            arr, s_sr = np.asarray(src[0], dtype=np.float64), int(src[1])
+            arr, s_sr = src[0], int(src[1])
             mono = np.mean(arr, axis=1) if arr.ndim == 2 else arr
         else:
             continue
@@ -668,7 +683,7 @@ def _extract_stems_per_bar_activity(
             i1 = min(len(mono), int(round((m + 1) * bar_n)))
             if i1 - i0 < 64:
                 continue
-            rms = float(np.sqrt(np.mean(mono[i0:i1] ** 2)))
+            rms = float(np.sqrt(np.mean(mono[i0:i1] ** 2, dtype=np.float64)))
             rms_db = 20.0 * math.log10(rms + 1e-12)
             if rms_db > float(active_threshold_db):
                 per_bar_active_tracks[m].append(stem_name)
@@ -764,6 +779,336 @@ def _audit_cognitive_ceiling(
     }
 
 
+_PRIMARY_AUDIBLE_ROLES = {"kick", "bass_sub", "snare_clap", "lead", "vocals"}
+_SECONDARY_AUDIBLE_ROLES = {"chords_pad", "hihat_perc", "counter_melody"}
+
+
+def _clean_stem_label(stem_name: str) -> str:
+    raw = stem_name.split(" - ", 1)[1] if " - " in stem_name else stem_name
+    cleaned = re.sub(r"^\d+\s+", "", raw.strip())
+    return cleaned or raw.strip() or stem_name
+
+
+def audit_section_track_audibility(
+    stems_dir_or_map: str | dict[str, Any] | None,
+    sections: list[dict[str, Any]] | None = None,
+    *,
+    bar_s: float | None = None,
+    bpm: float = 132.0,
+    beats_per_bar: int = 4,
+    arrangement_plan: dict[str, Any] | str | None = None,
+    blueprint: dict[str, Any] | str | None = None,
+    project_dir: str = "",
+    mix_data: tuple[np.ndarray, int] | None = None,
+) -> dict[str, Any]:
+    """
+    Phase 8 Q2 — Per-section minimum audibility floor audit (`TRACK_UNDER_AUDIBLE_FLOOR`):
+    Checks every role listed in `active_roles` for a section against the section mix LUFS:
+      - Primary (`kick`, `bass_sub`, `snare_clap`, `lead`, `vocals`): >= section_mix_lufs - 13.0 dB
+      - Secondary (`chords_pad`, `hihat_perc`, `counter_melody`): >= section_mix_lufs - 18.0 dB
+      - FX / Ear candy (`ear_candy_fx`): >= section_mix_lufs - 22.0 dB
+    Emits `ADJUST_TRACK_FADER` bounded to `[+1.5, +4.0] dB` on violations.
+    """
+    if not stems_dir_or_map:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "violations": [],
+            "recommendations": [],
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    # Resolve arrangement_plan or blueprint for active_roles declarations
+    plan_obj: dict[str, Any] | None = None
+    if isinstance(arrangement_plan, dict):
+        plan_obj = arrangement_plan
+    elif isinstance(arrangement_plan, str) and arrangement_plan.strip() and os.path.isfile(os.path.expanduser(arrangement_plan)):
+        with open(os.path.expanduser(arrangement_plan), encoding="utf-8") as fh:
+            plan_obj = json.load(fh)
+    elif project_dir:
+        cand_plan = os.path.join(os.path.abspath(os.path.expanduser(project_dir)), "arrangement_plan.json")
+        if os.path.isfile(cand_plan):
+            try:
+                with open(cand_plan, encoding="utf-8") as fh:
+                    plan_obj = json.load(fh)
+            except Exception:
+                plan_obj = None
+
+    bp_obj: dict[str, Any] | None = None
+    if isinstance(blueprint, dict):
+        bp_obj = blueprint
+    elif isinstance(blueprint, str) and blueprint.strip() and os.path.isfile(os.path.expanduser(blueprint)):
+        with open(os.path.expanduser(blueprint), encoding="utf-8") as fh:
+            bp_obj = json.load(fh)
+    elif project_dir:
+        cand_bp = os.path.join(os.path.abspath(os.path.expanduser(project_dir)), "song_blueprint.json")
+        if os.path.isfile(cand_bp):
+            try:
+                with open(cand_bp, encoding="utf-8") as fh:
+                    bp_obj = json.load(fh)
+            except Exception:
+                bp_obj = None
+
+    eff_bpm = float(((plan_obj or {}).get("meta") or {}).get("bpm") or (bp_obj or {}).get("bpm") or bpm)
+    eff_bpb = int((((plan_obj or {}).get("meta") or {}).get("time_signature") or {}).get("numerator") or ((bp_obj or {}).get("time_signature") or {}).get("numerator") or beats_per_bar)
+    eff_bar_s = float(bar_s) if bar_s is not None else (float(eff_bpb) * 60.0 / max(20.0, eff_bpm))
+
+    # Build timeline entries with active_roles (1-indexed start_bar/end_bar)
+    plan_sections: list[dict[str, Any]] = []
+    if plan_obj and isinstance(plan_obj.get("sections"), list):
+        for s in plan_obj["sections"]:
+            if isinstance(s, dict) and s.get("active_roles"):
+                sb_1 = int(s.get("start_bar", 0)) + 1
+                nb = max(1, int(s.get("bars", 4)))
+                plan_sections.append({
+                    "section": str(s.get("name") or "Section"),
+                    "start_bar": sb_1,
+                    "end_bar": sb_1 + nb - 1,
+                    "active_roles": list(s["active_roles"]),
+                })
+    elif bp_obj and isinstance(bp_obj.get("structure"), list):
+        cursor = 1
+        for s in bp_obj["structure"]:
+            if isinstance(s, dict):
+                nb = max(1, int(s.get("bars", 4)))
+                sb_1 = int(s.get("start_bar", cursor))
+                cursor = sb_1 + nb
+                ar = s.get("active_roles")
+                if ar:
+                    plan_sections.append({
+                        "section": str(s.get("section") or s.get("name") or "Section"),
+                        "start_bar": sb_1,
+                        "end_bar": sb_1 + nb - 1,
+                        "active_roles": list(ar),
+                    })
+    if not plan_sections and sections:
+        for s in sections:
+            if isinstance(s, dict) and s.get("active_roles"):
+                sb = int(s.get("start_bar", 1))
+                eb = int(s.get("end_bar", sb + int(s.get("bars", 4)) - 1))
+                plan_sections.append({
+                    "section": str(s.get("section") or s.get("name") or "Section"),
+                    "start_bar": sb,
+                    "end_bar": eb,
+                    "active_roles": list(s["active_roles"]),
+                })
+
+    if not plan_sections:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "violations": [],
+            "recommendations": [],
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    # Load non-bus stems
+    loaded_stems: list[dict[str, Any]] = []
+    master_loaded: tuple[np.ndarray, int] | None = mix_data
+    if isinstance(stems_dir_or_map, str):
+        sdir = os.path.abspath(os.path.expanduser(stems_dir_or_map))
+        if not os.path.isdir(sdir):
+            return {"status": "SKIP", "verdict": "PASS", "score": 1.0, "violations": [], "recommendations": [], "next_action": {"code": "KEEP", "params": {}}}
+        for fn in sorted(os.listdir(sdir)):
+            if not fn.lower().endswith((".wav", ".flac")):
+                continue
+            fpath = os.path.join(sdir, fn)
+            low = fn.lower()
+            if " - " not in fn or "master" in low:
+                if master_loaded is None and ("master" in low or " - " not in fn):
+                    try:
+                        d_m, sr_m = sf.read(fpath, dtype="float64", always_2d=True)
+                        master_loaded = (d_m, sr_m)
+                    except Exception:
+                        pass
+                continue
+            if any(kw in low for kw in _NON_INSTRUMENT_STEM_KW) or any(fxk in low for fxk in ("fx delay", "fx hall", "fx_room")):
+                continue
+            try:
+                d_s, sr_s = sf.read(fpath, dtype="float64", always_2d=True)
+                cname = _clean_stem_label(os.path.splitext(fn)[0])
+                loaded_stems.append({
+                    "name": cname,
+                    "raw_key": os.path.splitext(fn)[0],
+                    "role": normalize_role_for_gain_staging(cname),
+                    "data": d_s,
+                    "sr": sr_s,
+                })
+            except Exception:
+                continue
+    elif isinstance(stems_dir_or_map, dict):
+        for k, v in stems_dir_or_map.items():
+            low = str(k).lower()
+            if any(kw in low for kw in _NON_INSTRUMENT_STEM_KW):
+                continue
+            arr: np.ndarray | None = None
+            s_sr = 44100
+            if isinstance(v, str) and os.path.isfile(v):
+                arr, s_sr = sf.read(v, dtype="float64", always_2d=True)
+            elif isinstance(v, (tuple, list)) and len(v) == 2 and isinstance(v[0], np.ndarray):
+                arr = np.asarray(v[0], dtype=np.float64)
+                if arr.ndim == 1:
+                    arr = np.column_stack([arr, arr])
+                s_sr = int(v[1])
+            if arr is not None:
+                cname = _clean_stem_label(str(k))
+                loaded_stems.append({
+                    "name": cname,
+                    "raw_key": str(k),
+                    "role": normalize_role_for_gain_staging(cname),
+                    "data": arr,
+                    "sr": s_sr,
+                })
+
+    if not loaded_stems:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "violations": [],
+            "recommendations": [],
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    violations: list[dict[str, Any]] = []
+    recommendations: list[dict[str, Any]] = []
+    section_reports: list[dict[str, Any]] = []
+
+    for sec in plan_sections:
+        sb = int(sec["start_bar"])
+        eb = int(sec["end_bar"])
+        t0 = max(0.0, float(sb - 1) * eff_bar_s)
+        t1 = float(eb) * eff_bar_s
+
+        # Determine section mix active LUFS
+        if master_loaded is not None:
+            m_arr, m_sr = master_loaded
+            i0 = int(round(t0 * m_sr))
+            i1 = min(len(m_arr), int(round(t1 * m_sr)))
+            if i1 - i0 < 64:
+                continue
+            sec_mix_lufs = float(measure_active_loudness(m_arr[i0:i1], m_sr)["active_lufs"])
+        else:
+            ref_sr = int(loaded_stems[0]["sr"])
+            i0 = int(round(t0 * ref_sr))
+            max_i1 = max(min(len(st["data"]), int(round(t1 * st["sr"]))) for st in loaded_stems)
+            if max_i1 - i0 < 64:
+                continue
+            mix_sum = np.zeros((max_i1 - i0, 2), dtype=np.float64)
+            for st in loaded_stems:
+                arr_s = st["data"]
+                s_i0 = int(round(t0 * st["sr"]))
+                s_i1 = min(len(arr_s), int(round(t1 * st["sr"])))
+                if s_i1 > s_i0:
+                    n_c = min(len(mix_sum), s_i1 - s_i0)
+                    seg = arr_s[s_i0 : s_i0 + n_c]
+                    if seg.shape[1] == 1:
+                        seg = np.repeat(seg, 2, axis=1)
+                    mix_sum[:n_c] += seg[:, :2]
+            sec_mix_lufs = float(measure_active_loudness(mix_sum, ref_sr)["active_lufs"])
+
+        sec_role_results: list[dict[str, Any]] = []
+        for raw_role in sec["active_roles"]:
+            rl_str = str(raw_role).strip().lower()
+            canon_role = normalize_role_for_gain_staging(rl_str)
+            if canon_role in _PRIMARY_AUDIBLE_ROLES:
+                margin_db = 13.0
+            elif canon_role in _SECONDARY_AUDIBLE_ROLES:
+                margin_db = 18.0
+            else:
+                margin_db = 22.0
+            min_allowed = sec_mix_lufs - margin_db
+
+            matches = [
+                st for st in loaded_stems
+                if st["role"] == canon_role or rl_str in st["name"].lower() or rl_str in st["raw_key"].lower()
+            ]
+            if not matches:
+                continue
+
+            for st in matches:
+                s_arr, s_sr = st["data"], int(st["sr"])
+                s_i0 = int(round(t0 * s_sr))
+                s_i1 = min(len(s_arr), int(round(t1 * s_sr)))
+                if s_i1 - s_i0 < 64:
+                    continue
+                act = measure_active_loudness(s_arr[s_i0:s_i1], s_sr)
+                tr_lufs = float(act["active_lufs"])
+                ok = tr_lufs >= min_allowed
+                sec_role_results.append({
+                    "track": st["name"],
+                    "role": canon_role,
+                    "active_lufs": tr_lufs,
+                    "min_allowed_lufs": round(min_allowed, 2),
+                    "passed": ok,
+                })
+                if not ok:
+                    deficit = min_allowed - tr_lufs
+                    delta_db = round(min(4.0, max(1.5, deficit)), 2)
+                    viol = {
+                        "code": "TRACK_UNDER_AUDIBLE_FLOOR",
+                        "action": "ADJUST_TRACK_FADER",
+                        "section": sec["section"],
+                        "bars": f"{sb}-{eb}",
+                        "target_role": canon_role,
+                        "target_track": st["name"],
+                        "track_active_lufs": round(tr_lufs, 2),
+                        "section_mix_lufs": round(sec_mix_lufs, 2),
+                        "min_allowed_lufs": round(min_allowed, 2),
+                        "deficit_db": round(deficit, 2),
+                        "delta_db": delta_db,
+                        "reason": (
+                            f"TRACK_UNDER_AUDIBLE_FLOOR: '{st['name']}' ({canon_role}) à {tr_lufs:.1f} LUFS "
+                            f"dans '{sec['section']}' (< {min_allowed:.1f} LUFS) -> ADJUST_TRACK_FADER +{delta_db:.1f} dB."
+                        ),
+                    }
+                    violations.append(viol)
+                    recommendations.append({
+                        "code": "ADJUST_TRACK_FADER",
+                        "params": {"track": st["name"], "role": canon_role, "delta_db": delta_db, "section": sec["section"]},
+                    })
+
+        section_reports.append({
+            "section": sec["section"],
+            "bars": f"{sb}-{eb}",
+            "section_mix_lufs": round(sec_mix_lufs, 2),
+            "tracks": sec_role_results,
+        })
+
+    if violations:
+        worst = max(violations, key=lambda v: v["deficit_db"])
+        score = round(max(0.25, 0.85 - 0.04 * worst["deficit_db"]), 3)
+        return {
+            "status": "FIX",
+            "verdict": "FIX",
+            "score": score,
+            "sections": section_reports,
+            "violations": violations,
+            "recommendations": recommendations,
+            "next_action": {
+                "code": "ADJUST_TRACK_FADER",
+                "params": {
+                    "track": worst["target_track"],
+                    "role": worst["target_role"],
+                    "delta_db": worst["delta_db"],
+                    "section": worst["section"],
+                },
+            },
+        }
+
+    return {
+        "status": "PASS",
+        "verdict": "PASS",
+        "score": 1.0,
+        "sections": section_reports,
+        "violations": [],
+        "recommendations": [],
+        "next_action": {"code": "KEEP", "params": {}},
+    }
+
+
 def _audit_5d_dramatic_arc(
     data_stereo: np.ndarray,
     sr_orig: int,
@@ -777,6 +1122,8 @@ def _audit_5d_dramatic_arc(
     stems_activity: dict[str, Any] | None,
     precomputed_onset_env: np.ndarray | None = None,
     precomputed_frame_times: np.ndarray | None = None,
+    precomputed_stft_mag: np.ndarray | None = None,
+    precomputed_n_fft: int = 2048,
 ) -> dict[str, Any]:
     """
     Compute normalized 5D Dramatic Arc A(b) = (LUFS_rel, C_spec, D_onset, W_MS, K_cog):
@@ -794,7 +1141,10 @@ def _audit_5d_dramatic_arc(
 
     hop = 512
     # Precompute fast frame-wise spectral centroid & onset peaks on downsampled mono once (<5 ms peak pick)
-    cent_frames = librosa.feature.spectral_centroid(y=mono_22k, sr=sr_22k, hop_length=hop)[0]
+    if precomputed_stft_mag is not None:
+        cent_frames = librosa.feature.spectral_centroid(S=precomputed_stft_mag, sr=sr_22k, n_fft=precomputed_n_fft, hop_length=hop)[0]
+    else:
+        cent_frames = librosa.feature.spectral_centroid(y=mono_22k, sr=sr_22k, hop_length=hop)[0]
     o_env = precomputed_onset_env if precomputed_onset_env is not None else librosa.onset.onset_strength(y=mono_22k, sr=sr_22k, hop_length=hop)
     frame_times = precomputed_frame_times if precomputed_frame_times is not None else librosa.frames_to_time(np.arange(len(cent_frames)), sr=sr_22k, hop_length=hop)
     o_max = float(np.max(o_env)) if len(o_env) else 0.0
@@ -1063,6 +1413,16 @@ def analyze_macro_structure(
         stems_dir_or_map, n_bars=n_bars, bar_s=bar_s, bpm=float(bpm), active_threshold_db=-28.0
     )
     cog_res = _audit_cognitive_ceiling(stems_act, parsed_sections)
+    aud_res = audit_section_track_audibility(
+        stems_dir_or_map,
+        parsed_sections,
+        bar_s=bar_s,
+        bpm=float(bpm),
+        beats_per_bar=int(beats_per_bar),
+        blueprint=blueprint,
+        project_dir=eff_proj,
+        mix_data=(data_st, sr_orig),
+    )
     arc_res = _audit_5d_dramatic_arc(
         data_st,
         sr_orig,
@@ -1075,6 +1435,8 @@ def analyze_macro_structure(
         stems_activity=stems_act,
         precomputed_onset_env=ssm_data.get("onset_env"),
         precomputed_frame_times=ssm_data.get("onset_frame_times"),
+        precomputed_stft_mag=ssm_data.get("stft_mag"),
+        precomputed_n_fft=int(ssm_data.get("stft_n_fft", 2048)),
     )
 
     deviations: list[dict[str, Any]] = []
@@ -1120,6 +1482,21 @@ def analyze_macro_structure(
             "blocking": True,
             "severity": 0.82,
         })
+    if aud_res["verdict"] != "PASS":
+        act = aud_res["next_action"]
+        p = act["params"]
+        v0 = aud_res["violations"][0]
+        deviations.append({
+            "scale": "S4_form",
+            "axis": "V",
+            "location": f"{v0.get('section', 'section')} ({v0.get('bars', '')})",
+            "metric": f"TRACK_UNDER_AUDIBLE_FLOOR={v0.get('track_active_lufs')}LUFS (<{v0.get('min_allowed_lufs')})",
+            "diagnosis": v0.get("reason", "TRACK_UNDER_AUDIBLE_FLOOR"),
+            "next_action": f"ADJUST_TRACK_FADER(track={p.get('track', '')},delta_db={p.get('delta_db', 2.0)})",
+            "action_payload": act,
+            "blocking": False,
+            "severity": 0.78,
+        })
     if arc_res["verdict"] != "PASS":
         act = arc_res["next_action"]
         deviations.append({
@@ -1137,12 +1514,12 @@ def analyze_macro_structure(
     # Weighted S4 score (only active/non-SKIP components dominate, blocking failure caps score)
     sub_scores = [
         x["score"]
-        for x in (clones_res, novelty_res, arc_res, cog_res)
+        for x in (clones_res, novelty_res, arc_res, cog_res, aud_res)
         if x.get("status") != "SKIP"
     ]
     overall_score = round(float(np.mean(sub_scores)), 3) if sub_scores else 1.0
     if any(d["blocking"] for d in deviations):
-        overall_score = round(min(overall_score, min(x["score"] for x in (clones_res, cog_res, novelty_res, arc_res) if x["verdict"] != "PASS")), 3)
+        overall_score = round(min(overall_score, min(x["score"] for x in (clones_res, cog_res, novelty_res, arc_res, aud_res) if x["verdict"] != "PASS")), 3)
 
     verdict = "FAIL" if any(d["blocking"] for d in deviations) else ("FIX" if deviations else "PASS")
     elapsed_s = round(time.perf_counter() - t0, 3)
@@ -1164,6 +1541,7 @@ def analyze_macro_structure(
             "novelty": novelty_res,
             "arc_5d": arc_res,
             "cognitive_ceiling": cog_res,
+            "section_track_audibility": aud_res,
             "bar_rms_db": ssm_data["bar_rms_db"],
             "ssm_matrix": np.round(ssm, 4).tolist(),
         }
@@ -1197,6 +1575,7 @@ def analyze_macro_structure(
             "next_action": arc_res["next_action"],
         },
         "cognitive_ceiling": cog_res,
+        "section_track_audibility": aud_res,
         "deviations": deviations,
         "full_report_path": diag_path,
     }

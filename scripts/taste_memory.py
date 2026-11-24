@@ -107,11 +107,15 @@ def record_validated_taste(
     *,
     taste_path: str | None = None,
     extra_metrics: dict[str, Any] | None = None,
+    pq_score: float | None = None,
 ) -> dict[str, Any]:
     """
     Record a validated song fingerprint (`quality_gate.passed == True`) into `user_taste_profile.json`.
     Deduplicates by `project_id`, keeps up to 50 most recent entries, and assigns `weight=2.0`
     when `approved_by_user=True` (otherwise `1.0`).
+
+    Phase 8 Q4.2 quality guard: a mediocre `PQ < 7.8` is never auto-recorded; only an explicit
+    user approval (`approved_by_user=True`, `--approve-taste`) can force the entry.
     """
     abs_proj = os.path.abspath(os.path.expanduser(project_dir))
     eff_bp_path = os.path.abspath(os.path.expanduser(blueprint_path)) if blueprint_path else os.path.join(abs_proj, "song_blueprint.json")
@@ -128,6 +132,24 @@ def record_validated_taste(
             "recorded": False,
             "reason": f"Missing fingerprint: {eff_fp_path}",
             "taste_path": eff_taste_path,
+        }
+
+    eff_pq = pq_score
+    if eff_pq is None:
+        for src in (extra, fp, tp):
+            if src.get("pq_score") is not None:
+                eff_pq = float(src["pq_score"])
+                break
+            q_bert = (src.get("audiobox_aesthetics") or {}).get("PQ") if isinstance(src.get("audiobox_aesthetics"), dict) else None
+            if q_bert is not None:
+                eff_pq = float(q_bert)
+                break
+    if eff_pq is not None and float(eff_pq) < 7.8 and not approved_by_user:
+        return {
+            "recorded": False,
+            "reason": f"pq_score={float(eff_pq):.2f} < 7.8 (use --approve-taste to force)",
+            "taste_path": eff_taste_path,
+            "pq_score": round(float(eff_pq), 2),
         }
 
     project_id = str(extra.get("project_id") or fp.get("project_id") or _derive_project_id(abs_proj))

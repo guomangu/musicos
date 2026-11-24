@@ -380,6 +380,81 @@ def _run_neural_perceptual_audit(audio_path: str, data: np.ndarray, mono: np.nda
     return out
 
 
+def analyze_stereo_image(data: np.ndarray, sr: int, target_genre: str = "trap") -> dict[str, Any]:
+    """
+    Phase 8 Q3.2 — Deterministic stereo audit:
+      - `stereo_balance_db` = |LUFS_L - LUFS_R| (Quality Gate <= 1.2 dB).
+      - `mid_high_side_to_mid_db` = 10*log10(E_side[500-8000Hz] / E_mid[500-8000Hz]).
+        Gate: `[-14.0, -1.5]` dB (rhythmic profiles) / `[-18.0, -1.5]` dB (jazz/classical).
+    Returns actionable codes `FIX_STEREO_BALANCE`, `WIDEN_HARMONY_OR_PERC`, `NARROW_EXCESSIVE_SIDE`.
+    """
+    arr = np.asarray(data, dtype=np.float64)
+    if arr.ndim == 1:
+        arr = np.column_stack([arr, arr])
+    elif arr.ndim > 2:
+        arr = arr.reshape(arr.shape[0], -1)
+    if arr.shape[1] == 1:
+        arr = np.repeat(arr, 2, axis=1)
+    # Stereo balance/width are stationary descriptors: a bounded central window keeps
+    # Phase 8 overhead < 1.5 s on 2-minute tracks without losing representativeness.
+    max_s = int(40.0 * float(sr))
+    if arr.shape[0] > max_s:
+        mid_i = arr.shape[0] // 2
+        arr = arr[mid_i - max_s // 2 : mid_i + max_s // 2]
+    left = arr[:, 0]
+    right = arr[:, 1]
+
+    peak = float(np.max(np.abs(arr))) if arr.size else 0.0
+    if peak < 1e-9:
+        lufs_l = lufs_r = -70.0
+    else:
+        lufs_l = float(compute_ebu_r128_stats(left, sr).get("integrated_lufs", -70.0))
+        lufs_r = float(compute_ebu_r128_stats(right, sr).get("integrated_lufs", -70.0))
+    balance_db = round(lufs_l - lufs_r, 2)
+
+    hi_hz = min(8000.0, float(sr) * 0.45)
+    if hi_hz > 520.0 and arr.shape[0] >= 64:
+        sos = signal.butter(4, [500.0, hi_hz], btype="bandpass", fs=sr, output="sos")
+        lb = signal.sosfilt(sos, left.astype(np.float32, copy=False))
+        rb = signal.sosfilt(sos, right.astype(np.float32, copy=False))
+    else:
+        lb, rb = left, right
+    mid = (lb + rb) * 0.5
+    side = (lb - rb) * 0.5
+    e_mid = float(np.mean(mid.astype(np.float64) ** 2)) + 1e-12
+    e_side = float(np.mean(side.astype(np.float64) ** 2)) + 1e-12
+    width_db = round(float(10.0 * np.log10(e_side / e_mid)), 2)
+
+    acoustic = target_genre in ("jazz_acoustic", "classical_ambient")
+    width_lo = -18.0 if acoustic else -14.0
+    width_hi = -1.5
+    codes: list[str] = []
+    balance_ok = abs(balance_db) <= 1.2
+    width_ok = width_lo <= width_db <= width_hi
+    if not balance_ok:
+        codes.append("FIX_STEREO_BALANCE")
+    if width_db < width_lo:
+        codes.append("WIDEN_HARMONY_OR_PERC")
+    elif width_db > width_hi:
+        codes.append("NARROW_EXCESSIVE_SIDE")
+
+    return {
+        "lufs_left": round(lufs_l, 2),
+        "lufs_right": round(lufs_r, 2),
+        "stereo_balance_db": balance_db,
+        "stereo_balance_max_db": 1.2,
+        "mid_high_side_to_mid_db": width_db,
+        "mid_high_width_range_db": [width_lo, width_hi],
+        "balance_ok": bool(balance_ok),
+        "width_ok": bool(width_ok),
+        "codes": codes,
+        "next_action": (
+            {"code": codes[0], "params": {"balance_db": balance_db, "width_db": width_db}}
+            if codes else {"code": "KEEP", "params": {}}
+        ),
+    }
+
+
 def run_deep_audit(
     audio_path: str,
     base_metrics: dict[str, Any],
@@ -398,9 +473,37 @@ def run_deep_audit(
     glitches = _scan_glitches_and_crackle(mono, sr)
     psycho = _compute_psychoacoustics(mono, sr)
     hp_sim = _simulate_headphone_translation(third_oct, headphone_target) if headphone_target else None
+    stereo_image = analyze_stereo_image(data, sr, target_genre)
     neural = _run_neural_perceptual_audit(audio_path, data, mono, sr) if use_neural else {}
 
     issues: list[dict[str, Any]] = []
+    if not stereo_image["balance_ok"]:
+        issues.append(
+            {
+                "category": "stereo_balance",
+                "severity": "high",
+                "detail": f"Balance L/R={stereo_image['stereo_balance_db']:+.2f} dB (seuil +/-1.2 dB ; L={stereo_image['lufs_left']} LUFS, R={stereo_image['lufs_right']} LUFS).",
+                "fix": "Recentrer les pistes panoramiquees (pan 0 sur Kick/Bass/Lead, Hats/Percs symetriques) -> FIX_STEREO_BALANCE.",
+            }
+        )
+    if stereo_image["mid_high_side_to_mid_db"] < stereo_image["mid_high_width_range_db"][0]:
+        issues.append(
+            {
+                "category": "narrow_stereo",
+                "severity": "medium",
+                "detail": f"Largeur medums/aigus={stereo_image['mid_high_side_to_mid_db']:+.2f} dB < {stereo_image['mid_high_width_range_db'][0]:.1f} dB.",
+                "fix": "Elargir Chords/Pad et panoramiques complementaires +/-20-30% sur hats/percs/counter -> WIDEN_HARMONY_OR_PERC.",
+            }
+        )
+    elif stereo_image["mid_high_side_to_mid_db"] > -1.5:
+        issues.append(
+            {
+                "category": "excessive_side",
+                "severity": "high",
+                "detail": f"Largeur medums/aigus={stereo_image['mid_high_side_to_mid_db']:+.2f} dB > -1.5 dB (risque anti-phase).",
+                "fix": "Reduire la largeur stereo (gl.stereo Width <= 0.8) et recentrer les doublons -> NARROW_EXCESSIVE_SIDE.",
+            }
+        )
     # 1. Résonances 1/3 octave (boîte/studio 200-500 Hz ou sifflement 2-6 kHz)
     boxy = [r for r in resonances if 160 <= r["freq_hz"] <= 500]
     if boxy:
@@ -464,20 +567,51 @@ def run_deep_audit(
         "third_octave_resonances": resonances,
         "third_octave_notches": notches,
         "headphone_translation": hp_sim,
+        "stereo_image": stereo_image,
         "neural_perception": neural,
         "issues_detected": issues,
         "third_octave_bands": third_oct,
     }
 
 
+_PITCH_CLASS_MAP: dict[str, int] = {
+    "c": 0, "b#": 0, "dbb": 0, "d--": 0,
+    "c#": 1, "db": 1, "d-": 1, "b##": 1, "bx": 1,
+    "d": 2, "c##": 2, "cx": 2, "ebb": 2, "e--": 2,
+    "d#": 3, "eb": 3, "e-": 3, "fbb": 3, "f--": 3,
+    "e": 4, "fb": 4, "f-": 4, "d##": 4, "dx": 4,
+    "f": 5, "e#": 5, "gbb": 5, "g--": 5,
+    "f#": 6, "gb": 6, "g-": 6, "e##": 6, "ex": 6,
+    "g": 7, "f##": 7, "fx": 7, "abb": 7, "a--": 7,
+    "g#": 8, "ab": 8, "a-": 8,
+    "a": 9, "g##": 9, "gx": 9, "bbb": 9, "b--": 9,
+    "a#": 10, "bb": 10, "b-": 10, "cbb": 10, "c--": 10,
+    "b": 11, "cb": 11, "c-": 11, "a##": 11, "ax": 11,
+}
+
+_KS_MAJOR_WEIGHTS = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], dtype=np.float64)
+_KS_MINOR_WEIGHTS = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17], dtype=np.float64)
+_KS_NOTE_NAMES_SHARP = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+
+
+def _parse_tonic_pc(tonic_raw: str) -> int | None:
+    tok = (tonic_raw or "").strip().lower()
+    if tok in _PITCH_CLASS_MAP:
+        return _PITCH_CLASS_MAP[tok]
+    return None
+
+
 def resolve_allowed_pcs(ref_key_str: str) -> set[int]:
     """Résout l'ensemble des pitch classes (0..11) autorisées pour une tonalité donnée."""
-    import music21
-
     parts = (ref_key_str or "C minor").strip().split()
-    tonic_raw = parts[0].replace("b", "-") if parts else "C"
+    tonic_token = parts[0] if parts else "C"
+    tonic_raw = tonic_token.replace("b", "-")
     mode_raw = " ".join(parts[1:]).lower().replace("-", "_") if len(parts) > 1 else "minor"
-    tonic_pc = music21.pitch.Pitch(tonic_raw).pitchClass
+    tonic_pc = _parse_tonic_pc(tonic_token)
+    if tonic_pc is None:
+        import music21
+
+        tonic_pc = music21.pitch.Pitch(tonic_raw).pitchClass
     if "phrygian_dominant" in mode_raw or "phrygian dominant" in mode_raw:
         return {(tonic_pc + iv) % 12 for iv in (0, 1, 4, 5, 7, 8, 10)}
     if "blues" in mode_raw:
@@ -487,22 +621,55 @@ def resolve_allowed_pcs(ref_key_str: str) -> set[int]:
     if "pentatonic" in mode_raw:
         return {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 7, 9)}
     if "harmonic" in mode_raw:
-        return {p.pitchClass for p in music21.scale.HarmonicMinorScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 3, 5, 7, 8, 11)}
     if "melodic" in mode_raw:
-        return {p.pitchClass for p in music21.scale.MelodicMinorScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 3, 5, 7, 9, 11)}
     if "dorian" in mode_raw:
-        return {p.pitchClass for p in music21.scale.DorianScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 3, 5, 7, 9, 10)}
     if "phrygian" in mode_raw:
-        return {p.pitchClass for p in music21.scale.PhrygianScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 1, 3, 5, 7, 8, 10)}
     if "lydian" in mode_raw:
-        return {p.pitchClass for p in music21.scale.LydianScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 6, 7, 9, 11)}
     if "mixolydian" in mode_raw:
-        return {p.pitchClass for p in music21.scale.MixolydianScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 5, 7, 9, 10)}
     if "locrian" in mode_raw:
-        return {p.pitchClass for p in music21.scale.LocrianScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 1, 3, 5, 6, 8, 10)}
     if "min" in mode_raw or "aeolian" in mode_raw:
-        return {p.pitchClass for p in music21.scale.MinorScale(tonic_raw).getPitches()}
-    return {p.pitchClass for p in music21.scale.MajorScale(tonic_raw).getPitches()}
+        return {(tonic_pc + iv) % 12 for iv in (0, 2, 3, 5, 7, 8, 10)}
+    return {(tonic_pc + iv) % 12 for iv in (0, 2, 4, 5, 7, 9, 11)}
+
+
+def _fast_estimate_midi_key(pm: Any, perc_re: Any) -> str:
+    """Estime la tonalité majeure/mineure par profil de Krumhansl-Schmuckler en <1 ms sans music21."""
+    pc_hist = np.zeros(12, dtype=np.float64)
+    for inst in pm.instruments:
+        name = (inst.name or "").lower()
+        if inst.is_drum or perc_re.search(name):
+            continue
+        for n in inst.notes:
+            dur = max(0.01, float(n.end) - float(n.start))
+            pc_hist[int(n.pitch) % 12] += dur
+    if float(np.sum(pc_hist)) <= 0.0:
+        return "C minor"
+    h_mean = float(np.mean(pc_hist))
+    h_c = pc_hist - h_mean
+    h_std = float(np.sqrt(np.sum(h_c * h_c)))
+    if h_std <= 1e-12:
+        top_pc = int(np.argmax(pc_hist))
+        return f"{_KS_NOTE_NAMES_SHARP[top_pc]} minor"
+    best_corr = -2.0
+    best_key = "C minor"
+    for root in range(12):
+        rot = np.roll(pc_hist, -root)
+        r_c = rot - float(np.mean(rot))
+        for mode_name, prof in (("major", _KS_MAJOR_WEIGHTS), ("minor", _KS_MINOR_WEIGHTS)):
+            p_c = prof - float(np.mean(prof))
+            denom = h_std * float(np.sqrt(np.sum(p_c * p_c)))
+            corr = float(np.sum(r_c * p_c)) / max(1e-12, denom)
+            if corr > best_corr:
+                best_corr = corr
+                best_key = f"{_KS_NOTE_NAMES_SHARP[root]} {mode_name}"
+    return best_key
 
 
 def audit_midi_file(
@@ -519,7 +686,6 @@ def audit_midi_file(
     s3_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Audite la justesse harmonique, la tessiture (notes trop aiguës), les clashs MIDI et les métriques de musicalité."""
-    import music21
     import pretty_midi
     from musicality_metrics import _PERC_TRACK_RE, evaluate_midi_musicality
 
@@ -528,9 +694,7 @@ def audit_midi_file(
         return {"error": f"Fichier MIDI introuvable : {abs_path}"}
 
     pm = pretty_midi.PrettyMIDI(abs_path)
-    score = music21.converter.parse(abs_path)
-    est_key = score.analyze("key")
-    detected_key_str = f"{est_key.tonic.name.replace('-', 'b')} {est_key.mode}"
+    detected_key_str = _fast_estimate_midi_key(pm, _PERC_TRACK_RE)
 
     ref_key_str = expected_key.strip() or detected_key_str
     allowed_pcs = resolve_allowed_pcs(ref_key_str)
@@ -795,19 +959,77 @@ def _load_and_sum_stems(paths: list[Path], target_sr: int | None = None, target_
     return acc, out_sr
 
 
+def _clean_stem_track_name(stem: str) -> str:
+    raw = stem.split(" - ", 1)[1] if " - " in stem else stem
+    cleaned = re.sub(r"^\d+\s+", "", raw.strip())
+    return cleaned or raw.strip() or stem
+
+
+def _bilateral_hierarchy_ranges(mix_profile: str, has_drums: bool) -> dict[str, tuple[float, float, float]]:
+    """
+    Derive bilateral `(min_db, target_db, max_db)` balance ranges from `ROLE_TARGET_OFFSETS_DB[mix_profile]`.
+    Matches Phase 8 Q2 exact ranges for `trap_rap` and generalizes cleanly to all 7 profiles.
+    """
+    scripts_d = str(Path(__file__).resolve().parents[2] / "scripts")
+    if scripts_d not in sys.path:
+        sys.path.insert(0, scripts_d)
+    from gain_staging_lib import ROLE_TARGET_OFFSETS_DB, resolve_mix_profile
+
+    prof = resolve_mix_profile(mix_profile)
+    tbl = ROLE_TARGET_OFFSETS_DB[prof]
+
+    def _rng(key_a: str, key_b: str) -> tuple[float, float, float]:
+        a_lo, a_t, a_hi = tbl[key_a]
+        b_lo, b_t, b_hi = tbl[key_b]
+        return (round(a_lo - b_hi, 2), round(a_t - b_t, 2), round(a_hi - b_lo, 2))
+
+    # lead_vs_harmony_db = lead - chords_pad (upper bound tightened to target+2.5 so harmony stays audible)
+    lh_lo, lh_t, lh_hi = _rng("lead", "chords_pad")
+    lh_range = (max(2.0, lh_lo), lh_t, round(min(lh_hi, lh_t + 2.5), 2))
+
+    ranges: dict[str, tuple[float, float, float]] = {
+        "lead_vs_harmony_db": lh_range,
+        "counter_vs_lead_db": (
+            max(-12.0, round((tbl["counter_melody"][1] - tbl["lead"][1]) - 4.0, 2)),
+            round(tbl["counter_melody"][1] - tbl["lead"][1], 2),
+            min(-2.5, round(tbl["counter_melody"][2] - tbl["lead"][0], 2)),
+        ),
+        "vocals_vs_lead_db": (
+            max(1.0, round((tbl["vocals"][1] - tbl["lead"][1]) - 1.0, 2)),
+            round(tbl["vocals"][1] - tbl["lead"][1], 2),
+            min(6.5, round(tbl["vocals"][2] - tbl["lead"][0], 2)),
+        ),
+    }
+    if has_drums:
+        ranges["bass_vs_kick_db"] = _rng("bass_sub", "kick")
+        ranges["snare_vs_kick_db"] = _rng("snare_clap", "kick")
+        hh_lo, hh_t, hh_hi = _rng("hihat_perc", "kick")
+        ranges["hihat_vs_kick_db"] = (hh_lo, hh_t, round(hh_hi + 0.5, 2))
+    return ranges
+
+
 def analyze_stem_hierarchy(
     project_path: str = "",
     range_bars: str = "",
     stems_dir: str = "",
     has_drums: bool = True,
     out_dir: str = "",
+    mix_profile: str = "trap_rap",
 ) -> dict[str, Any]:
     """
-    Audit hiérarchique inter-stems (Axe 4 §1) :
+    Audit hiérarchique inter-stems v2 (Phase 8 Q2) :
       - `lead_vs_harmony_db` (800 Hz - 3.5 kHz sur fenêtres Lead actives, cible >= +2.5 dB)
-      - `kick_bass_transient_overlap` (corrélation d'enveloppe < 150 Hz aux attaques Kick)
-      - `pink_slope_db_per_oct` (régression log-freq 60 Hz - 12 kHz, cible -3.0 .. -5.0 dB/oct)
+      - Matrice bilatérale active_lufs dérivée de `ROLE_TARGET_OFFSETS_DB[mix_profile]`
+        (`lead_vs_harmony`, `bass_vs_kick`, `snare_vs_kick`, `hihat_vs_kick`, `counter_vs_lead`, `vocals_vs_lead`)
+      - Recommandations structurées `ADJUST_TRACK_FADER`
+      - `kick_bass_transient_overlap` (< 150 Hz aux attaques Kick) & `pink_slope_db_per_oct`
     """
+    scripts_d = str(Path(__file__).resolve().parents[2] / "scripts")
+    if scripts_d not in sys.path:
+        sys.path.insert(0, scripts_d)
+    from gain_staging_lib import measure_active_loudness, normalize_role_for_gain_staging, resolve_mix_profile
+
+    eff_profile = resolve_mix_profile(mix_profile)
     abs_proj = os.path.abspath(os.path.expanduser(project_path)) if project_path.strip() else ""
     target_dir = (
         os.path.abspath(os.path.expanduser(stems_dir))
@@ -848,19 +1070,28 @@ def analyze_stem_hierarchy(
     lead_paths: list[Path] = []
     harmony_paths: list[Path] = []
 
+    role_stem_paths: dict[str, list[Path]] = {}
+    stem_active_lufs: dict[str, dict[str, Any]] = {}
+
     for w in wavs:
         stem = w.stem
         if " - " not in stem:
             master_paths.append(w)
             continue
         label = stem.split(" - ", 1)[1].lower()
+        clean_name = _clean_stem_track_name(stem)
+        is_bus = (
+            ("bus" in label and ("drum" in label or "bass" in label or "808" in label or "music" in label))
+            or any(fxk in label for fxk in ("fx room", "fx_room", "fx delay", "fx_delay", "fx hall", "fx_hall"))
+        )
+
         if "bus" in label and "drum" in label:
             bus_drums_paths.append(w)
         elif "bus" in label and ("bass" in label or "808" in label):
             bus_bass_paths.append(w)
         elif "bus" in label and "music" in label:
             bus_music_paths.append(w)
-        elif "fx room" in label or "reverb" in label or "fx_room" in label:
+        elif "fx room" in label or "fx delay" in label or "fx hall" in label or "reverb" in label or "fx_room" in label:
             fx_room_paths.append(w)
         elif "kick" in label:
             kick_paths.append(w)
@@ -872,6 +1103,23 @@ def analyze_stem_hierarchy(
             bus_drums_paths.append(w)
         elif any(k in label for k in ("chord", "pad", "harmony", "string", "rhodes", "arp", "counter", "keys", "piano", "guitar", "organ", "synth")):
             harmony_paths.append(w)
+
+        if not is_bus:
+            c_role = normalize_role_for_gain_staging(clean_name)
+            role_stem_paths.setdefault(c_role, []).append(w)
+            try:
+                s_data, s_sr = sf.read(str(w), always_2d=True, dtype="float64")
+                act = measure_active_loudness(s_data, s_sr)
+                stem_active_lufs[clean_name] = {
+                    "file": w.name,
+                    "role": c_role,
+                    "active_lufs": act["active_lufs"],
+                    "active_rms_db": act["active_rms_db"],
+                    "peak_dbfs": act["peak_dbfs"],
+                    "is_effectively_silent": act["is_effectively_silent"],
+                }
+            except Exception:
+                pass
 
     ref_wav = master_paths[0] if master_paths else wavs[0]
     ref_data, sr = sf.read(str(ref_wav), always_2d=True, dtype="float64")
@@ -917,6 +1165,147 @@ def analyze_stem_hierarchy(
                     lead_vs_harmony_db = round(float(20.0 * np.log10((l_band + 1e-9) / (h_band + 1e-9))), 2)
                     lead_active_pct = round(100.0 * float(np.mean(active)), 1)
 
+    # 1b) Phase 8 Q2: Role active LUFS & bilateral pairwise hierarchy matrix
+    role_active_lufs: dict[str, float] = {}
+    role_primary_track: dict[str, str] = {}
+    for c_role, paths in role_stem_paths.items():
+        if len(paths) == 1:
+            cname = _clean_stem_track_name(paths[0].stem)
+            role_primary_track[c_role] = cname
+            if cname in stem_active_lufs:
+                role_active_lufs[c_role] = float(stem_active_lufs[cname]["active_lufs"])
+        else:
+            acc_st: np.ndarray | None = None
+            best_name = _clean_stem_track_name(paths[0].stem)
+            best_lufs = -120.0
+            for p in paths:
+                cname = _clean_stem_track_name(p.stem)
+                cl = float((stem_active_lufs.get(cname) or {}).get("active_lufs", -120.0))
+                if cl > best_lufs:
+                    best_lufs = cl
+                    best_name = cname
+                d_s, _ = sf.read(str(p), always_2d=True, dtype="float64")
+                if d_s.shape[1] == 1:
+                    d_s = np.repeat(d_s, 2, axis=1)
+                if acc_st is None:
+                    acc_st = np.zeros((ref_len, 2), dtype=np.float64)
+                n_copy = min(ref_len, len(d_s))
+                acc_st[:n_copy] += d_s[:n_copy, :2]
+            role_primary_track[c_role] = best_name
+            if acc_st is not None:
+                role_active_lufs[c_role] = float(measure_active_loudness(acc_st, sr)["active_lufs"])
+
+    # Fallback: if bass_sub stem not separated from BUS Bass, measure BUS Bass
+    if "bass_sub" not in role_active_lufs and bus_bass_paths:
+        try:
+            bd, bsr = sf.read(str(bus_bass_paths[0]), always_2d=True, dtype="float64")
+            role_active_lufs["bass_sub"] = float(measure_active_loudness(bd, bsr)["active_lufs"])
+            role_primary_track["bass_sub"] = _clean_stem_track_name(bus_bass_paths[0].stem)
+        except Exception:
+            pass
+
+    bilateral_ranges = _bilateral_hierarchy_ranges(eff_profile, has_drums=has_drums)
+    pairwise_balance_db: dict[str, float] = {}
+    pairwise_checks: dict[str, bool] = {}
+    recommendations: list[dict[str, Any]] = []
+
+    def _eval_pair(
+        pair_key: str,
+        num_role: str,
+        den_role: str,
+        adjust_role: str,
+        sign_for_adjust: float,  # +1 if adjusting numerator directly, -1 if adjusting denominator
+        low_reason: str,
+        high_reason: str,
+    ) -> None:
+        if num_role not in role_active_lufs or den_role not in role_active_lufs:
+            return
+        if pair_key not in bilateral_ranges:
+            return
+        lo, target_mid, hi = bilateral_ranges[pair_key]
+        diff_db = round(float(role_active_lufs[num_role]) - float(role_active_lufs[den_role]), 2)
+        pairwise_balance_db[pair_key] = diff_db
+        ok = (lo <= diff_db <= hi)
+        pairwise_checks[pair_key] = ok
+        if not ok:
+            if diff_db < lo:
+                raw_delta = (target_mid - diff_db) * sign_for_adjust
+                reason_tpl = low_reason
+            else:
+                raw_delta = (target_mid - diff_db) * sign_for_adjust
+                reason_tpl = high_reason
+            step_db = round(max(-4.0, min(4.0, raw_delta)), 2)
+            # Ensure non-trivial nudge >= 1.5 dB when outside range
+            if abs(step_db) < 1.5:
+                step_db = 1.5 if raw_delta > 0 else -1.5
+            t_track = role_primary_track.get(adjust_role, adjust_role)
+            recommendations.append({
+                "action": "ADJUST_TRACK_FADER",
+                "metric": pair_key,
+                "target_role": adjust_role,
+                "target_track": t_track,
+                "measured_diff_db": diff_db,
+                "expected_range_db": [lo, hi],
+                "delta_db": step_db,
+                "reason": reason_tpl.format(diff=diff_db, lo=lo, hi=hi, delta=step_db, track=t_track),
+            })
+
+    _eval_pair(
+        "lead_vs_harmony_db",
+        "lead",
+        "chords_pad",
+        "chords_pad",
+        -1.0,
+        "Lead trop faible vs harmonie ({diff:+.1f} dB < {lo:+.1f} dB) ; baisser '{track}' de {delta:+.1f} dB.",
+        "Harmonie trop faible (-{diff:.1f} dB sous Lead, max {hi:.1f} dB) ; relever '{track}' de {delta:+.1f} dB.",
+    )
+    if has_drums:
+        _eval_pair(
+            "bass_vs_kick_db",
+            "bass_sub",
+            "kick",
+            "bass_sub",
+            +1.0,
+            "Basse trop faible vs Kick ({diff:+.1f} dB < {lo:+.1f} dB) ; relever '{track}' de {delta:+.1f} dB.",
+            "Basse trop forte vs Kick ({diff:+.1f} dB > {hi:+.1f} dB) ; baisser '{track}' de {delta:+.1f} dB.",
+        )
+        _eval_pair(
+            "snare_vs_kick_db",
+            "snare_clap",
+            "kick",
+            "snare_clap",
+            +1.0,
+            "Snare/Clap trop faible vs Kick ({diff:+.1f} dB < {lo:+.1f} dB) ; relever '{track}' de {delta:+.1f} dB.",
+            "Snare/Clap trop fort vs Kick ({diff:+.1f} dB > {hi:+.1f} dB) ; baisser '{track}' de {delta:+.1f} dB.",
+        )
+        _eval_pair(
+            "hihat_vs_kick_db",
+            "hihat_perc",
+            "kick",
+            "hihat_perc",
+            +1.0,
+            "Hi-Hat/Perc trop faible vs Kick ({diff:+.1f} dB < {lo:+.1f} dB) ; relever '{track}' de {delta:+.1f} dB.",
+            "Hi-Hat/Perc trop fort vs Kick ({diff:+.1f} dB > {hi:+.1f} dB) ; baisser '{track}' de {delta:+.1f} dB.",
+        )
+    _eval_pair(
+        "counter_vs_lead_db",
+        "counter_melody",
+        "lead",
+        "counter_melody",
+        +1.0,
+        "Contre-chant trop faible vs Lead ({diff:+.1f} dB < {lo:+.1f} dB) ; relever '{track}' de {delta:+.1f} dB.",
+        "Contre-chant trop fort vs Lead ({diff:+.1f} dB > {hi:+.1f} dB) ; baisser '{track}' de {delta:+.1f} dB.",
+    )
+    _eval_pair(
+        "vocals_vs_lead_db",
+        "vocals",
+        "lead",
+        "vocals",
+        +1.0,
+        "Voix trop faible vs Lead ({diff:+.1f} dB < {lo:+.1f} dB) ; relever '{track}' de {delta:+.1f} dB.",
+        "Voix trop forte vs Lead ({diff:+.1f} dB > {hi:+.1f} dB) ; baisser '{track}' de {delta:+.1f} dB.",
+    )
+
     # 2) Kick vs Bass transient overlap (< 150 Hz) during Kick attacks
     kick_bass_overlap: float | None = None
     kick_bass_duck_ratio: float | None = None
@@ -955,6 +1344,8 @@ def analyze_stem_hierarchy(
         diagnostics.append(
             f"Lead masqué par l'harmonie dans 800Hz-3.5kHz ({lead_vs_harmony_db:+.2f} dB < +2.5 dB cible) -> creuser 1.5-2.5kHz sur BUS Music ou monter Lead."
         )
+    for rec in recommendations:
+        diagnostics.append(rec["reason"])
     if kick_bass_overlap is not None and kick_bass_overlap > 0.35:
         diagnostics.append(
             f"Chevauchement Kick/Bass <150Hz détecté (corr={kick_bass_overlap:+.2f} > 0.35, duck_ratio={kick_bass_duck_ratio}) -> vérifier routage sidechain Kick -> BUS Bass gl.comp."
@@ -964,22 +1355,37 @@ def analyze_stem_hierarchy(
             f"Pente spectrale hors cible rose ({pink_slope:.2f} dB/oct hors [-5.0, -3.0]) -> {'trop sombre/boomy' if pink_slope < -5.0 else 'trop brillant/harsh'}."
         )
 
+    bounded_hierarchy_ok = (len(recommendations) == 0)
+    checks = {
+        "lead_hierarchy_ok": True if lead_vs_harmony_db is None else (lead_vs_harmony_db >= 2.5),
+        "bounded_hierarchy_ok": bounded_hierarchy_ok,
+        "kick_bass_separation_ok": True if kick_bass_overlap is None else (kick_bass_overlap <= 0.35),
+        "pink_slope_ok": (-5.0 <= pink_slope <= -3.0),
+    }
+    verdict = "PASS" if (bounded_hierarchy_ok and checks["lead_hierarchy_ok"] and checks["kick_bass_separation_ok"]) else "FIX"
+
     return {
         "project_path": abs_proj or None,
         "stems_dir": target_dir,
+        "mix_profile": eff_profile,
         "range": range_bars or "full",
+        "verdict": verdict,
+        "passed": verdict == "PASS",
         "metrics": {
             "lead_vs_harmony_db": lead_vs_harmony_db,
+            "lead_vs_harmony_active_db": pairwise_balance_db.get("lead_vs_harmony_db"),
             "lead_active_pct": lead_active_pct,
             "kick_bass_transient_overlap": kick_bass_overlap,
             "kick_bass_ducking_ratio": kick_bass_duck_ratio,
             "pink_slope_db_per_oct": pink_slope,
+            "role_active_lufs": {k: round(v, 2) for k, v in role_active_lufs.items()},
+            "pairwise_balance_db": pairwise_balance_db,
+            "pairwise_ranges_db": {k: [v[0], v[2]] for k, v in bilateral_ranges.items()},
+            "stem_active_lufs": stem_active_lufs,
         },
-        "checks": {
-            "lead_hierarchy_ok": True if lead_vs_harmony_db is None else (lead_vs_harmony_db >= 2.5),
-            "kick_bass_separation_ok": True if kick_bass_overlap is None else (kick_bass_overlap <= 0.35),
-            "pink_slope_ok": (-5.0 <= pink_slope <= -3.0),
-        },
+        "checks": checks,
+        "pairwise_checks": pairwise_checks,
+        "recommendations": recommendations,
         "stems_detected": {
             "master": master_paths[0].name if master_paths else None,
             "kick_ref": [p.name for p in kick_src],
@@ -1067,18 +1473,28 @@ def _detect_bass_harmony_chroma_clash(mono: np.ndarray, sr: int) -> dict[str, An
         return {"clash_ratio": 0.0, "active_frames": 0, "clash_detected": False}
 
 
-def _load_mono_audio_input(wav_or_arr: Any, default_sr: int = 44100) -> tuple[np.ndarray, int]:
+def _load_mono_audio_input(
+    wav_or_arr: Any,
+    default_sr: int = 44100,
+    dtype: Any = np.float64,
+) -> tuple[np.ndarray, int]:
+    dt = np.dtype(dtype)
     if isinstance(wav_or_arr, str):
-        data, sr = sf.read(os.path.abspath(os.path.expanduser(wav_or_arr)), dtype="float64", always_2d=True)
-        return np.mean(data, axis=1), int(sr)
+        data, sr = sf.read(os.path.abspath(os.path.expanduser(wav_or_arr)), dtype="float32", always_2d=True)
+        out = data[:, 0].astype(dt, copy=False) if data.shape[1] == 1 else np.mean(data, axis=1, dtype=dt)
+        return out, int(sr)
     if isinstance(wav_or_arr, (tuple, list)) and len(wav_or_arr) == 2 and isinstance(wav_or_arr[0], np.ndarray):
-        arr = np.asarray(wav_or_arr[0], dtype=np.float64)
-        if arr.ndim == 2:
-            arr = np.mean(arr, axis=1)
+        raw = wav_or_arr[0]
+        if raw.ndim == 2:
+            arr = raw[:, 0].astype(dt, copy=False) if raw.shape[1] == 1 else np.mean(raw, axis=1, dtype=dt)
+        else:
+            arr = np.asarray(raw, dtype=dt)
         return arr, int(wav_or_arr[1])
-    arr = np.asarray(wav_or_arr, dtype=np.float64)
-    if arr.ndim == 2:
-        arr = np.mean(arr, axis=1)
+    raw = np.asarray(wav_or_arr)
+    if raw.ndim == 2:
+        arr = raw[:, 0].astype(dt, copy=False) if raw.shape[1] == 1 else np.mean(raw, axis=1, dtype=dt)
+    else:
+        arr = np.asarray(raw, dtype=dt)
     return arr, int(default_sr)
 
 
@@ -1286,7 +1702,7 @@ def analyze_sustained_spectral_flux(
             "next_action": {"code": "KEEP", "params": {}},
         }
 
-    mono, eff_sr = _load_mono_audio_input(wav_or_arr, default_sr=sr)
+    mono, eff_sr = _load_mono_audio_input(wav_or_arr, default_sr=sr, dtype=np.float32)
     if len(mono) > int(24.0 * eff_sr):
         # Analyze centered 24s window so long 2-min stems run in <0.1s CPU
         mid = len(mono) // 2
@@ -1305,7 +1721,8 @@ def analyze_sustained_spectral_flux(
 
     hop = 256
     n_fft = 1024
-    rms_frames = librosa.feature.rms(y=mono.astype(np.float32), frame_length=n_fft, hop_length=hop)[0]
+    stft_mag = np.abs(librosa.stft(mono, n_fft=n_fft, hop_length=hop))
+    rms_frames = np.sqrt(np.mean(stft_mag * stft_mag, axis=0))
     pk_rms = float(np.max(rms_frames)) + 1e-12
     active = rms_frames > (0.15 * pk_rms)
 
@@ -1334,7 +1751,6 @@ def analyze_sustained_spectral_flux(
             "next_action": {"code": "KEEP", "params": {}},
         }
 
-    stft_mag = np.abs(librosa.stft(mono.astype(np.float32), n_fft=n_fft, hop_length=hop))
     flux_vals: list[np.ndarray] = []
     for f0, f1 in segments:
         seg_len = f1 - f0
@@ -1954,14 +2370,15 @@ def analyze_dynamic_bark_masking(
     }
 
 
+_EBU_SOS_CACHE: dict[tuple[int, str], np.ndarray] = {}
+
+
 def compute_ebu_r128_stats(data: Any, sr: int = 44100) -> dict[str, float]:
     """
     Phase 7 P3.2: Single-pass vectorized ITU-R BS.1770-4 / EBU R128 `integrated_lufs`
     and Tech 3342 `lra_lu` (`0.01 s` energy chunks -> `400 ms / 100 ms` gated LUFS +
     `3.0 s / 90 ms` gated LRA). Matches `pyloudnorm.Meter` within `< 0.05 LU` in one C SOS pass.
     """
-    import pyloudnorm as pyln
-
     arr = np.asarray(data)
     if arr.ndim == 1:
         arr = arr[:, None]
@@ -1969,13 +2386,19 @@ def compute_ebu_r128_stats(data: Any, sr: int = 44100) -> dict[str, float]:
     if n_samples < 64:
         return {"integrated_lufs": -70.0, "lra_lu": 0.0}
 
-    meter = pyln.Meter(sr)
-    sos = np.vstack([
-        np.concatenate([f.b / f.a[0], f.a / f.a[0]])
-        for _, f in meter._filters.items()
-    ])
     dtype_filt = np.float32 if sr <= 60000 else np.float64
-    sos_f = sos.astype(dtype_filt, copy=False)
+    cache_key = (int(sr), str(dtype_filt))
+    sos_f = _EBU_SOS_CACHE.get(cache_key)
+    if sos_f is None:
+        import pyloudnorm as pyln
+
+        meter = pyln.Meter(sr)
+        sos = np.vstack([
+            np.concatenate([f.b / f.a[0], f.a / f.a[0]])
+            for _, f in meter._filters.items()
+        ])
+        sos_f = sos.astype(dtype_filt, copy=False)
+        _EBU_SOS_CACHE[cache_key] = sos_f
 
     sub_n = max(1, int(round(0.01 * sr)))
     rem = (-n_samples) % sub_n

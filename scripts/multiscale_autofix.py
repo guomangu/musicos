@@ -36,12 +36,14 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR):
         sys.path.insert(0, _d)
 
 from artifact_cache import invalidate_cache
-from gl_dsl import SYNTH_REGISTRY
+from gain_staging_lib import normalize_role_for_gain_staging
+from gl_dsl import SYNTH_REGISTRY, clamp
 from groove_lib import apply_micro_strum, ms_to_beats
 from loop_first_runner import LoopFirstStateMachine, detect_user_samples_locked
 from midi_autofix import autofix_midi
 from render_and_audit import (
     _apply_autofix_mutations,
+    adjust_track_fader,
     apply_dynamic_mirror_eq,
     boost_bass_harmonics,
     relax_bus_compression,
@@ -93,6 +95,14 @@ def _parse_action_spec(action: dict[str, Any] | str) -> tuple[str, dict[str, Any
                     params["section"] = pos_args[0]
                 if len(pos_args) >= 2 and pos_args[1]:
                     params["role"] = pos_args[1]
+            elif code == "ADJUST_TRACK_FADER":
+                if len(pos_args) >= 1 and pos_args[0]:
+                    params["track_name"] = pos_args[0]
+                if len(pos_args) >= 2 and pos_args[1]:
+                    try:
+                        params["delta_db"] = float(pos_args[1])
+                    except ValueError:
+                        params["role"] = pos_args[1]
             else:
                 for i, pv in enumerate(pos_args):
                     params[f"arg{i}"] = pv
@@ -925,6 +935,159 @@ def _fix_reinforce_section_transition(
     ) | {"code": "REINFORCE_SECTION_TRANSITION"}
 
 
+def _load_fader_cum_state(p_dir: str) -> dict[str, float]:
+    st_path = os.path.join(p_dir, "renders", "autofix_fader_state.json")
+    if os.path.isfile(st_path):
+        try:
+            with open(st_path, encoding="utf-8") as fh:
+                raw = json.load(fh) or {}
+            if isinstance(raw, dict):
+                return {str(k): float(v) for k, v in raw.items()}
+        except Exception:
+            pass
+    return {}
+
+
+def _save_fader_cum_state(p_dir: str, cum_map: dict[str, float]) -> None:
+    renders_dir = os.path.join(p_dir, "renders")
+    os.makedirs(renders_dir, exist_ok=True)
+    st_path = os.path.join(renders_dir, "autofix_fader_state.json")
+    with open(st_path, "w", encoding="utf-8") as fh:
+        json.dump(cum_map, fh, indent=2, ensure_ascii=False)
+
+
+def _fix_adjust_track_fader(
+    project_dir: str,
+    params: dict[str, Any],
+    *,
+    gridline_path: str = "",
+) -> dict[str, Any]:
+    """
+    Phase 8 Q2: Deterministic `ADJUST_TRACK_FADER` handler.
+      - Caps per-pass delta to `[-4.0, +4.0] dB`
+      - Caps cumulative delta across all passes to `[-8.0, +8.0] dB`
+      - Persists `volume_trim_db` in `arrangement_plan.json` (if present) + `gain_staging_overrides.json`
+      - Patches `.gridline` mixer track volume via `GridlineMCP` + `gl_dsl.db_to_auto`
+    """
+    p_dir = os.path.abspath(os.path.expanduser(project_dir))
+    track_name = str(params.get("track_name") or params.get("track") or params.get("target_track") or "").strip()
+    role_hint = str(params.get("target_role") or params.get("role") or "").strip()
+    insert_idx = params.get("insert_idx") if params.get("insert_idx") is not None else params.get("mixer")
+    raw_delta = float(params.get("delta_db", 0.0))
+    step_req = clamp(raw_delta, -4.0, 4.0)
+    if abs(step_req) < 0.05:
+        return {"applied": False, "code": "ADJUST_TRACK_FADER", "reason": "delta_db too small"}
+
+    cum_key = (
+        f"insert:{int(insert_idx)}"
+        if insert_idx is not None
+        else f"track:{(track_name or role_hint).lower()}"
+    )
+    cum_map = _load_fader_cum_state(p_dir)
+    prev_cum = float(cum_map.get(cum_key, 0.0))
+    new_cum = clamp(prev_cum + step_req, -8.0, 8.0)
+    eff_delta = round(new_cum - prev_cum, 3)
+    if abs(eff_delta) < 0.05:
+        return {
+            "applied": False,
+            "code": "ADJUST_TRACK_FADER",
+            "track": track_name or role_hint,
+            "cumulative_delta_db": prev_cum,
+            "escalate": "SWAP_SAMPLE",
+            "reason": "Cumulative +-8.0 dB limit reached; escalate to SWAP_SAMPLE / CHECK_SOURCE_GAIN.",
+        }
+
+    # Update gain_staging_overrides.json so future song_builder recompilations keep the trim
+    ov_path = os.path.join(p_dir, "gain_staging_overrides.json")
+    overrides: dict[str, Any] = {}
+    if os.path.isfile(ov_path):
+        try:
+            with open(ov_path, encoding="utf-8") as fh:
+                overrides = json.load(fh) or {}
+        except Exception:
+            overrides = {}
+    ov_key = track_name or role_hint or (str(int(insert_idx)) if insert_idx is not None else "track")
+    prev_ov = float((overrides.get(ov_key) or {}).get("volume_trim_db", 0.0))
+    overrides[ov_key] = {
+        "volume_trim_db": round(clamp(prev_ov + eff_delta, -8.0, 8.0), 3),
+        "role": role_hint or normalize_role_for_gain_staging(track_name),
+    }
+    if os.path.isdir(p_dir):
+        with open(ov_path, "w", encoding="utf-8") as fh:
+            json.dump(overrides, fh, indent=2, ensure_ascii=False)
+
+    # Declarative persistence in arrangement_plan.json when present
+    plan_p = _arrangement_plan_path(p_dir)
+    if os.path.isfile(plan_p):
+        try:
+            plan, _ = load_arrangement_plan(plan_p, validate=False)
+            ch_cfg = plan.get("channels")
+            canon = normalize_role_for_gain_staging(role_hint or track_name)
+            if isinstance(ch_cfg, list):
+                matched = False
+                for item in ch_cfg:
+                    if not isinstance(item, dict):
+                        continue
+                    nm = str(item.get("name") or "").lower()
+                    tk = str(item.get("track_key") or "").lower()
+                    if (
+                        (track_name and (track_name.lower() in nm or track_name.lower() == tk))
+                        or (role_hint and (role_hint.lower() == tk or normalize_role_for_gain_staging(nm or tk) == canon))
+                    ):
+                        item["volume_trim_db"] = round(clamp(float(item.get("volume_trim_db", 0.0)) + eff_delta, -8.0, 8.0), 3)
+                        matched = True
+                        break
+                if not matched and isinstance(ch_cfg, list) and len(ch_cfg) > 0:
+                    pass
+            else:
+                if not isinstance(ch_cfg, dict):
+                    ch_cfg = {}
+                target_role_key = role_hint or next(
+                    (r for sec in (plan.get("sections") or []) for r in (sec.get("active_roles") or [])
+                     if normalize_role_for_gain_staging(r) == canon or (track_name and track_name.lower() in r.lower())),
+                    track_name or canon,
+                )
+                ent = dict(ch_cfg.get(target_role_key) or {})
+                ent["volume_trim_db"] = round(clamp(float(ent.get("volume_trim_db", 0.0)) + eff_delta, -8.0, 8.0), 3)
+                ch_cfg[target_role_key] = ent
+                plan["channels"] = ch_cfg
+
+            cum_map[cum_key] = round(new_cum, 3)
+            _save_fader_cum_state(p_dir, cum_map)
+            out_gl = _save_and_recompile_plan(p_dir, plan, gridline_path=gridline_path)
+            return {
+                "applied": True,
+                "code": "ADJUST_TRACK_FADER",
+                "mode": "declarative_plan",
+                "track": track_name or role_hint,
+                "delta_db": eff_delta,
+                "cumulative_delta_db": cum_map[cum_key],
+                "recompiled": out_gl,
+            }
+        except Exception:
+            pass
+
+    # Direct .gridline patch via GridlineMCP + gl_dsl.db_to_auto
+    gl_path = _find_gridline_project(p_dir, gridline_path)
+    if not gl_path:
+        return {"applied": False, "code": "ADJUST_TRACK_FADER", "reason": ".gridline and arrangement_plan.json not found"}
+
+    fader_state = {"fader_cumulative_db": {f"mixer:{int(insert_idx)}" if insert_idx is not None else "pending": prev_cum}}
+    res = adjust_track_fader(
+        gl_path,
+        track_name=track_name,
+        insert_idx=int(insert_idx) if insert_idx is not None else None,
+        role_hint=role_hint,
+        delta_db=eff_delta,
+        state=None,
+    )
+    if res.get("applied"):
+        cum_map[cum_key] = round(new_cum, 3)
+        _save_fader_cum_state(p_dir, cum_map)
+        res["cumulative_delta_db"] = cum_map[cum_key]
+    return res
+
+
 def _fix_sync_vocal_arrangement(
     project_dir: str,
     params: dict[str, Any],
@@ -1108,13 +1271,33 @@ def dispatch_multiscale_autofix(
             continue
 
         # Check Loop-First fault-isolation guardrails if track targeted
-        target_track = str(params.get("track") or "")
-        if sm is not None and target_track:
-            chk = sm.validate_edit_target(target_track, raise_on_forbidden=False)
-            if not chk.get("allowed", True):
-                skipped.append({"code": code, "reason": "forbidden_tracks guardrail", "track": target_track})
-                escalate_to_llm.append({"code": code, "reason": "forbidden_tracks", "track": target_track})
-                continue
+        target_track = str(params.get("track") or params.get("track_name") or params.get("target_track") or "")
+        target_role = str(params.get("target_role") or params.get("role") or "")
+        if sm is not None and (target_track or target_role):
+            cur_stage = sm.state.get("stage")
+            v4_passed = ((sm.state.get("vertical_results") or {}).get("V4_LEAD") or {}).get("status") == "PASS"
+            enforce_forb = True
+            if code == "ADJUST_TRACK_FADER" and (cur_stage in ("E4_FINAL_GATE", "DONE", "E3_HORIZONTAL", "AWAITING_E2_CHECKPOINT") or (cur_stage == "E2_VERTICAL" and v4_passed)):
+                enforce_forb = False
+            if enforce_forb:
+                forb_list = list(((sm.state.get("next_mandatory_step") or {}).get("forbidden_tracks")) or [])
+                blocked = False
+                if target_track:
+                    chk = sm.validate_edit_target(target_track, raise_on_forbidden=False)
+                    if not chk.get("allowed", True):
+                        blocked = True
+                if not blocked and forb_list:
+                    t_low = target_track.lower()
+                    t_canon = normalize_role_for_gain_staging(target_role or target_track) if (target_role or target_track) else ""
+                    for f_name in forb_list:
+                        fl = str(f_name).lower()
+                        if (t_low and (t_low in fl or fl in t_low)) or (t_canon and normalize_role_for_gain_staging(fl) == t_canon):
+                            blocked = True
+                            break
+                if blocked:
+                    skipped.append({"code": code, "reason": "forbidden_tracks guardrail", "track": target_track or target_role})
+                    escalate_to_llm.append({"code": code, "reason": "forbidden_tracks", "track": target_track or target_role})
+                    continue
 
         if code == "INVERT_808_POLARITY":
             res = _fix_invert_808_polarity(p_dir, params, gridline_path=gridline_path, user_locked=user_locked)
@@ -1158,6 +1341,8 @@ def dispatch_multiscale_autofix(
                 res = {"applied": False, "code": code, "reason": ".gridline not found"}
         elif code == "SYNC_VOCAL_ARRANGEMENT":
             res = _fix_sync_vocal_arrangement(p_dir, params, gridline_path=gridline_path)
+        elif code == "ADJUST_TRACK_FADER":
+            res = _fix_adjust_track_fader(p_dir, params, gridline_path=gridline_path)
         elif code in ("EQ_RESONANCE_NOTCH", "ADJUST_MASTER_GAIN"):
             if render_summary and not delegated_e4:
                 gl_path = _find_gridline_project(p_dir, gridline_path)

@@ -44,3 +44,9 @@ projects/*/midi/*.mid
 .zed/settings.json
 *.bak
 *.bak2
+
+# Phase 8 Q4 — masters commerciaux externes (jamais versionnés)
+golden_references/external_masters/*/*.wav
+golden_references/external_masters/*/*.mp3
+golden_references/external_masters/*/*.flac
+golden_references/external_masters/*/*.ogg

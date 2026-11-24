@@ -24,6 +24,19 @@ SCALE_ORDER: tuple[str, ...] = (
 _SCALE_PRIORITY = {s: idx for idx, s in enumerate(SCALE_ORDER)}
 MAX_COMPACT_CHARS = 1500
 
+# Phase 8 Q7 — new deterministic codes must be visible in the Top-3 deviation pyramid.
+_PHASE8_CODE_PRIORITY: dict[str, float] = {
+    "ADJUST_TRACK_FADER": 0.20,
+    "FIX_STEREO_BALANCE": 0.18,
+    "WIDEN_HARMONY_OR_PERC": 0.14,
+    "NARROW_EXCESSIVE_SIDE": 0.10,
+}
+
+
+def _extract_action_code(next_action: str) -> str:
+    m = re.match(r"\s*([A-Z][A-Z0-9_]{2,})", str(next_action or ""))
+    return m.group(1) if m else ""
+
 
 def _safe_stage_slug(stage: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_\-]+", "_", str(stage or "AUDIT").strip()).strip("_") or "AUDIT"
@@ -58,6 +71,7 @@ def _normalize_deviation(raw: dict[str, Any]) -> dict[str, Any]:
         "metric": _truncate_str(str(raw.get("metric") or ""), 56),
         "diagnosis": _truncate_str(str(raw.get("diagnosis") or ""), 110),
         "next_action": _truncate_str(str(raw.get("next_action") or "REVIEW"), 68),
+        "code": _extract_action_code(str(raw.get("next_action") or "")),
         "blocking": bool(raw.get("blocking", True)),
         "severity": float(raw.get("severity", 0.5)),
     }
@@ -170,7 +184,7 @@ def build_multiscale_pyramid(
         key=lambda d: (
             _SCALE_PRIORITY.get(d["scale"], 99),
             0 if d["blocking"] else 1,
-            -d["severity"],
+            -(d["severity"] + _PHASE8_CODE_PRIORITY.get(d.get("code", ""), 0.0)),
         )
     )
 
@@ -209,6 +223,7 @@ def build_multiscale_pyramid(
             "metric": d["metric"],
             "diagnosis": d["diagnosis"],
             "next_action": d["next_action"],
+            "code": d.get("code") or _extract_action_code(d["next_action"]),
         })
 
     # Write full diagnostic report to disk

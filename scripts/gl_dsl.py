@@ -197,6 +197,114 @@ def reverb_room(
     }
 
 
+# Gridline `gl.delay` (Tracer) tempo-synced divisions (verified via `gridline plugin-params`).
+_DELAY_TIME_INDEX: dict[str, int] = {
+    "1/32": 0,
+    "1/16T": 1,
+    "1/16.": 2,
+    "1/16": 3,
+    "1/8T": 4,
+    "1/16..": 5,
+    "1/8": 6,
+    "1/4T": 7,
+    "1/8.": 8,
+    "1/4": 9,
+    "1/4.": 10,
+    "1/2": 11,
+    "1/64": 12,
+    "1/2T": 13,
+    "1/2.": 14,
+    "1 bar": 15,
+}
+
+
+def delay_send_fx(
+    bpm: float = 140.0,
+    valence: float = 0.0,
+    *,
+    division: str = "1/8.",
+    feedback_pct: float = 26.0,
+    wet_pct: float = 55.0,
+    ping_pong: bool = True,
+    hpf_hz: float = 400.0,
+    lpf_hz: float | None = None,
+) -> dict[str, Any]:
+    """
+    Build calibrated `gl.delay` (Tracer) parameters for the dedicated `FX Delay` bus:
+    BPM-synced division (dotted eighth by default), `Feedback 20-32%`, `Dry = 0`,
+    band-limited feedback (`HPF 400 Hz`, `LPF 3500 Hz` / `2800 Hz` when `V < -0.2`).
+    """
+    div = str(division).strip()
+    if div not in _DELAY_TIME_INDEX:
+        raise ValueError(f"Unknown delay division {division!r}; expected one of {sorted(_DELAY_TIME_INDEX)}")
+    dark = float(valence) < -0.2
+    eff_lpf = float(lpf_hz) if lpf_hz is not None else (2800.0 if dark else 3500.0)
+    fb = clamp(float(feedback_pct) / 100.0, 0.0, 0.32)
+    wet = clamp(float(wet_pct) / 100.0, 0.0, 1.0)
+    return {
+        "Tempo sync": 1,
+        "Time": _DELAY_TIME_INDEX[div],
+        "Feedback": round(fb, 4),
+        "Feedback mode": 1 if ping_pong else 0,
+        "Feedback cutoff": round(clamp(eff_lpf, 300.0, 20000.0), 1),
+        "Feedback low cut": round(clamp(float(hpf_hz), 20.0, 2000.0), 1),
+        "Feedback filter": 0,
+        "Mod rate": 0.45,
+        "Mod depth": 0.0,
+        "Saturation": 0.0,
+        "Distortion": 0,
+        "Dry": 0.0,
+        "Wet": round(wet, 4),
+        "Delay model": 1,
+        "Delay type": 1,
+        "Stereo spread": 1.0,
+        "Output tone": 0.0,
+    }
+
+
+def reverb_hall(
+    decay_sec: float = 1.8,
+    *,
+    hpf_hz: float = 500.0,
+    lpf_hz: float = 5500.0,
+    wet_pct: float = 48.0,
+    er_pct: float = 14.0,
+    pre_delay_ms: float = 18.0,
+    room_size: float = 0.62,
+    valence: float = 0.0,
+) -> dict[str, Any]:
+    """
+    Long `gl.reverb` Hall (`Model = 0`) for the dedicated `FX Hall` bus:
+    `Decay 1.6-2.4 s`, `Dry = 0`, `Dry (full) = 0`, `HPF 500 Hz`,
+    `LPF 5500 Hz` (`4500 Hz` when `V < -0.2`).
+    """
+    dark = float(valence) < -0.2
+    eff_lpf = 4500.0 if dark else float(lpf_hz)
+    params = reverb_room(
+        decay_sec=clamp(float(decay_sec), 1.6, 2.4),
+        hpf_hz=clamp(float(hpf_hz), 20.0, 3000.0),
+        lpf_hz=clamp(eff_lpf, 500.0, 22100.0),
+        wet_pct=wet_pct,
+        er_pct=er_pct,
+        pre_delay_ms=pre_delay_ms,
+        room_size=room_size,
+    )
+    params["Model"] = 0  # Hall
+    params["High damping"] = 5200 if dark else 6800
+    params["Width"] = 0.92
+    return params
+
+
+def lpf_makeup_gain_db(cutoff_hz: float) -> float:
+    """Compensate the loudness loss of `synth_voice` low-pass filtering (Phase 8 Q3.3)."""
+    c = float(cutoff_hz)
+    if c < 3500.0:
+        return 2.5
+    if c < 5500.0:
+        return 1.5
+    return 0.0
+
+
 def limiter_master(gain_db: float = 0.0, ceiling_db: float = -2.2) -> dict[str, Any]:
     """
     Build `gl.limiter` parameters for Master (`Attack (look-ahead) = 0.002`, `0.2 dB safety = 1`).
@@ -512,6 +620,107 @@ def _encode_unison(spec: SynthSpec, target_unison: int) -> int:
     return 1
 
 
+def _apply_expressive_params(
+    plugin: str,
+    role: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Add verified organic motion to native `gl.*` synths (`Phase 8 Q6.1`).
+    Every emitted parameter name/range was checked with `gridline plugin-params` (0.7.7).
+    """
+    if role in ("pad", "chords"):
+        if plugin in ("gl.analog", "gl.wavetable", "gl.dcosynth", "gl.twinva", "gl.sawswarm"):
+            if plugin == "gl.analog":
+                params["LFO 1 rate"] = round(0.18 + (0.08 if role == "pad" else 0.0), 3)
+                params["LFO 1 target"] = 7
+                params["LFO 1 amount"] = 0.06
+                params["LFO 1 shape"] = 0
+            elif plugin == "gl.wavetable":
+                params["LFO 1 rate"] = round(0.18 + (0.08 if role == "pad" else 0.0), 3)
+                params["Mod 1 source"] = 4  # LFO 1
+                params["Mod 1 target"] = 12  # F1 cutoff
+                params["Mod 1 amount"] = 0.08
+            elif plugin == "gl.twinva":
+                params["LFO target"] = 0
+                params["LFO amount"] = 0.06
+                params["LFO rate"] = 0.18
+                params["LFO shape"] = 3
+            elif plugin == "gl.sawswarm":
+                params["LFO target"] = 0
+                params["LFO amount"] = 0.06
+                params["LFO speed"] = 0.18
+                params["LFO shape"] = 0
+            elif plugin == "gl.dcosynth":
+                params["LFO 1 > cutoff"] = 0.06
+                params["LFO 1 rate"] = 0.18
+        elif plugin == "gl.warmsynth":
+            params["Filter LFO"] = 0.10
+            params["LFO rate"] = 0.18
+            params["LFO shape"] = 2
+        elif plugin == "gl.string":
+            params["Spread"] = 0.45
+            params["Detune"] = 6
+        elif plugin == "gl.fm":
+            params["LFO to index"] = 0.03
+            params["LFO rate"] = 0.25
+        elif plugin == "gl.keys":
+            params["Modulation"] = 0
+            params["Tremolo rate"] = 0.35
+            params["Tremolo depth"] = 0.06
+            params["Velocity sens."] = 0.75
+        elif plugin == "gl.sampler":
+            params["LFO target"] = 3  # Cutoff
+            params["LFO rate"] = 0.25
+            params["LFO amount"] = 0.04
+            params["LFO delay"] = 0.40
+    elif role == "lead":
+        # Timbral motion via filter LFOs: no measurable pitch bias (|tuning| <= 6.5 ct).
+        if plugin == "gl.analog":
+            params.update({"LFO 1 target": 7, "LFO 1 amount": 0.06, "LFO 1 rate": 4.8, "LFO 1 shape": 0})
+        elif plugin == "gl.wavetable":
+            params.update({"Mod 1 source": 4, "Mod 1 target": 12, "Mod 1 amount": 0.10, "LFO 1 rate": 4.8})
+        elif plugin == "gl.twinva":
+            params.update({"LFO target": 0, "LFO amount": 0.06, "LFO rate": 0.40, "LFO shape": 3})
+        elif plugin == "gl.sawswarm":
+            params.update({"LFO target": 0, "LFO amount": 0.05, "LFO speed": 0.35})
+        elif plugin == "gl.dcosynth":
+            params.update({"LFO 1 > cutoff": 0.04, "LFO 1 rate": 0.40})
+        elif plugin == "gl.string":
+            params.update({"Vibrato": 0.02, "Detune": 4, "Spread": 0.35})
+        elif plugin == "gl.fm":
+            params.update({"Vibrato": 1.0, "LFO rate": 4.8, "LFO to index": 0.04})
+        elif plugin == "gl.keys":
+            params.update({"Velocity sens.": 0.80, "Velocity to hardness": 0.20})
+        elif plugin == "gl.sampler":
+            params.update({"LFO target": 3, "LFO rate": 4.8, "LFO amount": 0.05, "LFO delay": 0.20})
+    elif role in ("pluck", "bell"):
+        if plugin in ("gl.analog", "gl.wavetable"):
+            params["Velocity to cutoff"] = 0.35 if plugin == "gl.analog" else 0.0
+            if plugin == "gl.wavetable":
+                params.update({"Mod 1 source": 8, "Mod 1 target": 12, "Mod 1 amount": 0.18})
+        elif plugin == "gl.twinva":
+            params.update({"Velocity tracking": 0.35, "LFO amount": 0.02})
+        elif plugin == "gl.sawswarm":
+            params["Velocity tracking"] = 0.35
+        elif plugin == "gl.fm":
+            params.update({"Op 1 velocity": 0.65, "LFO to index": 0.02})
+        elif plugin == "gl.keys":
+            params.update({"Velocity to hardness": 0.25, "Velocity to muffle": 0.10})
+        elif plugin == "gl.sampler":
+            params.update({"Velocity to cutoff": 0.18, "LFO target": 3, "LFO amount": 0.06})
+    elif role == "bass":
+        if plugin in ("gl.analog", "gl.wavetable"):
+            params["Filter drive"] = 0.12
+            params["Drive"] = 0.05
+        elif plugin == "gl.dcosynth":
+            params["Saturation"] = 1
+            params["Saturation amount"] = 0.12
+        elif plugin == "gl.string":
+            params["Drive"] = 0.08
+    return params
+
+
 @dataclass
 class SynthVoiceConfig:
     plugin: str
@@ -523,6 +732,7 @@ class SynthVoiceConfig:
     insert_eq_bands: list[dict[str, Any]]
     polyphony: int
     unison: int
+    makeup_gain_db: float = 0.0
 
     def to_channel_tuples(self, channel_idx: int) -> list[tuple[str, Any]]:
         return [(f"channel/{int(channel_idx)}/{k}", v) for k, v in self.channel_params.items()]
@@ -553,6 +763,7 @@ def synth_voice(
     polyphony: int | None = None,
     unison: int | None = None,
     glide_ms: float | None = None,
+    expressive: bool = True,
 ) -> SynthVoiceConfig:
     """
     Build a safe, anti-stridence, CPU-bounded parameter profile for a native `gl.*` synth.
@@ -635,6 +846,10 @@ def synth_voice(
     if role == "bass" and plugin in ("gl.analog", "gl.wavetable"):
         params["Voice mode"] = 1  # Mono
 
+    # Phase 8 Q6.1 — Organic timbral motion (verified native params only)
+    if expressive:
+        params = _apply_expressive_params(plugin, role, params)
+
     needs_insert_lpf = not spec.has_internal_lpf
     insert_bands: list[dict[str, Any]] = []
     if needs_insert_lpf:
@@ -650,4 +865,5 @@ def synth_voice(
         insert_eq_bands=insert_bands,
         polyphony=eff_poly,
         unison=eff_unison,
+        makeup_gain_db=lpf_makeup_gain_db(eff_cutoff),
     )
