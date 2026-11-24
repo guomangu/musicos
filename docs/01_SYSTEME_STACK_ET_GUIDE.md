@@ -12,7 +12,7 @@
 ## Chapitre 1 — Architecture Globale & Sobriété CPU (Linux / PipeWire)
 
 ### 1.0 Portabilité du dépôt (clone universel)
-- **Racine du studio** : tous les scripts et tests résolvent la racine via la variable d'environnement **`AI_STUDIO_DIR`**, sinon le dossier parent de `scripts/` (déduit de `__file__`). Aucun chemin absolu machine n'est codé en dur : un clone GitHub ailleurs que `/home/gamo/Bureau/musicos` fonctionne tel quel (`export AI_STUDIO_DIR=/chemin/du/clone` si besoin).
+- **Racine du studio** : tous les scripts et tests résolvent la racine via la variable d'environnement **`AI_STUDIO_DIR`**, sinon le dossier parent de `scripts/` (déduit de `__file__`). Aucun chemin absolu machine n'est codé en dur : un clone GitHub ailleurs que `$AI_STUDIO_DIR` fonctionne tel quel (`export AI_STUDIO_DIR=/chemin/du/clone` si besoin).
 - **Template projet vide** : `studio_lib.resolve_empty_template()` prend le premier disponible parmi `$GRIDLINE_EMPTY_TEMPLATE`, `/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline`, puis le **template embarqué `assets/empty_with_mixer_tracks.gridline`** (même repli dans `scripts/gridline-mcp.sh` / `launch-gridline.sh`).
 - **Dépendances** : `requirements.txt` est installable tel quel depuis PyPI (`essentia>=2.1b6.dev1389` = max publié ; les builds dev plus récents se font via conda/source). `essentia` et `onnxruntime` sont des imports **gardés** : sans eux, l'indexeur retombe sur librosa et seul l'outil de transcription Basic Pitch est indisponible (erreur explicite).
 - **Client MCP Gridline** (`studio_lib.GridlineMCP`) : lecture stdout avec **timeout** (`rpc_timeout_s`, défaut 180 s), thread de vidange du stderr (anti-deadlock), `close()` avec `kill()` si le processus ne meurt pas en 15 s. **Audition in-session sans .wav** : `analyze_loudness(scope="pattern"|"playlist")`, `solo_channel`/`unsolo`, `set_channel_muted`, `play_transport` (best-effort) — permettent de tester chaque piste et le morceau dans la session Gridline ouverte (`gridline mcp --attach`) **sans jamais compiler de .wav**.
@@ -129,11 +129,11 @@ Inventaire exhaustif fonction par fonction → [`docs/00_SOMMAIRE.md §4`](00_SO
 
 ```bash
 # 1. Gridline GUI connecté aux agents (port 47390)
-/home/gamo/Bureau/musicos/scripts/launch-gridline.sh
+$AI_STUDIO_DIR/scripts/launch-gridline.sh
 
 # 2. Indexer / rafraîchir samples.db unifiée (métriques DSP rapides 0 CLAP)
-cd /home/gamo/Bureau/musicos && OMP_NUM_THREADS=1 .venv/bin/python scripts/index_samples.py --no-clap --workers 6
+cd $AI_STUDIO_DIR && OMP_NUM_THREADS=1 .venv/bin/python scripts/index_samples.py --no-clap --workers 6
 
 # 3. Suite CI complète multi-genres (7/7 headless)
-cd /home/gamo/Bureau/musicos && .venv/bin/python tests/regression_multi_genre.py -v
+cd $AI_STUDIO_DIR && .venv/bin/python tests/regression_multi_genre.py -v
 ```

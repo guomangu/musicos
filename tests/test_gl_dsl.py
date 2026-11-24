@@ -135,8 +135,9 @@ class TestGlDslSynths(unittest.TestCase):
         ]
         for pl in all_plugins:
             v = gl_dsl.synth_voice(pl, "pad", valence=-0.5, polyphony=32, unison=8)
-            self.assertLessEqual(v.cutoff_hz, 5500.0)
-            self.assertGreaterEqual(v.cutoff_hz, 2500.0)
+            # v3.0 anti brick-wall: source LPF floor 6.5 kHz for pads/chords (config/mix_profiles.json)
+            self.assertLessEqual(v.cutoff_hz, 9000.0)
+            self.assertGreaterEqual(v.cutoff_hz, 6500.0)
             self.assertLessEqual(v.unison, 2)
             expected_poly_cap = 16 if pl == "gl.keys" else 12
             self.assertLessEqual(v.polyphony, expected_poly_cap)
@@ -145,8 +146,8 @@ class TestGlDslSynths(unittest.TestCase):
         v_ana = gl_dsl.synth_voice("gl.analog", "pad", attack_ms=250.0, release_ms=600.0, valence=0.0)
         self.assertAlmostEqual(v_ana.channel_params["Amp attack"], 0.25, places=3)
         self.assertAlmostEqual(v_ana.channel_params["Amp release"], 0.60, places=3)
-        self.assertGreaterEqual(v_ana.channel_params["Cutoff"], 2500.0)
-        self.assertLessEqual(v_ana.channel_params["Cutoff"], 5500.0)
+        self.assertGreaterEqual(v_ana.channel_params["Cutoff"], 6500.0)
+        self.assertLessEqual(v_ana.channel_params["Cutoff"], 9000.0)
         self.assertFalse(v_ana.needs_insert_lpf)
 
         v_warm = gl_dsl.synth_voice("gl.warmsynth", "chords", valence=-0.8)
@@ -157,8 +158,9 @@ class TestGlDslSynths(unittest.TestCase):
 
         v_dco = gl_dsl.synth_voice("gl.dcosynth", "lead", valence=0.5)
         self.assertEqual(v_dco.channel_params["VCA"], 0)
-        self.assertGreaterEqual(v_dco.cutoff_hz, 4000.0)
-        self.assertLessEqual(v_dco.cutoff_hz, 7500.0)
+        # v3.0: lead floor 9 kHz
+        self.assertGreaterEqual(v_dco.cutoff_hz, 9000.0)
+        self.assertLessEqual(v_dco.cutoff_hz, 12500.0)
 
         v_saw = gl_dsl.synth_voice("gl.sawswarm", "chords", polyphony=24, unison=4)
         self.assertLessEqual(v_saw.channel_params["Polyphony"], 2)  # enum index <= 2 ('12')

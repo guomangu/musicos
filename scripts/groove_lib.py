@@ -335,3 +335,56 @@ def enforce_frequency_inertia(
         out.append(cur)
         i += 1
     return out
+
+
+MONO_ROLE_SUBSTRINGS = ("bass", "808", "sub", "lead_mono")
+
+
+def sanitize_note_overlaps(
+    tracks: dict[str, list[dict[str, Any]]],
+    bpm: float = 120.0,
+    guard_ms: float = 10.0,
+    mono_roles: set[str] | None = None,
+    voices_by_role: dict[str, int] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """v3.0 mandatory final pipeline step: no note-stealing on monophonic tracks and no
+    same-pitch overlaps anywhere (run AFTER swing/strum/haas/inertia).
+
+    Mono tracks (role matches MONO_ROLE_SUBSTRINGS / mono_roles, or voices_by_role == 1):
+    notes are sorted by start and each end is clamped to `next_start - guard` with
+    `guard = ms_to_beats(guard_ms, bpm)` (10 ms default) so a Voices=1 sampler never
+    steals the next note's transient. Polyphonic tracks: an earlier note of the SAME
+    pitch is clipped when it overlaps the next one.
+    """
+    guard = ms_to_beats(float(guard_ms), float(bpm))
+    mono_roles = {str(r).lower() for r in (mono_roles or ())}
+    voices_by_role = voices_by_role or {}
+    out: dict[str, list[dict[str, Any]]] = {}
+    for key, notes in tracks.items():
+        rl = str(key).lower()
+        is_mono = (
+            rl in mono_roles
+            or any(m in rl for m in MONO_ROLE_SUBSTRINGS)
+            or voices_by_role.get(rl) == 1
+            or voices_by_role.get(str(key)) == 1
+        )
+        copied = sorted((copy.copy(n) for n in notes), key=lambda n: (float(n["start"]), int(n["pitch"])))
+        if is_mono:
+            for i in range(len(copied) - 1):
+                cur, nxt = copied[i], copied[i + 1]
+                cur_end = float(cur["start"]) + _get_len(cur)
+                nxt_start = float(nxt["start"])
+                if cur_end > nxt_start - guard:
+                    _set_len(cur, max(0.02, nxt_start - guard - float(cur["start"])))
+        else:
+            by_pitch: dict[int, list[dict[str, Any]]] = {}
+            for n in copied:
+                by_pitch.setdefault(int(n["pitch"]), []).append(n)
+            for ns in by_pitch.values():
+                ns.sort(key=lambda n: float(n["start"]))
+                for i in range(len(ns) - 1):
+                    cur, nxt = ns[i], ns[i + 1]
+                    if float(cur["start"]) + _get_len(cur) > float(nxt["start"]):
+                        _set_len(cur, max(0.02, float(nxt["start"]) - float(cur["start"])))
+        out[key] = sorted(copied, key=lambda n: (float(n["start"]), int(n["pitch"])))
+    return out

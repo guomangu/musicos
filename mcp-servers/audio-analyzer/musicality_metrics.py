@@ -51,7 +51,9 @@ def optimize_voice_leading(
                     (s[k + 1] - s[k] <= 1 and s[k] < 57)
                     for k in range(len(s) - 1)
                 )
-                if not tight_low:
+                # v3.0 Low Interval Limit (ERB bands): no close interval below its absolute floor
+                lil_bad = any(low_interval_violation(s[i], s[j]) for i in range(len(s)) for j in range(i + 1, len(s)))
+                if not tight_low and not lil_bad:
                     res.append(s)
         return res
 
@@ -1187,3 +1189,251 @@ def evaluate_midi_musicality(
         "failures": failures,
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# v3.0 -- Low Interval Limit, modal clash analysis, directional metrics
+# ---------------------------------------------------------------------------
+
+# (interval in semitones) -> absolute floor of the LOW note (MIDI) allowed for that interval
+LOW_INTERVAL_LIMIT: dict[int, int] = {
+    1: 60, 2: 60,      # seconde mineure/majeure: >= C4 (sauf appoggiature <= 0.5 beat)
+    3: 52, 4: 52,      # tierce: >= E3
+    5: 48, 6: 48,      # quarte / triton: >= C3
+    7: 43,             # quinte juste: >= G2
+    12: 36,            # octave: >= C2
+}
+
+
+def low_interval_violation(p_low: int, p_high: int) -> bool:
+    """True if the simultaneous pair (p_low, p_high) violates the Low Interval Limit."""
+    dp = int(p_high) - int(p_low)
+    if dp <= 0:
+        return False
+    floor = None
+    if dp <= 2:
+        floor = LOW_INTERVAL_LIMIT[1] if dp == 1 else LOW_INTERVAL_LIMIT[2]
+    elif dp <= 4:
+        floor = LOW_INTERVAL_LIMIT[3] if dp == 3 else LOW_INTERVAL_LIMIT[4]
+    elif dp <= 6:
+        floor = LOW_INTERVAL_LIMIT[5] if dp == 5 else LOW_INTERVAL_LIMIT[6]
+    elif dp == 7:
+        floor = LOW_INTERVAL_LIMIT[7]
+    elif dp == 12:
+        floor = LOW_INTERVAL_LIMIT[12]
+    return floor is not None and int(p_low) < floor
+
+
+_BII_SYMBOLS = ("bII", "bIImaj7", "bIImaj", "N6")
+_DOMINANT_SYMBOLS = ("V", "V7", "V7(b9)", "V7sus4", "vii", "vii°", "vii°7", "V7#9")
+
+
+def _symbol_root_pc(symbol: str) -> Optional[int]:
+    m = re.match(r"^\s*([A-Ga-g])([#b]?)", symbol or "")
+    if not m:
+        return None
+    table = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5,
+             "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
+    return table.get(m.group(1).upper() + m.group(2))
+
+
+def _chord_has_third(symbol: str) -> bool:
+    """False for power chords (5) and sus2/sus4; True otherwise (third must survive)."""
+    sym = (symbol or "").lower()
+    if sym.endswith("5") and "maj" not in sym and "m" not in sym.replace("5", "", 1):
+        return False
+    if "sus2" in sym or "sus4" in sym:
+        return False
+    return True
+
+
+def analyze_harmonic_clashes(
+    notes: List[Tuple[float, float, int, str]],
+    chords: Optional[List[Dict[str, Any]]] = None,
+    mode: str = "",
+    tonic_pc: Optional[int] = None,
+) -> Dict[str, Any]:
+    """v3.0 mode- and spacing-aware dissonance analysis (replaces the binary minor-2nd counter).
+
+    `notes`: (start, end, pitch, track). `chords`: [{start, end, symbol}]. Rules:
+      1. a 1 st / 11 st interval between two HELD voices (> 0.5 beat) is always forbidden;
+         a 13 st (b9) between bass and an upper voice is allowed in phrygian modes on bII
+         and in harmonic minor on V7(b9);
+      2. the leading tone (+11 st from tonic) is only allowed over a dominant chord and is
+         never doubled across simultaneous tracks;
+      3. every non-power, non-sus chord must keep its third (+3/+4 st from its root).
+    """
+    mode_l = (mode or "").lower()
+    phrygian_like = mode_l in ("phrygian", "phrygian_dominant")
+    harmonic_minor = mode_l == "harmonic_minor"
+    hard: List[Dict[str, Any]] = []
+    allowed_b9: List[Dict[str, Any]] = []
+    leading_tone_issues: List[Dict[str, Any]] = []
+    third_issues: List[Dict[str, Any]] = []
+
+    notes = sorted(notes, key=lambda x: (x[0], x[2]))
+    for i, (s1, e1, p1, tr1) in enumerate(notes):
+        for s2, e2, p2, tr2 in notes[i + 1:]:
+            if s2 >= e1 - 0.01:
+                break
+            if tr1 == tr2:
+                continue
+            diff = abs(int(p1) - int(p2))
+            if diff not in (1, 11, 13):
+                continue
+            held = (e1 - s1) > 0.5 and (e2 - s2) > 0.5
+            entry = {"time_s": round(float(min(s1, s2)), 3), "tracks": [tr1, tr2],
+                     "notes": [int(p1), int(p2)], "interval_st": diff, "held": held}
+            if diff in (1, 11):
+                if held:
+                    hard.append({**entry, "rule": "close_minor_2nd_held_forbidden"})
+                # non-held (appoggiature <= 0.5 beat) close b2 is tolerated
+            elif diff == 13:
+                # b9 bass-vs-upper: allowed only in the modal contexts above
+                chord = None
+                if chords:
+                    chord = next((c for c in chords if float(c["start"]) - 0.05 <= s2 <= float(c["end"]) + 0.05), None)
+                sym = str((chord or {}).get("symbol") or "")
+                is_bII = any(bs in sym for bs in _BII_SYMBOLS)
+                is_dom = any(ds in sym for ds in _DOMINANT_SYMBOLS)
+                if (phrygian_like and is_bII) or (harmonic_minor and is_dom and "b9" in sym):
+                    allowed_b9.append({**entry, "rule": "b9_allowed_modal", "chord": sym})
+                else:
+                    hard.append({**entry, "rule": "b9_forbidden_outside_modal_context", "chord": sym})
+
+    if tonic_pc is not None:
+        lt_pc = (int(tonic_pc) + 11) % 12
+        # leading tone doubling across simultaneous tracks
+        lt_notes = [(s, e, p, tr) for s, e, p, tr in notes if p % 12 == lt_pc]
+        for i, (s1, e1, p1, tr1) in enumerate(lt_notes):
+            for s2, e2, p2, tr2 in lt_notes[i + 1:]:
+                if s2 >= e1 - 0.01:
+                    break
+                if tr1 == tr2:
+                    continue
+                leading_tone_issues.append({"time_s": round(float(s2), 3), "tracks": [tr1, tr2],
+                                             "rule": "leading_tone_doubled_forbidden"})
+        # leading tone outside dominant chords
+        if chords:
+            for s, e, p, tr in lt_notes:
+                chord = next((c for c in chords if float(c["start"]) - 0.05 <= s <= float(c["end"]) + 0.05), None)
+                sym = str((chord or {}).get("symbol") or "")
+                if not any(ds in sym for ds in _DOMINANT_SYMBOLS):
+                    leading_tone_issues.append({"time_s": round(float(s), 3), "track": tr, "chord": sym,
+                                                 "rule": "leading_tone_outside_dominant_forbidden"})
+
+    if chords and tonic_pc is not None:
+        for c in chords:
+            sym = str(c.get("symbol") or "")
+            if not _chord_has_third(sym):
+                continue
+            root = _symbol_root_pc(sym)
+            if root is None:
+                continue
+            third_pcs = {(root + 3) % 12, (root + 4) % 12}
+            s0, e0 = float(c["start"]), float(c["end"])
+            voices = [p for s, e, p, tr in notes if float(s) >= s0 - 0.05 and float(s) <= e0 + 0.05 and p % 12 != root % 12]
+            if not any(p % 12 in third_pcs for p in voices):
+                third_issues.append({"time_s": round(s0, 3), "chord": sym,
+                                     "rule": "chord_third_missing"})
+
+    return {
+        "hard_clashes": hard,
+        "allowed_b9": allowed_b9,
+        "leading_tone_issues": leading_tone_issues,
+        "chord_third_issues": third_issues,
+        "ok": not hard and not leading_tone_issues and not third_issues,
+    }
+
+
+def _bar_grid_attacks(pm: pretty_midi.PrettyMIDI, inst_notes: List[pretty_midi.Note], bar_q: float, n_bars: int, steps: int = 16) -> List[List[float]]:
+    grid = [[0.0] * steps for _ in range(n_bars)]
+    for n in inst_notes:
+        q = _note_quarter_pos(pm, n.start)
+        b = int((q + 1e-6) // max(bar_q, 1e-4))
+        if 0 <= b < n_bars:
+            step = int(round((q - b * bar_q) / bar_q * steps)) % steps
+            grid[b][step] = 1.0
+    return grid
+
+
+def rhythmic_motif_recurrence(pm_or_notes: Any, n_bars: int = 4, steps: int = 16, band: Tuple[float, float] = (0.45, 0.85)) -> Dict[str, Any]:
+    """v3.0: cosine similarity of the 16-step attack grid, bar 1 vs bars 2..n.
+
+    Below `band[0]` the rhythm has no identity; above `band[1]` it is mechanically cloned.
+    """
+    pm = _load_pm(pm_or_notes)
+    ts = _resolve_time_signature(pm, None)
+    bar_q = _bar_quarters(ts[0], ts[1])
+    lead = _infer_roles(pm)["lead"]
+    notes = [n for inst in lead for n in inst.notes] or [n for inst in pm.instruments if not inst.is_drum for n in inst.notes]
+    if not notes:
+        return {"ok": True, "sims": [], "band": list(band)}
+    grid = _bar_grid_attacks(pm, notes, bar_q, n_bars, steps)
+    sims = []
+    for b in range(1, n_bars):
+        a, c = grid[0], grid[b]
+        na = float(np.linalg.norm(a)); nc = float(np.linalg.norm(c))
+        sims.append(round(float(np.dot(a, c) / (na * nc + 1e-9)), 3) if na > 0 and nc > 0 else 0.0)
+    ok = all(band[0] <= s <= band[1] for s in sims) if sims else True
+    return {"ok": ok, "sims": sims, "band": list(band)}
+
+
+def cadence_resolution_ok(pm_or_notes: Any, tonic_pc: int = 0, rest_pcs: Optional[set] = None, tension_pcs: Optional[set] = None) -> Dict[str, Any]:
+    """v3.0: the last long note (>= 0.5 beat) of the cycle lands on a rest degree {1,3,5},
+    and the half-phrase (bar 4 of an 8-bar cycle) stays on a tension degree {2,4,5,b6,7}."""
+    pm = _load_pm(pm_or_notes)
+    ts = _resolve_time_signature(pm, None)
+    bar_q = _bar_quarters(ts[0], ts[1])
+    lead = _infer_roles(pm)["lead"]
+    notes = sorted([n for inst in lead for n in inst.notes] or [n for inst in pm.instruments if not inst.is_drum for n in inst.notes], key=lambda n: n.start)
+    if not notes:
+        return {"ok": True, "final_degree_pc": None, "half_degree_pc": None}
+    rest = rest_pcs if rest_pcs is not None else {(tonic_pc + 0) % 12, (tonic_pc + 4) % 12, (tonic_pc + 7) % 12}
+    tension = tension_pcs if tension_pcs is not None else {(tonic_pc + 2) % 12, (tonic_pc + 5) % 12, (tonic_pc + 7) % 12, (tonic_pc + 8) % 12, (tonic_pc + 10) % 12}
+    tempos = pm.get_tempo_changes()
+    bpm0 = float(tempos[1][0]) if len(tempos) > 1 and len(tempos[1]) else 120.0
+    beat_s = 60.0 / bpm0
+    long_notes = [n for n in notes if (n.end - n.start) >= 0.5 * beat_s]
+    final = long_notes[-1] if long_notes else notes[-1]
+    end_q = _note_quarter_pos(pm, final.start)
+    total_bars = max(4, int(end_q // bar_q) + 1)
+    half_bar = max(1, total_bars // 2)
+    half_notes = [n for n in notes if half_bar * bar_q <= _note_quarter_pos(pm, n.start) < (half_bar + 1) * bar_q and (n.end - n.start) >= 0.5 * beat_s]
+    half = half_notes[-1] if half_notes else None
+    final_ok = (final.pitch % 12) in rest
+    half_ok = True if half is None else (half.pitch % 12) in tension
+    return {
+        "ok": bool(final_ok and half_ok),
+        "final_degree_pc": final.pitch % 12,
+        "final_ok": bool(final_ok),
+        "half_degree_pc": (half.pitch % 12) if half else None,
+        "half_ok": bool(half_ok),
+        "rest_pcs": sorted(rest),
+        "tension_pcs": sorted(tension),
+    }
+
+
+def chord_melody_tension_alignment(
+    pm_or_notes: Any,
+    chords: Optional[List[Dict[str, Any]]] = None,
+    tonic_pc: int = 0,
+) -> Dict[str, Any]:
+    """v3.0: the melodic apex (highest note of the cycle) must coincide with a
+    non-tonic tension chord (iv, bVI, bII, V7...), not with the final resolution."""
+    pm = _load_pm(pm_or_notes)
+    lead = _infer_roles(pm)["lead"]
+    notes = [n for inst in lead for n in inst.notes] or [n for inst in pm.instruments if not inst.is_drum for n in inst.notes]
+    if not notes:
+        return {"ok": True, "apex": None}
+    apex = max(notes, key=lambda n: (n.pitch, n.start))
+    if chords:
+        chord = next((c for c in chords if float(c["start"]) - 0.05 <= apex.start <= float(c["end"]) + 0.05), None)
+        sym = str((chord or {}).get("symbol") or "")
+        root = _symbol_root_pc(sym)
+        tension = root is not None and (root - tonic_pc) % 12 not in (0,) and any(
+            t in sym for t in ("iv", "bVI", "bII", "V7", "V", "vii")
+        )
+        return {"ok": bool(tension), "apex_pitch": apex.pitch, "apex_time_s": round(float(apex.start), 3),
+                "chord": sym or None}
+    return {"ok": True, "apex_pitch": apex.pitch, "apex_time_s": round(float(apex.start), 3), "chord": None}

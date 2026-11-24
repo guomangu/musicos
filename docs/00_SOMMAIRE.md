@@ -1,6 +1,8 @@
 # Facette 0 — SOMMAIRE & Index Autonome du Framework AI-Studio
+> **v3.0** : en session de production, seul [AGENT_RUNBOOK.md](AGENT_RUNBOOK.md) est chargé (3 macro-tours, < 1 500 tokens) ; l'archive détaillée est dans [REFERENCE_ARCHIVE.md](REFERENCE_ARCHIVE.md).
 
-> **Objectif** : Point d'entrée unique pour qu'un agent IA autonome localise immédiatement **chaque dossier et fichier** du framework (`/home/gamo/Bureau/musicos`), connaisse ses **fonctions / outils MCP exacts**, et suive l'**ordre d'utilité exact dans le workflow** sans explorer à l'aveugle.
+
+> **Objectif** : Point d'entrée unique pour qu'un agent IA autonome localise immédiatement **chaque dossier et fichier** du framework (racine `$AI_STUDIO_DIR`), connaisse ses **fonctions / outils MCP exacts**, et suive l'**ordre d'utilité exact dans le workflow** sans explorer à l'aveugle.
 
 ---
 
@@ -19,7 +21,7 @@
 
 ---
 
-## 2. Index des Fichiers Racine & Dossiers Config / Assets (racine du dépôt = `AI_STUDIO_DIR`, ex. `/home/gamo/Bureau/musicos/`)
+## 2. Index des Fichiers Racine & Dossiers Config / Assets (racine du dépôt = `AI_STUDIO_DIR`, ex. `$AI_STUDIO_DIR/`)
 
 | Chemin | Rôle & Fonctions | Ordre / Usage |
 | :--- | :--- | :--- |
@@ -31,7 +33,7 @@
 | `install.sh` | Installeur Fedora idempotent (paquets audio PipeWire, `.venv`, plugins CLAP/VST3, modèles, rescan). Flags `--check-only`, `--skip-plugins`, `--skip-clap`, `--skip-zed`, `--no-sudo`, `--force-rescan`. | **1** (setup initial machine) |
 | `requirements.txt` | Dépendances Python du `.venv` (`mcp`, `numpy`, `scipy`, `soundfile`, `pyloudnorm`, `librosa`, `praat-parselmouth`, `essentia`, `mosqito`, `pyroomacoustics`, `matchering`, `music21`, `pretty_midi`, `onnxruntime`, `mido`, `transformers`, `audiobox_aesthetics`, `scikit-learn`). | **1** (setup `.venv`) |
 | `.gitignore` | Règles d'exclusion Git (`.venv`, `.env`, gros média, bases temporaires). | **—** (Git) |
-| `.venv/` | Environnement virtuel Python isolé. **Toujours** invoquer `/home/gamo/Bureau/musicos/.venv/bin/python`. | **1–7** |
+| `.venv/` | Environnement virtuel Python isolé. **Toujours** invoquer `$AI_STUDIO_DIR/.venv/bin/python`. | **1–7** |
 | `schemas/song_blueprint.schema.json` | Schéma JSON Schema normatif validant tout `song_blueprint.json` (`mix_profile`, `has_drums`, `emotion_vector`, `bpm`, `time_signature`, `harmonic_core`, `motif_cell`, `structure`, `frequency_plan`, `tracks`, `vocals`). | **2** (`song_builder.load_blueprint(..., validate=True)`) |
 | `samples` *(symlink → `soundbanks/`)* | Point d'entrée canonique vers les banques locales utilisées par les indexeurs (`sfz/` exclu automatiquement). | **3** |
 | `soundbanks/` | Stockage réel des packs locaux WAV/OGG/MP3, boucles et sous-dossiers `.sfz` (exclus du scan mélodique). | **3** |

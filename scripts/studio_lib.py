@@ -488,8 +488,8 @@ def setup_standard_buses(
     fx_room: int = 20,
     fx_delay: int = 21,
     fx_hall: int = 22,
-    limiter_ceiling_db: float = -1.5,
-    limiter_gain_db: float = 5.0,
+    limiter_ceiling_db: float | None = None,
+    limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.30,
     fx_delay_vol: float = 0.32,
     fx_hall_vol: float = 0.30,
@@ -510,6 +510,8 @@ def setup_standard_buses(
     - lofi_chill: warmer LPF on BUS Music, soft glue, light drums air
     - jazz_acoustic / classical_ambient: clean transparent bus (no distortion, gentle/minimal comp, larger room decay)
     """
+    from mix_config import resolve_limiter_params
+    limiter_ceiling_db, limiter_gain_db = resolve_limiter_params(limiter_ceiling_db, limiter_gain_db)
     t_noire_s = 60.0 / float(bpm)
     acoustic_mode = profile in ("jazz_acoustic", "classical_ambient")
     lofi_mode = profile == "lofi_chill"

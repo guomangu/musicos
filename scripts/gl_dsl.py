@@ -573,18 +573,31 @@ _ROLE_ADSR_DEFAULTS: dict[str, dict[str, float]] = {
 
 
 def _default_cutoff_hz(role: str, valence: float) -> float:
+    """v3.0: source cutoffs with anti brick-wall floors from `config/mix_profiles.json`
+    (chords/pad >= 6.5 kHz, lead/pluck >= 9 kHz). Dark mode (V < -0.2) is expressed by a
+    gentle high-shelf on BUS Music (`dark_high_shelf_db` @ 5.5 kHz), NOT by a hard 3 kHz
+    source LPF that would make the mix hollow ("mix en U")."""
+    try:
+        from mix_config import source_lpf_floor_hz
+        floor = source_lpf_floor_hz(role)
+    except Exception:
+        floor = None
     t = clamp((float(valence) + 1.0) / 2.0, 0.0, 1.0)
     if role in ("pad", "chords"):
-        return round(2600.0 + t * 2400.0, 1)  # 2.6 - 5.0 kHz
-    if role == "lead":
-        return round(4200.0 + t * 2800.0, 1)  # 4.2 - 7.0 kHz
-    if role == "pluck":
-        return round(3200.0 + t * 2800.0, 1)  # 3.2 - 6.0 kHz
-    if role == "bell":
-        return round(3500.0 + t * 2800.0, 1)  # 3.5 - 6.3 kHz
-    if role == "bass":
-        return round(900.0 + t * 1100.0, 1)   # 0.9 - 2.0 kHz
-    return 4800.0
+        base = 6500.0 + t * 2500.0  # 6.5 - 9.0 kHz (floor 6.5 kHz)
+    elif role == "lead":
+        base = 9000.0 + t * 3500.0  # 9.0 - 12.5 kHz (floor 9 kHz)
+    elif role == "pluck":
+        base = 9000.0 + t * 3000.0  # floor 9 kHz
+    elif role == "bell":
+        base = 6500.0 + t * 3000.0  # floor 6.5 kHz
+    elif role == "bass":
+        base = 900.0 + t * 1100.0   # 0.9 - 2.0 kHz (bass keeps its own low cap)
+    else:
+        base = 6500.0 + t * 3500.0
+    if floor is not None:
+        base = max(base, floor)
+    return round(min(base, 16000.0), 1)
 
 
 def _ms_to_norm_env(ms: float) -> float:

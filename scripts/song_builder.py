@@ -56,6 +56,7 @@ from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     apply_micro_strum,
     enforce_frequency_inertia,
     ms_to_beats,
+    sanitize_note_overlaps,
 )
 from musicality_metrics import optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
 from blueprint_safety import summarize_musical_safety  # noqa: E402
@@ -499,8 +500,8 @@ def build_gridline_project(
     bus_eq_params: list[tuple[str, Any]] | None = None,
     extra_plugins: list[tuple[int, str]] | None = None,
     automations: list[dict[str, Any]] | None = None,
-    limiter_ceiling_db: float = -1.5,
-    limiter_gain_db: float = 6.0,
+    limiter_ceiling_db: float | None = None,
+    limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.32,
     min_pattern_lufs: float = -32.0,
     auto_gain_stage: bool = True,
@@ -843,8 +844,8 @@ def build_core_loop_project(
     insert_eq_mixers: list[int] | None = None,
     bus_eq_params: list[tuple[str, Any]] | None = None,
     extra_plugins: list[tuple[int, str]] | None = None,
-    limiter_ceiling_db: float = -2.55,
-    limiter_gain_db: float = 12.0,
+    limiter_ceiling_db: float | None = None,
+    limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.32,
     min_pattern_lufs: float = -36.0,
     auto_gain_stage: bool = True,
@@ -923,8 +924,8 @@ def run_song_cli(
     bus_eq_params: list[tuple[str, Any]] | None = None,
     extra_plugins: list[tuple[int, str]] | None = None,
     automations_fn: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
-    limiter_ceiling_db: float = -2.55,
-    limiter_gain_db: float = 12.0,
+    limiter_ceiling_db: float | None = None,
+    limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.32,
     samples_subdir: str = "samples",
     auto_gain_stage: bool = True,
@@ -1428,8 +1429,8 @@ def compile_arrangement_plan(
     auto_fix_midi: bool = True,
     core_bars: int = 8,
     samples_subdir: str = "samples",
-    limiter_ceiling_db: float = -2.55,
-    limiter_gain_db: float = 12.0,
+    limiter_ceiling_db: float | None = None,
+    limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.30,
     auto_gain_stage: bool = True,
 ) -> dict[str, Any]:
@@ -1518,6 +1519,10 @@ def compile_arrangement_plan(
     if swing > 0.0:
         for r_key in list(tracks):
             tracks[r_key] = apply_swing(tracks[r_key], swing=swing, beats_per_bar=float(bpb))
+    # v3.0 canonical pipeline, final step: sanitize note overlaps (mono note-stealing guard)
+    # AFTER all groove passes (swing/strum/AMG/haas/inertia) so the guard sees final timings.
+    _voices_by_role = {str(ch.track_key).lower(): int(getattr(ch, "voices", 4) or 4) for ch in eff_channels}
+    tracks = sanitize_note_overlaps(tracks, bpm=bpm, voices_by_role=_voices_by_role)
 
     # Phase 7 P2 — Instrumental prosody (phrase velocity arc, LPF breathing, cadential ornaments, section pocket)
     if apply_prosody:
