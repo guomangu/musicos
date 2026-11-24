@@ -10,6 +10,9 @@ and cutoff units.
 """
 from __future__ import annotations
 
+import json
+import os
+
 import math
 import warnings
 from dataclasses import dataclass, field
@@ -637,10 +640,15 @@ def _apply_expressive_params(
     plugin: str,
     role: str,
     params: dict[str, Any],
+    vibrato_delay_ms: float = 220.0,
 ) -> dict[str, Any]:
     """
     Add verified organic motion to native `gl.*` synths (`Phase 8 Q6.1`).
     Every emitted parameter name/range was checked with `gridline plugin-params` (0.7.7).
+
+    v3.2 : `vibrato_delay_ms` (défaut 220 ms) retarde la profondeur du LFO de hauteur :
+    l'attaque reste juste (<= 6 ct), la tenue "chante" ensuite — jamais de vibrato
+    constant dès l'attaque (lu comme un désaccord).
     """
     if role in ("pad", "chords"):
         if plugin in ("gl.analog", "gl.wavetable", "gl.dcosynth", "gl.twinva", "gl.sawswarm"):
@@ -686,7 +694,7 @@ def _apply_expressive_params(
             params["LFO target"] = 3  # Cutoff
             params["LFO rate"] = 0.25
             params["LFO amount"] = 0.04
-            params["LFO delay"] = 0.40
+            params["LFO delay"] = _ms_to_norm_env(float(vibrato_delay_ms))  # v3.2 vibrato retardé
     elif role == "lead":
         # Timbral motion via filter LFOs: no measurable pitch bias (|tuning| <= 6.5 ct).
         if plugin == "gl.analog":
@@ -779,6 +787,7 @@ def synth_voice(
     unison: int | None = None,
     glide_ms: float | None = None,
     expressive: bool = True,
+    vibrato_delay_ms: float = 220.0,
 ) -> SynthVoiceConfig:
     """
     Build a safe, anti-stridence, CPU-bounded parameter profile for a native `gl.*` synth.
@@ -863,7 +872,7 @@ def synth_voice(
 
     # Phase 8 Q6.1 — Organic timbral motion (verified native params only)
     if expressive:
-        params = _apply_expressive_params(plugin, role, params)
+        params = _apply_expressive_params(plugin, role, params, vibrato_delay_ms=vibrato_delay_ms)
 
     needs_insert_lpf = not spec.has_internal_lpf
     insert_bands: list[dict[str, Any]] = []
@@ -882,3 +891,34 @@ def synth_voice(
         unison=eff_unison,
         makeup_gain_db=lpf_makeup_gain_db(eff_cutoff),
     )
+
+
+# ---------------------------------------------------------------------------
+# v3.2 TimbralCohesion — archétypes timbraux gl.* calibrés par (profil, rôle, valence)
+# ---------------------------------------------------------------------------
+
+def load_timbre_archetypes(path: str | None = None) -> dict[str, Any]:
+    """Charge `config/timbre_archetypes.json` (21+ recettes vérifiées)."""
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "timbre_archetypes.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh).get("archetypes", {})
+    except Exception:
+        return {}
+
+
+def resolve_archetype(profile: str, role: str, valence: float = 0.0) -> dict[str, Any] | None:
+    """v3.2 : recette `gl.*` calibrée pour (mix_profile, role), avec `dark_overrides`
+    appliqués si valence < -0.2. Retourne {"plugin", "params"} ou None."""
+    arch = load_timbre_archetypes()
+    key = f"{str(profile).strip()}:{str(role).strip()}"
+    entry = arch.get(key) or arch.get(f"trap_rap:{role}")
+    if not entry:
+        return None
+    params = dict(entry.get("params") or {})
+    if float(valence) < -0.2:
+        params.update(entry.get("dark_overrides") or {})
+    return {"plugin": entry.get("plugin", "gl.warmsynth"), "params": params}

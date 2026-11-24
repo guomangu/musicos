@@ -346,6 +346,7 @@ def sanitize_note_overlaps(
     guard_ms: float = 10.0,
     mono_roles: set[str] | None = None,
     voices_by_role: dict[str, int] | None = None,
+    exempt_pairs: set[tuple[str, float]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """v3.0 mandatory final pipeline step: no note-stealing on monophonic tracks and no
     same-pitch overlaps anywhere (run AFTER swing/strum/haas/inertia).
@@ -359,6 +360,7 @@ def sanitize_note_overlaps(
     guard = ms_to_beats(float(guard_ms), float(bpm))
     mono_roles = {str(r).lower() for r in (mono_roles or ())}
     voices_by_role = voices_by_role or {}
+    exempt_pairs = exempt_pairs or set()
     out: dict[str, list[dict[str, Any]]] = {}
     for key, notes in tracks.items():
         rl = str(key).lower()
@@ -374,6 +376,8 @@ def sanitize_note_overlaps(
                 cur, nxt = copied[i], copied[i + 1]
                 cur_end = float(cur["start"]) + _get_len(cur)
                 nxt_start = float(nxt["start"])
+                if (key, round(float(cur["start"]), 5)) in exempt_pairs:
+                    continue  # v3.2 : paire glide 808 volontaire (glide_to_next), non coupée
                 if cur_end > nxt_start - guard:
                     _set_len(cur, max(0.02, nxt_start - guard - float(cur["start"])))
         else:

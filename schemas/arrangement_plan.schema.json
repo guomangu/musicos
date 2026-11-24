@@ -453,6 +453,47 @@
       "minimum": 4,
       "maximum": 16,
       "default": 8
+    },
+    "phrasing_8bar": {
+      "type": "object",
+      "description": "v3.2 NarrativeHarmony : phrasé en période 8 mesures Antécédent/Conséquent (demi-cadence mesure 4, cadence fermée mesure 8) + opérateurs motiviques déterministes.",
+      "properties": {
+        "antecedent_bars": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 2
+        },
+        "consequent_bars": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 2
+        },
+        "period_bars": {
+          "type": "integer",
+          "default": 8,
+          "minimum": 4
+        },
+        "cadence_degree": {
+          "type": "integer",
+          "default": 1
+        },
+        "operators": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "motif_answer",
+              "rhythmic_lift",
+              "call_and_response",
+              "melodic_climax_arch"
+            ]
+          },
+          "default": [
+            "motif_answer",
+            "melodic_climax_arch"
+          ]
+        }
+      }
     }
   }
 }

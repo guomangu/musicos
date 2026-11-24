@@ -270,6 +270,11 @@ def index_project_samples(
                     if loop_nature == "melodic_loop":
                         chroma_cqt = mean_chroma_cqt(harm_comp, sr_m)
                 inharmonicity = estimate_inharmonicity(y_m, sr_m, dsp.get("detected_f0_hz"))
+                # v3.2 TimbralCohesion : DRR natif (wetness/tail) pour pondérer les sends FX
+                wet = dsp.get("wetness_score")
+                if wet is None:
+                    from audio_metrics import compute_wetness_tail
+                    wet = compute_wetness_tail(y_m, sr_m)["wetness_score"]
             except Exception:
                 pass
 
@@ -354,6 +359,8 @@ def index_project_samples(
                 "hnr_db": loop_hnr_db,
                 "chroma_cqt": chroma_cqt,
                 "inharmonicity": inharmonicity,
+                "wetness_score": float(wet),
+                "tail_duration_ms": float(dsp.get("tail_duration_ms", 0.0) or 0.0),
                 "recommended_gl_fine_tune_ct": gl_fine_tune,
                 "centroid_hz": dsp.get("spectral_centroid_hz"),
                 "attack_ms": dsp.get("attack_ms"),

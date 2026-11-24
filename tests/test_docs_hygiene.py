@@ -40,3 +40,95 @@ class TestDocsHygiene(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDocsCoherenceCI(unittest.TestCase):
+    """v3.2 (#5b) — 3 assertions CI bloquantes de cohérence documentaire."""
+
+    def _docs_files(self):
+        base = os.path.join(ROOT, "docs")
+        return [os.path.join(base, fn) for fn in sorted(os.listdir(base)) if fn.endswith(".md")]
+
+    def test_no_broken_internal_md_links(self):
+        import re as _re
+        broken = []
+        link_re = _re.compile(r"\]\(([^)\s]+\.md)(?:#[^)]*)?\)")
+        for p in self._docs_files():
+            with open(p, encoding="utf-8") as fh:
+                text = fh.read()
+            for m in link_re.finditer(text):
+                target = m.group(1)
+                if target.startswith(("http://", "https://")):
+                    continue
+                resolved = os.path.normpath(os.path.join(os.path.dirname(p), target))
+                if not os.path.isfile(resolved):
+                    broken.append(f"{os.path.basename(p)} -> {target}")
+        # liens depuis la racine (README.md) vers docs/
+        root_readme = os.path.join(ROOT, "README.md")
+        if os.path.isfile(root_readme):
+            with open(root_readme, encoding="utf-8") as fh:
+                text = fh.read()
+            for m in link_re.finditer(text):
+                target = m.group(1)
+                if target.startswith(("http://", "https://")):
+                    continue
+                resolved = os.path.normpath(os.path.join(ROOT, target))
+                if target.endswith(".md") and not os.path.isfile(resolved):
+                    broken.append(f"README.md -> {target}")
+        self.assertEqual(broken, [], f"liens Markdown internes cassés : {broken}")
+
+    def test_all_scripts_indexed_in_sommaire(self):
+        sommaire_path = os.path.join(ROOT, "docs", "00_SOMMAIRE.md")
+        with open(sommaire_path, encoding="utf-8") as fh:
+            sommaire = fh.read()
+        scripts_dir = os.path.join(ROOT, "scripts")
+        missing = []
+        for fn in sorted(os.listdir(scripts_dir)):
+            if fn.endswith(".py"):
+                if fn not in sommaire:
+                    missing.append(fn)
+        self.assertEqual(missing, [], f"scripts non indexés dans 00_SOMMAIRE.md : {missing}")
+
+    def test_no_numeric_divergence_vs_mix_config(self):
+        import json as _json
+        cfg_path = os.path.join(ROOT, "config", "mix_profiles.json")
+        with open(cfg_path, encoding="utf-8") as fh:
+            cfg = _json.load(fh)
+        inv = cfg.get("invariants", cfg)
+        ceiling = float(inv.get("master_limiter_ceiling_dbtp", -1.2))
+
+        def norm(text: str) -> str:
+            return text.replace(",", ".").lower()
+
+        normative_files = [
+            os.path.join(ROOT, "docs", "AGENT_RUNBOOK.md"),
+            os.path.join(ROOT, "docs", "05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md"),
+            os.path.join(ROOT, "docs", "01_SYSTEME_STACK_ET_GUIDE.md"),
+            os.path.join(ROOT, "docs", "02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md"),
+            os.path.join(ROOT, "docs", "04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md"),
+            os.path.join(ROOT, "docs", "AUDIT_CARENCES_ET_SOLUTIONS_V3_2.md"),
+        ]
+        # valeurs périmées interdites dans les docs normatives (anciennes contradictions)
+        forbidden = [
+            "-2.6..-2.1", "ceiling=-2.6", "-1.5 dbtp", "ceiling -1.5 db",
+            "0.06–0.10", "0.06-0.10", "mix <= 0.05", "mix <= 0.06",
+            "2.5 khz` et `5.5 khz", "4.0 khz` et `7.5 khz", "lpf strict entre",
+            "cutoff <= 6 khz", "lead_vs_harmony_db >= 2.0", "02_gestion_projets_et_samples.md",
+        ]
+        for p in normative_files:
+            self.assertTrue(os.path.isfile(p), f"fichier normatif manquant : {p}")
+            with open(p, encoding="utf-8") as fh:
+                t = norm(fh.read())
+            for f in forbidden:
+                self.assertNotIn(norm(f), t, f"valeur périmée '{f}' encore présente dans {os.path.basename(p)}")
+        # la valeur canonique du plafond limiteur doit être citée dans le runbook et docs/05
+        for p in (normative_files[0], normative_files[1]):
+            with open(p, encoding="utf-8") as fh:
+                t = norm(fh.read())
+            self.assertIn(f"{ceiling} dbtp", t, f"plafond limiteur {ceiling} dBTP non cité dans {os.path.basename(p)}")
+        # planchers LPF sources canoniques cités
+        with open(normative_files[1], encoding="utf-8") as fh:
+            t = norm(fh.read())
+        self.assertIn("6.5 khz", t)
+        self.assertIn("9 khz", t)
+        self.assertIn("config/mix_profiles.json", t)

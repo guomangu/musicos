@@ -10,7 +10,7 @@ fonctions internes, playbook des pièges vérifiés, journal des morceaux valid�
 | :--- | :--- |
 | [00_SOMMAIRE.md](00_SOMMAIRE.md) | Index complet des dossiers/fichiers, ordre d'utilité du workflow |
 | [01_SYSTEME_STACK_ET_GUIDE.md](01_SYSTEME_STACK_ET_GUIDE.md) | Stack Fedora/PipeWire, install, venv, commandes exactes (`$AI_STUDIO_DIR`) |
-| [02_...](02_GESTION_PROJETS_ET_SAMPLES.md) | Gestion projets, scénarios A/B samples, catalogue `samples_catalog.json` |
+| [02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md](02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md) | Composition émotionnelle (V, T, E, D), modes, 14 progressions, mélodie, groove |
 | [03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md](03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md) | Blueprint, harmonic_core, schéma JSON, cohérence inter-facettes |
 | [04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md](04_ANALYSE_SONORE_SAMPLES_APIS_ET_VGM.md) | Entonnoir DSP 4 couches (YIN+HPS+anti-partiel, HPSS/HNR, chroma CQT, inharmonicité), rôles, CLAP |
 | [05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md](05_MIXAGE_QUALITY_GATE_ET_APPRENTISSAGE.md) | Profils de mix, buses 17..22, quality gate 12+ critères, auto-fix DAG 5 étages, stem matrix |

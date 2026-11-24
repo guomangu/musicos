@@ -1601,3 +1601,172 @@ def adapt_voicing_to_timbre(
     if v != sorted(set(int(p) for p in voicing)) and not changes:
         changes.append("lil_enforced")
     return v, {"changes": changes, "inharmonic": inharmonic, "bright": bright}
+
+
+# ---------------------------------------------------------------------------
+# v3.2 #5a — Indice d'Attrait Mélodique (anti-loi de Goodhart) + tournoi de variantes.
+# ---------------------------------------------------------------------------
+
+def _lead_notes_of(score_ir: Any) -> list[Any]:
+    for t in getattr(score_ir, "tracks", {}).values():
+        if getattr(t, "role", "") == "lead" and t.notes:
+            return sorted(t.notes, key=lambda n: (n.grid_beat, n.pitch))
+    return []
+
+
+def _entropy_bits(intervals: list[int]) -> float:
+    if not intervals:
+        return 0.0
+    from collections import Counter
+    c = Counter(intervals)
+    n = len(intervals)
+    h = 0.0
+    for v in c.values():
+        p = v / n
+        h -= p * (p and __import__("math").log2(p))
+    return h
+
+
+def compute_melodic_appeal_index(score_ir: Any) -> Dict[str, Any]:
+    """v3.2 #5a — `MelodicAppealIndex` : 4 critères POSITIFS sur [0,1], déterministe, < 15 ms.
+
+    1. `motif_entropy_golden` : entropie des intervalles par bloc de 4 mesures dans la zone
+       d'or [1.5, 2.6] bits (vrai hook avec variations mesurées ; pénalise monotonie et bruit).
+    2. `contour_clarity` : corrélation du contour lead avec un template d'arche (montée puis
+       descente) par période de 8 mesures — trajectoire lisible, un sommet clair.
+    3. `tension_resolution` : accumulation de notes hors-accord mesures 3-4 et 7 (tension)
+       suivie d'une résolution sur note d'accord en mesure 8 de chaque période.
+    4. `rhythmic_complementarity` : faible corrélation des histogrammes d'onsets lead/basse
+       (emboîtement / call-and-response plutôt que martèlement simultané).
+    """
+    import math as _math
+
+    lead = _lead_notes_of(score_ir)
+    grid = getattr(score_ir, "harmonic_grid", []) or []
+    bpb = float(getattr(score_ir, "time_signature", {}).get("numerator", 4) or 4)
+    total = max((float(n.grid_beat) + float(n.duration_beats) for n in lead), default=0.0) if lead else 0.0
+    if not lead or total <= 0.0:
+        return {"mai": 0.0, "criteria": {}, "n_notes": 0}
+
+    # 1) entropie motivique par bloc de 4 mesures
+    ent_scores = []
+    block = 4 * bpb
+    p = 0.0
+    while p < total:
+        ns = [n for n in lead if p <= float(n.grid_beat) < p + block]
+        ivs = [abs(int(b.pitch) - int(a.pitch)) for a, b in zip(ns, ns[1:])]
+        h = _entropy_bits(ivs)
+        lo, hi = 1.5, 2.6
+        if h <= 0:
+            ent_scores.append(0.0)
+        elif lo <= h <= hi:
+            ent_scores.append(1.0)
+        elif h < lo:
+            ent_scores.append(max(0.0, h / lo))
+        else:
+            ent_scores.append(max(0.0, 1.0 - (h - hi) / 2.0))
+        p += block
+    c_entropy = float(sum(ent_scores) / len(ent_scores)) if ent_scores else 0.0
+
+    # 2) clarté d'arc par période de 8 mesures (corrélation avec arche montée-descente)
+    period = 8 * bpb
+    arch_tpl = [0.0, 0.25, 0.5, 0.75, 1.0, 0.75, 0.5, 0.25]
+    contour_scores = []
+    p = 0.0
+    while p < total:
+        ns = [n for n in lead if p <= float(n.grid_beat) < p + period]
+        if len(ns) >= 4:
+            xs = [float(n.grid_beat) for n in ns]
+            ys = [float(n.pitch) for n in ns]
+            # ré-échantillonner le contour sur 8 points
+            import numpy as _np
+            grid_x = _np.linspace(min(xs), max(xs), 8)
+            ys_r = _np.interp(grid_x, xs, ys)
+            ys_r = (ys_r - ys_r.min()) / max(1e-9, (ys_r.max() - ys_r.min()))
+            a = _np.asarray(arch_tpl, dtype=float)
+            b = ys_r
+            denom = float(_np.linalg.norm(a) * _np.linalg.norm(b)) + 1e-12
+            corr = float(_np.dot(a, b) / denom)
+            contour_scores.append(max(0.0, corr))
+        p += period
+    c_contour = float(sum(contour_scores) / len(contour_scores)) if contour_scores else 0.0
+
+    # 3) tension -> résolution par période de 8 mesures
+    tr_scores = []
+    p = 0.0
+    while p < total:
+        pend = p + period
+        ns = [n for n in lead if p <= float(n.grid_beat) < pend]
+        if ns:
+            tension = 0.0
+            for n in ns:
+                bar_in_period = (float(n.grid_beat) - p) / bpb
+                cidx = n.chord_idx if 0 <= getattr(n, "chord_idx", 0) < len(grid) else 0
+                seg = grid[cidx] if 0 <= cidx < len(grid) else {}
+                chord_pcs = set(seg.get("chord_pcs", []))
+                if int(n.pitch) % 12 not in chord_pcs and (2.0 <= bar_in_period <= 4.0 or 6.0 <= bar_in_period <= 7.5):
+                    tension += 1.0
+            tension_r = min(1.0, tension / 3.0)
+            last = max(ns, key=lambda n: float(n.grid_beat))
+            cidx = last.chord_idx if 0 <= getattr(last, "chord_idx", 0) < len(grid) else 0
+            seg = grid[cidx] if 0 <= cidx < len(grid) else {}
+            resolved = 1.0 if int(last.pitch) % 12 in set(seg.get("chord_pcs", [])) else 0.0
+            tr_scores.append(0.5 * tension_r + 0.5 * resolved)
+        p += period
+    c_tension = float(sum(tr_scores) / len(tr_scores)) if tr_scores else 0.0
+
+    # 4) complémentarité rythmique lead/basse (faible corrélation des onsets = emboîtement)
+    bass_notes: list[Any] = []
+    for t in getattr(score_ir, "tracks", {}).values():
+        if getattr(t, "role", "") == "bass":
+            bass_notes.extend(t.notes)
+    if bass_notes and lead:
+        import numpy as _np
+        nb = int(total / 0.25) + 1
+        lh = _np.zeros(nb)
+        bh = _np.zeros(nb)
+        for n in lead:
+            lh[int(float(n.grid_beat) / 0.25)] = 1.0
+        for n in bass_notes:
+            bh[int(float(n.grid_beat) / 0.25)] = 1.0
+        denom = float(_np.linalg.norm(lh) * _np.linalg.norm(bh)) + 1e-12
+        corr = float(_np.dot(lh, bh) / denom) if denom > 1e-12 else 1.0
+        c_compl = max(0.0, 1.0 - corr)
+    else:
+        c_compl = 0.5
+
+    mai = 0.30 * c_entropy + 0.25 * c_contour + 0.25 * c_tension + 0.20 * c_compl
+    return {
+        "mai": round(float(min(1.0, max(0.0, mai))), 4),
+        "criteria": {
+            "motif_entropy_golden": round(c_entropy, 4),
+            "contour_clarity": round(c_contour, 4),
+            "tension_resolution": round(c_tension, 4),
+            "rhythmic_complementarity": round(c_compl, 4),
+        },
+        "n_notes": len(lead),
+    }
+
+
+def select_best_motif_variant(score_ir: Any, variant_scores: list[tuple[Any, Dict[str, Any]]]) -> Dict[str, Any]:
+    """v3.2 #5a — tournoi rapide en Tour 2 (0 rendu audio) : parmi les variantes qui passent
+    les invariants durs (`evaluate_score_ir`), retenir celle qui maximise le MAI."""
+    import sys as _sys
+    sd = _scripts_dir()
+    if sd not in _sys.path:
+        _sys.path.insert(0, sd)
+    from score_ir import evaluate_score_ir as _eval
+    best = None
+    best_mai = -1.0
+    for variant, _tag in variant_scores:
+        ev = _eval(variant)
+        if ev.get("errors"):
+            continue  # invariants durs non respectés -> inéligible
+        mai = compute_melodic_appeal_index(variant)["mai"]
+        if mai > best_mai:
+            best_mai = mai
+            best = (variant, _tag, mai, ev)
+    if best is None and variant_scores:
+        best = (variant_scores[0][0], variant_scores[0][1], compute_melodic_appeal_index(variant_scores[0][0])["mai"], _eval(variant_scores[0][0]))
+    variant, tag, mai, ev = best
+    return {"selected": tag, "mai": mai, "evaluate_passed": not ev.get("errors"), "score_ir": variant}
