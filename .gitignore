@@ -13,6 +13,8 @@ mcp-servers/audio-index/sample_index.npz
 mcp-servers/audio-index/golden_embeddings.npz
 golden_references/*
 !golden_references/README.md
+!golden_references/external_masters/
+!golden_references/external_masters/README.md
 .env
 *.wav
 *.mp3

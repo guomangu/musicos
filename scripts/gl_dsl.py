@@ -696,8 +696,9 @@ def _apply_expressive_params(
             params.update({"LFO target": 3, "LFO rate": 4.8, "LFO amount": 0.05, "LFO delay": 0.20})
     elif role in ("pluck", "bell"):
         if plugin in ("gl.analog", "gl.wavetable"):
-            params["Velocity to cutoff"] = 0.35 if plugin == "gl.analog" else 0.0
-            if plugin == "gl.wavetable":
+            if plugin == "gl.analog":
+                params["Velocity to cutoff"] = 0.35
+            else:
                 params.update({"Mod 1 source": 8, "Mod 1 target": 12, "Mod 1 amount": 0.18})
         elif plugin == "gl.twinva":
             params.update({"Velocity tracking": 0.35, "LFO amount": 0.02})
@@ -711,7 +712,8 @@ def _apply_expressive_params(
             params.update({"Velocity to cutoff": 0.18, "LFO target": 3, "LFO amount": 0.06})
     elif role == "bass":
         if plugin in ("gl.analog", "gl.wavetable"):
-            params["Filter drive"] = 0.12
+            if plugin == "gl.analog":
+                params["Filter drive"] = 0.12
             params["Drive"] = 0.05
         elif plugin == "gl.dcosynth":
             params["Saturation"] = 1

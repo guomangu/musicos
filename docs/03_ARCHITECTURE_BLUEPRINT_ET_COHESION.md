@@ -40,6 +40,7 @@ Cocher quels rôles jouent dans chaque section afin de garantir un **arc dynamiq
 1. **Palier 4 mes.** : variation rythmique mineure (`beat4_dropout(tracks, autos, beat_idx, bpb)` : coupe batterie/basse sur dernier temps + baisse `FX Room`).
 2. **Palier 8 mes.** : modification obligatoire de densité instrumentale (**aucune boucle de 8 mesures identique**).
 3. **Palier 16 mes.** : saut dynamique + transition automatisée via **`transitions_lib.py`** : **`filter_sweep`** (ouverture/fermeture LPF `gl.eq`/`Cutoff`), **`section_gain_arc`** (arche dynamique `BUS Music`), **`outro_fade`** (résolution sur tonique + extinction propre).
+4. **Transitions riches déclaratives (`Q5.1`)** : `generate_drum_fill(tracks, transition_beat, profile, style)` (roll `1/8 -> 1/16 -> 1/32` + crescendo `55 -> 112`, toms/ghost notes, pickup jazz, no-op ambient), `add_transition_fx` (riser `300 Hz -> 9 kHz` + silence `0.25 beat` + impact filtré vers `FX Hall 22`) et `apply_harmonic_anticipation` (accords/basse anticipés d'une croche, note précédente raccourcie, zéro chevauchement). Types JSON acceptés dans `arrangement_plan.json` (top-level `transitions` ou `sections[].transitions[]`) : `drum_fill`, `riser_impact`, `drum_fill_and_riser`, `harmonic_anticipation`, `impact`.
 
 ---
 
@@ -116,7 +117,7 @@ sys.path.insert(0, "/home/gamo/Bureau/musicos/scripts")
 from gl_dsl import eq_band, eq_params
 from groove_lib import apply_anti_machine_gun, apply_haas_pocket, apply_micro_strum, enforce_frequency_inertia
 from song_builder import ChannelSpec, degree_to_midi, optimize_voice_leading, run_song_cli
-from transitions_lib import beat4_dropout, outro_fade, section_gain_arc
+from transitions_lib import add_transition_fx, apply_harmonic_anticipation, beat4_dropout, generate_drum_fill, outro_fade, section_gain_arc
 
 PROJ_DIR = "/home/gamo/Bureau/musicos/projects/mon_morceau"
 SECTIONS = [("Intro", 0, 8, "intro"), ("Drop1", 8, 16, "chorus"), ("Outro", 24, 8, "outro")]  # start_bar 0-idx
@@ -166,7 +167,7 @@ if __name__ == "__main__":
 ## Phase 7 — Plan Déclaratif, Prosodie (`P2`), Synchro Vocale (`P6`) & Checkpoint É2 (`P5`)
 
 1. **Plan d'Arrangement Déclaratif (`schemas/arrangement_plan.schema.json` + `compile_arrangement_plan`)** :
-   - L'agent génère `arrangement_plan.json` (sections, `active_roles`, `role_modifiers`, `transitions`, `motifs`), validé puis compilé de manière déterministe par `song_builder.compile_arrangement_plan()`.
+   - L'agent génère `arrangement_plan.json` (sections, `active_roles`, `role_modifiers`, `transitions`, `motifs`), validé puis compilé de manière déterministe par `song_builder.compile_arrangement_plan()`. Exemple de transition riche : `{"transitions": [{"bar": 9, "type": "drum_fill_and_riser", "style": "snare_roll"}, {"bar": 17, "type": "harmonic_anticipation", "offset_beats": 0.5, "ratio": 0.35}]}`.
    - Permet à `multiscale_autofix.py` (`PRUNE_TRACK_IN_SECTION`, `REINFORCE_SECTION_TRANSITION`, `MUTATE_BLOCK_DENSITY_OR_LPF`) de muter localement le plan JSON et de recompiler sans régénération LLM.
 2. **Prosodie Instrumentale (`scripts/phrasing_engine.py`)** :
    - `apply_instrumental_prosody()` façonne chaque cycle de 4 mesures (arc de vélocités crescendo→décroissance + courbe d'automation LPF coordonnée), ajoute les notes de passage basse en mesure `4/8` et appoggiatures cadentielles sur le `Lead` (sécurisées par `detect_minor_2nd_clashes`), et décale le micro-pocket de section (`+3.5 ms` couplets / `-2.0 ms` refrains).

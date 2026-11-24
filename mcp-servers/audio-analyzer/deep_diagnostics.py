@@ -410,6 +410,10 @@ def analyze_stereo_image(data: np.ndarray, sr: int, target_genre: str = "trap") 
     else:
         lufs_l = float(compute_ebu_r128_stats(left, sr).get("integrated_lufs", -70.0))
         lufs_r = float(compute_ebu_r128_stats(right, sr).get("integrated_lufs", -70.0))
+        if not math.isfinite(lufs_l):
+            lufs_l = -70.0
+        if not math.isfinite(lufs_r):
+            lufs_r = -70.0
     balance_db = round(lufs_l - lufs_r, 2)
 
     hi_hz = min(8000.0, float(sr) * 0.45)

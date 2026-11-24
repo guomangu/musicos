@@ -23,6 +23,7 @@
 | **Oct 5** *(Apex)* | `72` | `73` | `74` | `75` | `76` | `77` | `78` | `79` | `80` | `81` | `82` | `83` |
 
 * **Bornes obligatoires** : Basse/808 **`MIDI 31–48`** (en `C..F#`, privilégier Octave 2 `36–42` contre l'infra-sub `< 42 Hz`) · Accords **`48–67`** · Lead **`55–72`** (`<= 74` par défaut ; `75–81` uniquement timbres doux + `V > +0.3`).
+* **Registres adaptatifs sombres (`V < -0.2`, Phase 8 `Q5.2`)** : resserrer `Chords/Pad` dans **`48–60`** et `Lead` dans **`60–72`** (au moins **`+5 st`** d'écart moyen entre centroïdes MIDI, vérifié par `chords_lead_register_gap_st` dans `musicality_metrics.py`).
 * Gammes couvertes par `song_builder.SCALES` : `ionian`/`major`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `aeolian`/`minor`, `harmonic_minor`, `melodic_minor`, `phrygian_dominant`, `locrian`, `pentatonic_minor`, `pentatonic_major`, `blues`.
 
 ---

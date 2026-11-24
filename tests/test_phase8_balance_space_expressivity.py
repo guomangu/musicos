@@ -359,19 +359,20 @@ class TestPhase8BalanceSpaceExpressivity(unittest.TestCase):
         )
         by_type = {p["type"]: {q["name"]: q for q in p["params"]} for p in catalog if p.get("type")}
         for plugin in gl_dsl.SYNTH_REGISTRY:
-            voice = gl_dsl.synth_voice(plugin, "chords", valence=-0.3, expressive=True)
-            params = by_type[plugin]
-            for name, value in voice.channel_params.items():
-                self.assertIn(name, params, f"{plugin}: unknown parameter {name}")
-                spec = params[name]
-                if spec.get("choices") is not None:
-                    self.assertGreaterEqual(int(value), 0)
-                    self.assertLess(int(value), len(spec["choices"]), f"{plugin}/{name}={value}")
-                else:
-                    self.assertGreaterEqual(float(value), float(spec["min"]) - 1e-6, f"{plugin}/{name}={value}")
-                    self.assertLessEqual(float(value), float(spec["max"]) + 1e-6, f"{plugin}/{name}={value}")
-            self.assertGreaterEqual(voice.makeup_gain_db, 0.0)
-            self.assertLessEqual(voice.makeup_gain_db, 2.5)
+            for role in ("pad", "chords", "lead", "pluck", "bell", "bass"):
+                voice = gl_dsl.synth_voice(plugin, role, valence=-0.3, expressive=True)
+                params = by_type[plugin]
+                for name, value in voice.channel_params.items():
+                    self.assertIn(name, params, f"{plugin}/{role}: unknown parameter {name}")
+                    spec = params[name]
+                    if spec.get("choices") is not None:
+                        self.assertGreaterEqual(int(value), 0)
+                        self.assertLess(int(value), len(spec["choices"]), f"{plugin}/{role}/{name}={value}")
+                    else:
+                        self.assertGreaterEqual(float(value), float(spec["min"]) - 1e-6, f"{plugin}/{role}/{name}={value}")
+                        self.assertLessEqual(float(value), float(spec["max"]) + 1e-6, f"{plugin}/{role}/{name}={value}")
+                self.assertGreaterEqual(voice.makeup_gain_db, 0.0)
+                self.assertLessEqual(voice.makeup_gain_db, 2.5)
 
         # Headless MCP acceptance for representative expressive synths
         with tempfile.TemporaryDirectory() as td:

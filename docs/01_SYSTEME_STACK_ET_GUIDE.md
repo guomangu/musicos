@@ -22,7 +22,7 @@ Prompt Utilisateur → [0. Sommaire] docs/00_SOMMAIRE.md
 ### 1.1 Environnement & Budget DSP Strict
 * **OS / Gridline / Python (`.venv`)** : Fedora + PipeWire (`quantum >= 1024`, `launch-gridline.sh`) · Gridline (`bufferFrames = 1024`, `freeze.autoHibernate = true`) · DSP rapide 0 GPU (`praat-parselmouth>=0.4.7`, `librosa`, `scipy`, `soundfile`, `essentia`, `mosqito`, `pyloudnorm`, `pyroomacoustics`, `pretty_midi`, `music21`, `jsonschema`) · Perceptuel CPU réservé au rendu final (`transformers`/CLAP, `audiobox_aesthetics`). Arborescence détaillée → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md).
 * **Filtrage & Enveloppe à la source (`gl_dsl.synth_voice`)** : tout synthé `gl.*` reçoit dès sa création son LPF et son enveloppe ADSR par rôle (`bass`/`chords`/`pad`/`lead`/`pluck`) + `Polyphony <= 12` (`<= 16` piano), `Unison <= 2`, `gl.eq Quality = 0` sur inserts (`1` sur `Master 0`), 1 seul bus `FX Room`.
-* **Template vide & Isolation (`1 sonorité = 1 piste dédiée`)** : `/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline` s'arrête à l'insert `16` ; `studio_lib.setup_standard_buses()` ajoute les bus `17..20`. Chaque sonorité (`Kick`, `Clap`, `HiHat`, `808`, `Chords`, `Lead`…) garde son canal, son insert, ses patterns propres et sa piste Playlist nommée.
+> - **Template vide & Isolation (`1 sonorité = 1 piste dédiée`)** : `/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline` s'arrête à l'insert `16` ; `studio_lib.setup_standard_buses()` ajoute les bus `17..22` (`BUS Drums`, `BUS Bass`, `BUS Music`, `FX Room 20`, `FX Delay 21`, `FX Hall 22`) + 2 étages de largeur mid/high sur `BUS Music`. Chaque sonorité (`Kick`, `Clap`, `HiHat`, `808`, `Chords`, `Lead`…) garde son canal, son insert, ses patterns propres et sa piste Playlist nommée.
 
 ---
 
@@ -73,16 +73,19 @@ Serveurs Python `mcp>=2.3.0` (`stdio`, logs sur `stderr`). Liste complète des o
 ### 3.2 Effets Natifs Clés & DSL Sémantique Obligatoire (`scripts/gl_dsl.py`)
 Ne plus calculer manuellement les unités internes Gridline (`k128`, `ds`, `hHz`, `Band N width` vs `legacy Q`) : utiliser **`gl_dsl.py`** + `ChannelSpec.role`/`cutoff_hz` :
 * **`gl.sampler`** : `plugin.data = "/chemin/absolu.wav"` (WAV 24-bit ; éviter `.sfz` externe, muet en GUI), `Root note`, `Fine tune` (cents signés exacts), `One shot`, `Voices` (`1` pour 808/sub, `12` pour accords), `Filter` (`1=LPF`, `2=LPF 24`), `Cutoff` (Hz), `Resonance`.
-* **Synthés (`synth_voice(plugin, role, valence, cutoff_hz)`)** : couvre 13 synthés `gl.*` dans `SYNTH_REGISTRY` (`gl.analog`, `gl.wavetable`, `gl.warmsynth`, `gl.dcosynth`, `gl.twinva`, `gl.sawswarm`, `gl.string`, `gl.pluck`, `gl.fm`, `gl.matrixfm`, `gl.keys`, `gl.fingerbass`, `gl.sampler`), en appliquant LPF + enveloppe ADSR adaptée au rôle + ajout auto d'un `gl.eq` insert si le synthé n'a pas de LPF interne (`gl.fm`, `gl.keys`, etc.).
+* **Synthés (`synth_voice(plugin, role, valence, cutoff_hz, expressive=True)`)** : couvre 13 synthés `gl.*` dans `SYNTH_REGISTRY` (`gl.analog`, `gl.wavetable`, `gl.warmsynth`, `gl.dcosynth`, `gl.twinva`, `gl.sawswarm`, `gl.string`, `gl.pluck`, `gl.fm`, `gl.matrixfm`, `gl.keys`, `gl.fingerbass`, `gl.sampler`), en appliquant LPF + enveloppe ADSR adaptée au rôle + ajout auto d'un `gl.eq` insert si le synthé n'a pas de LPF interne (`gl.fm`, `gl.keys`, etc.). **Phase 8 `Q6`** : `expressive=True` ajoute un mouvement LFO filtre/vélo/vibrato subtil uniquement via des paramètres vérifiés (`gridline plugin-params`) et expose `makeup_gain_db` (`+2.5/+1.5/0 dB` selon `cutoff < 3500 / < 5500 / >= 5500 Hz`), appliqué par l'étage É1 quand `soundcheck_metrics.json` existe.
+* **Espace 3D (`delay_send_fx`, `reverb_hall`)** : `delay_send_fx(bpm, valence, division="1/8.")` paramètre `gl.delay` synchro tempo (`Dry=0`, feedback `20-32 %`, low/high cut `400/3500 Hz`) ; `reverb_hall(decay_sec=1.8)` paramètre `gl.reverb` Hall (`Dry=0`, `Dry (full)=0`, `HPF 500`, `LPF 5500/4500 Hz`). `ChannelSpec.delay_send` / `hall_send` routent vers les inserts `21` / `22`.
 * **EQ (`eq_band`, `eq_params`, `eq_gain_to_auto`)** : traduit `type` (`"hpf"`, `"lpf"`, `"peak"`, `"notch"`, `"low_shelf"`, `"high_shelf"`, `"band_pass"` → `Peak=6`, jamais `4=Notch`), `q` → **`Band N width`** (`0.45`≈Q1.2 · `0.39`≈Q1.4 · `0.35`≈Q1.6 · `0.22`≈Q2.8) et `eq_gain_to_auto(gain_db)` pour les automations `Band N gain` (`[-18, +18] dB`).
-* **Reverb / Limiter / Sidechain / Automation** : `reverb_room(decay_sec, hpf_hz, lpf_hz, wet_pct, er_pct)` (force `Dry (full)=0`, gère `ds`/`k128`/`hHz`) · `limiter_master(gain_db, ceiling_db)` (force `Attack (look-ahead)=0.002`, `0.2 dB safety=1`) · `sidechain_send(src, dst, amount)` (`sidechain=True, preFader=True`) · `db_to_auto(db)` (fader `0..1.25`).
+* **Reverb / Limiter / Sidechain / Automation** : `reverb_room(decay_sec, hpf_hz, lpf_hz, wet_pct, er_pct)` (force `Dry (full)=0`, gère `ds`/`k128`/`hHz`) · `reverb_hall(...)` (Hall long, `Dry=0`) · `delay_send_fx(bpm, valence)` (`gl.delay` synchro BPM, feedback bande limitée) · `limiter_master(gain_db, ceiling_db)` (force `Attack (look-ahead)=0.002`, `0.2 dB safety=1`) · `sidechain_send(src, dst, amount)` (`sidechain=True, preFader=True`) · `db_to_auto(db)` (fader `0..1.25`).
 * **`gl.comp` / `gl.dist` / `gl.stereo`** : `comp` (`Detector input` `0=Main, 1=Sidechain`, `Threshold`, `Ratio`, `Attack`, `Release`, `Makeup`, `Lookahead`) · `dist` (`Mode=0 Soft`, `Oversampling=2`, `Remove DC=1`) · `stereo` (`Width=0.0` mono sur `BUS Bass`).
 
 ```python
-from gl_dsl import eq_band, eq_params, limiter_master, reverb_room, sidechain_send, synth_voice, to_mixer_params
-voice = synth_voice("gl.warmsynth", role="chords", valence=-0.6, cutoff_hz=4500.0)
+from gl_dsl import delay_send_fx, eq_band, eq_params, limiter_master, reverb_hall, reverb_room, sidechain_send, synth_voice, to_mixer_params
+voice = synth_voice("gl.warmsynth", role="chords", valence=-0.6, cutoff_hz=4500.0, expressive=True)
 eq_tuples = eq_params(3, [eq_band(1, "hpf", 220), eq_band(4, "peak", 800, -4.0, q=2.4), eq_band(7, "lpf", 10500)])
 fx_tuples = to_mixer_params(20, 1, reverb_room(decay_sec=0.35, hpf_hz=450, lpf_hz=6800, wet_pct=45))
+hall_tuples = to_mixer_params(22, 1, reverb_hall(decay_sec=1.8, valence=-0.4))
+delay_tuples = to_mixer_params(21, 1, delay_send_fx(bpm=132.0, valence=0.0))
 ```
 
 ### 3.3 Plugins Tiers Vérifiés (Session GUI `--attach` uniquement)

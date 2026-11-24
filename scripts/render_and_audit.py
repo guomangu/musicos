@@ -696,7 +696,7 @@ def _narrow_mix_mcp(
     for t in tracks:
         m_i = int(t.get("mixer", -1))
         for slot in _slots_for_plugin(t, "gl.stereo"):
-            if m_i in (17, 18, 19, 20, 21, 22):
+            if m_i in (17, 19, 20, 21, 22):
                 param_changes.extend([
                     (f"mixer/{m_i}/slot/{slot}/Reference engine", 1),
                     (f"mixer/{m_i}/slot/{slot}/Width", 0.80),

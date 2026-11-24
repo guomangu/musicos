@@ -8,7 +8,7 @@
 > - **É4 Boucle fermée & Auto-Fix** : Lancer `render_and_audit.py <projet.gridline> --profile <genre> --blueprint song_blueprint.json --range <b1>-<b2> --no-neural --auto-fix --max-passes 2` puis **1 seul rendu complet** `--mp3 --sections "..."` (`renders/autofix_history.json`).
 > - **Stems & Référence Spectrale** : Auditer les stems via `render_project_stems` + `analyze_stem_hierarchy` (`lead_vs_harmony_db >= 2.0`, `kick_bass_transient_overlap`, `pink_slope_db_per_oct` `-3..-6.5`). `render_and_audit` calcule aussi `spectral_match_score` (`0..1`) via `golden_references/spectral_profiles.json` (0 PyTorch).
 > - **Genres sans batterie (`has_drums=false` / `classical_ambient`)** : Passer `--no-drums` ou `--blueprint song_blueprint.json` (`"has_drums": false`) ; le gate désactive l'exigence `dynamic_arc` et filtre les résonances inter-harmoniques.
-> - **Topologie Buses (`setup_standard_buses`)** : `BUS Drums (17)` · `BUS Bass (18)` · `BUS Music (19)` · `FX Room (20)` · `Master (0)` configurés via **`scripts/gl_dsl.py`** (carte → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md)).
+> - **Topologie Buses (`setup_standard_buses`)** : `BUS Drums (17)` · `BUS Bass (18)` · `BUS Music (19)` · `FX Room (20)` · `FX Delay (21)` · `FX Hall (22)` · `Master (0)` configurés via **`scripts/gl_dsl.py`** (carte → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md)).
 
 ---
 
@@ -67,11 +67,13 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 
 ## Chapitre 2 — Topologie des Buses (`gl_dsl` + `studio_lib.setup_standard_buses`)
 
-`setup_standard_buses(mcp, bpm=..., profile=..., valence=...)` crée les pistes manquantes jusqu'à `20` et configure via `gl_dsl` :
+`setup_standard_buses(mcp, bpm=..., profile=..., valence=...)` crée les pistes manquantes jusqu'à `22` et configure via `gl_dsl` :
 1. **`BUS Drums` (Insert `17`)** : `gl.eq` (`HPF 34 Hz`, shelf `10 kHz` selon profil/valence) + `gl.comp` (`2.2:1`).
 2. **`BUS Bass` (Insert `18`)** : `gl.stereo` (`Width = 0.0`) + `gl.comp` sidechain (`1`, preFader Kick ; `2.4:1 / -18 dB / 65 ms` en `trap_rap`, `5:1` `edm_club`, `3:1` pop/rock/lofi, `1.5:1` acoustique) + `gl.eq` (`HPF 30 Hz`).
-3. **`BUS Music` (Insert `19`)** : `gl.dist` (`Mix=0.0` acoustique/classique, `0.06–0.10` moderne, `Tone<=7500`, `Remove DC=1`) → `gl.eq` (`HPF 90–135`, `LPF 8.5–13.5 kHz`, Peak `-2 dB @ 3.2k` si `V<-0.2`) → `gl.comp` glue (`Threshold=-13.5 dB`, préserve l'arc) → `gl.comp` ducking (`Detector=1`).
+3. **`BUS Music` (Insert `19`)** : `gl.dist` (`Mix=0.0` acoustique/classique, `0.06–0.10` moderne, `Tone<=7500`, `Remove DC=1`) → `gl.eq` (`HPF 90–135`, shelf `9.5 kHz`, `LPF 8.5–13.5 kHz`, Peak `-2 dB @ 3.2k` si `V<-0.2`) → `gl.comp` glue (`Threshold=-13.5 dB`, préserve l'arc) → `gl.comp` ducking (`Detector=1`) → **2 × `gl.stereo`** (largeur mid/high legacy, `Mono below=250 Hz`, `Dephase=0`). En `trap_rap`/`pop_rnb` sombres, LPF maintenu `>= 11.5 kHz` (garde-fou anti-sur-filtrage `Q3.3`).
 4. **`FX Room` (Insert `20`)** : `gl.reverb` via `gl_dsl.reverb_room()` (`Dry=0`, `Dry (full)=0`, `Decay <= T_noire` rythmique ou `0.7–1.1 s` acoustique/ambient ; jamais de send sur Kick/Sub/Hats).
+5. **`FX Delay` (Insert `21`)** : `gl.delay` via `delay_send_fx(bpm, valence)` (`Tempo sync`, croche pointée par défaut, `Feedback 20–32 %`, `Dry=0`) + `gl.eq` `HPF 400 / LPF 3500` (`2800` si `V<-0.2`). Sends `delay_send` (`0.08–0.18`) réservés à Lead/Pluck/Counter/Voix.
+6. **`FX Hall` (Insert `22`)** : `gl.reverb` Hall via `reverb_hall()` (`Decay 1.6–2.4 s`, `Dry=0`, `HPF 500 / LPF 5500`, `4500` si `V<-0.2`) + `gl.eq`. Sends `hall_send` (`0.14–0.30`) sur Pads/Strings/Ear Candy/Impacts (jamais Kick/Sub/Snare sec).
 5. **`Master` (`0`)** : `gl.eq` (`Quality=1`, `HPF 28`, `LPF 17k`) → `gl.comp` (`1.6:1`) → `gl.limiter` via `gl_dsl.limiter_master()` (`Attack=0.002`, `0.2 dB safety=1`, `Ceiling=-2.6..-2.1`).
 
 ---
@@ -102,6 +104,9 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
 | **`clipped > 0` / `true_peak > -1.0`** | `limiter_master(gain, ceiling - 0.4)` (`Attack=0.002`, `safety=1`). |
 | **`lufs` trop bas / haut** | Ajuster `Master slot 3 Gain` de `±Δ` (`|Δ| <= 4 dB`/passe, plafond `-1.2 dBTP`). |
 | **`low_end_corr < 0.50`** | `BUS Bass Width=0.0`, Kick `pan=0`, `fx_send=0` sur Kick/Basse, `BUS Music HPF >= 120`. |
+| **`stereo_width < min dB`** | `WIDEN_HARMONY_OR_PERC` : `gl.stereo` legacy (`Width 2.0`, `Side level 6-12`, `Mono below 250`) + sends `FX Hall` `+0.06` sur Chords/Pads. |
+| **`stereo_balance > 1.2 dB`** | `FIX_STEREO_BALANCE` : recentrer/nudge `±0.10-0.16` pan sur 1–2 inserts panoramiques, max 2 passes. |
+| **`lead_vs_harmony` hors `[+2.5,+9.5]`** | `ADJUST_TRACK_FADER(target_track, delta_db)` borné `±4 dB/passe` (cumul `8 dB`), `forbidden_tracks` respectés en É2. |
 | **`low_mid_corr < 0.55`** | `stabilize_stereo_low_mid()` sur le sample ou `mixer/N/stereo = -0.35`. |
 | **`sharpness >= max`** | Vérifier Lead `<= MIDI 74`, LPF synthé `5–7 kHz`, Peak `-3.5 dB @ 3.2 kHz` (`q=1.4`). |
 | **`micro_glitches > 0`** | `audit_project_sources.py --prepare-samples`, `fade_in >= 2 ms`, hats `Attack >= 4 ms`, `LPF 13 kHz`. |
@@ -174,8 +179,18 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
 
 * **3 Audits Psychoacoustiques `P3` (`deep_diagnostics.py`, `render_and_audit.py`)** :
   * **Masquage dynamique Bark (`analyze_dynamic_bark_masking`)** : mesure `SMR(t, b*)` sur les trames actives du `Lead` (> `-35 dBFS`) ; si `SMR < +1.5 dB` sur `> 25 %` des trames actives, déclenche `APPLY_DYNAMIC_MIRROR_EQ(freq_hz)` (`-3.5 dB`, `Q=1.8` sur `Chords/Pad` ou `BUS Music`).
+
   * **Plage Dynamique `LRA` (`compute_ebu_r128_stats` / `compute_lra_ebu`)** : contrôle EBU R128/Tech 3342 mono-passe (`edm/trap >= 2.5 LU`, `pop/rock/lofi >= 3.5 LU`, `jazz/classical >= 5.0 LU`) ; sous le seuil, `RELAX_BUS_COMPRESSION` relève `Threshold` `BUS Music` de `+2.5 dB` et ajuste `Gain` limiteur (`-1.5 dB`).
   * **Traduction Sub-Basse petits haut-parleurs (`analyze_bass_harmonic_translation`)** : sur basse `f0 < 65 Hz`, vérifie `R_trans = 10 log10(E[1.7 f0..3.4 f0] / E[0.8 f0..1.25 f0]) >= -14.0 dB` ; sinon `BOOST_BASS_HARMONICS(f0_hz)` active `gl.dist` Soft + boost `gl.eq +2.5 dB @ 2.5 f0`.
+
+---
+
+## Phase 8 — Équilibre Inter-Pistes, Espace 3D & Références Externes (`Q1..Q7`)
+
+* **Auto-gain staging É1 (`gain_staging_lib.py`)** : `measure_active_loudness()` (K-weighting BS.1770, trames `50 ms/hop 25 ms`, gates `-45 dBFS` + `-20 dB` relatif), 9 rôles canoniques, `ROLE_TARGET_OFFSETS_DB[mix_profile]` (ancre `kick` ou `lead`), peak guard `-2.0 dBFS`, `recommended_volume_auto` et `renders/gain_staging_report.json`.
+* **Matrice multi-stems bornée (`analyze_stem_hierarchy` v2)** : `lead_vs_harmony` `[+2.5,+9.5]`, `bass_vs_kick` `[-3.5,+2.0]`, `snare_vs_kick` `[-4.5,+1.5]`, `hihat_vs_kick` `[-14,-5.5]`, `counter_vs_lead` `[-12,-3]`, `vocals_vs_lead` `[+1,+6]` dB ; toute déviation émet `ADJUST_TRACK_FADER` (`±4 dB/passe`, cumul `8 dB`). `audit_section_track_audibility()` ajoute les planchers `section_lufs -13/-18/-22 dB` (`TRACK_UNDER_AUDIBLE_FLOOR`).
+* **Audit stéréo (`run_deep_audit`)** : `stereo_balance_db = |LUFS_L - LUFS_R| <= 1.2 dB` (`FIX_STEREO_BALANCE`) et `mid_high_side_to_mid_db` sur `500 Hz-8 kHz` (`[-14,-1.5]` rythmique, `[-18,-1.5]` jazz/classique) → `WIDEN_HARMONY_OR_PERC` / `NARROW_EXCESSIVE_SIDE`.
+* **Références externes (`bootstrap_golden_refs.py --external-dir`)** : `golden_references/external_masters/<profil>/` (2–3 masters, audio **jamais versionné**), empreintes `external_pro_reference` (`bark24`, pente rose, LUFS, LRA, crest, largeur, ratios de bandes) ; `taste_memory.record_validated_taste()` refuse `PQ < 7.8` sauf `--approve-taste` ; fusion `target_fingerprint` plafonnée à `30 %` (ou `60 %` approuvé) de mémoire de goût.
 * **Mémoire de Goût (`scripts/taste_memory.py` → `memory/user_taste_profile.json`)** :
   * `record_validated_taste()` mémorise automatiquement tout morceau `PASS` (hors dossiers temporaires, ou explicitement via `--approve-taste` poids `2.0`, max `50` entrées dédupliquées par `project_id`).
   * Si `reference_tracks` est vide au départ en É0, `target_fingerprint.py` interroge `query_taste_prior()` pondéré par distance euclidienne sur `(V, T, E, D)` **avant** le repli générique et inscrit `"source": "user_taste_memory"` dans `multi_scale_contract.json`.
