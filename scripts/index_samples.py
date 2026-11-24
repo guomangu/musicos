@@ -24,7 +24,14 @@ for _p in (SCRIPTS_DIR, INDEX_SERVER_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from indexer import DEFAULT_DB_PATH, DEFAULT_SAMPLES_DIR, enrich_clap_embeddings, index_directory
+from indexer import (
+    DEFAULT_DB_PATH,
+    DEFAULT_SAMPLES_DIR,
+    enrich_clap_embeddings,
+    index_directory,
+    init_db,
+    populate_semantic_cards,
+)
 
 DEFAULT_OUT_DB = DEFAULT_DB_PATH
 
@@ -59,8 +66,10 @@ def main() -> None:
     ap.add_argument("--input-dir", default=DEFAULT_SAMPLES_DIR, help="Root folder of samples to scan recursively.")
     ap.add_argument("--db-path", "--output-db", dest="db_path", default=DEFAULT_DB_PATH, help="Unified SQLite DB path.")
     ap.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Inference device for CLAP.")
-    ap.add_argument("--no-clap", action="store_true", help="Skip LAION-CLAP embeddings (fast DSP-only indexing).")
+    ap.add_argument("--no-clap", action="store_true", help="Skip LAION-CLAP embeddings (fast DSP-only indexing + DSP timbre_cards).")
+    ap.add_argument("--with-clap", action="store_true", help="Compute CLAP embeddings in batch offline and build CLAP timbre_cards.")
     ap.add_argument("--enrich-clap", action="store_true", help="Incrementally compute missing CLAP embeddings in SQLite.")
+    ap.add_argument("--populate-cards", action="store_true", help="Only build/refresh sample_semantic_cards in pure NumPy (0 PyTorch).")
     ap.add_argument("--batch-size", type=int, default=64, help="Batch size for incremental CLAP enrichment.")
     ap.add_argument("--force", action="store_true", help="Re-analyze all files ignoring mtime/size cache.")
     ap.add_argument("--limit", type=int, default=0, help="Optional max number of files to index.")
@@ -69,8 +78,12 @@ def main() -> None:
 
     target_db = DEFAULT_DB_PATH if args.db_path.endswith(".json") else os.path.abspath(os.path.expanduser(args.db_path))
 
-    if args.enrich_clap and not args.no_clap:
-        if not os.path.isfile(target_db) or args.force:
+    if args.populate_cards:
+        conn = init_db(target_db)
+        res = populate_semantic_cards(conn, force=args.force, limit=args.limit)
+        conn.close()
+    elif (args.enrich_clap or args.with_clap) and not args.no_clap:
+        if not os.path.isfile(target_db) or args.force or args.with_clap:
             index_directory(
                 samples_dir=os.path.abspath(os.path.expanduser(args.input_dir)),
                 db_path=target_db,

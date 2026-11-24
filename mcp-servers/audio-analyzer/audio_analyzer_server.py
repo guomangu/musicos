@@ -5,7 +5,15 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 from typing import Any
+
+_SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.dirname(os.path.dirname(_SERVER_DIR))
+_SCRIPTS_DIR = os.path.join(_ROOT_DIR, "scripts")
+for _d in (_SERVER_DIR, _SCRIPTS_DIR):
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
 
 import numpy as np
 import pyloudnorm as pyln
@@ -15,6 +23,7 @@ from scipy import signal
 
 from deep_diagnostics import (
     analyze_stem_hierarchy as _analyze_stem_hierarchy_impl,
+    analyze_vertical_stage as _analyze_vertical_stage_impl,
     audit_midi_file,
     inspect_pipewire,
     match_with_reference,
@@ -458,6 +467,146 @@ def analyze_stem_hierarchy(
         ensure_ascii=False,
         indent=2,
     )
+
+
+@mcp.tool()
+def audit_track_soundcheck(
+    project_dir: str = "",
+    wav_path: str = "",
+    role: str = "lead_melody",
+    track_name: str = "",
+    plugin: str = "gl.sampler",
+    sample_file: str = "",
+    root_note: int = 60,
+    fine_tune: int = 0,
+    lpf_hz: float | None = None,
+    volume: float = 0.80,
+    bpm: float = 132.0,
+    key: str = "C minor",
+    valence: float = 0.0,
+) -> str:
+    """
+    Sound Check unitaire d'une piste isolée (sample ou synthé gl.*) jouée sur 2–4 mesures :
+    vérifie audibilité, justesse jouée (<= 8 ct), intégrité chromatique, propreté spectrale
+    (2–5 kHz, 0 glitch), enveloppe vs BPM et fidélité sémantique -> verdict PASS / FIX / SWAP.
+    """
+    from soundcheck_lib import audit_track_soundcheck as _audit_sc
+
+    spec = None if wav_path.strip() else {
+        "name": track_name or role,
+        "role": role,
+        "plugin": plugin,
+        "sample_file": sample_file,
+        "root_note": root_note,
+        "fine_tune": fine_tune,
+        "lpf_hz": lpf_hz,
+        "volume": volume,
+    }
+    res = _audit_sc(
+        project_dir=project_dir,
+        track_spec=spec,
+        wav_path=wav_path,
+        role=role,
+        track_name=track_name or role,
+        bpm=bpm,
+        key=key,
+        valence=valence,
+    )
+    return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def audit_vertical_step(
+    stage: str,
+    project_path: str = "",
+    wav_path: str = "",
+    profile: str = "trap_rap",
+    blueprint_path: str = "",
+    range_bars: str = "",
+    stems_dir: str = "",
+    render_stems: bool = True,
+) -> str:
+    """
+    Audit incrémental d'un palier vertical du noyau 4/8 mesures (`V1_LOW_END`, `V2_GROOVE`, `V3_HARMONY`, `V4_LEAD`) :
+    peut soit muter/rendre automatiquement `core_loop.gridline` (`project_path`), soit auditer directement un WAV (`wav_path`).
+    Retourne verdict PASS/FIX/SWAP, score, diagnostic 1–3 phrases et action unique ciblée sur la couche k.
+    """
+    bp_dict: dict[str, Any] | None = None
+    if blueprint_path.strip() and os.path.isfile(os.path.expanduser(blueprint_path)):
+        with open(os.path.expanduser(blueprint_path), encoding="utf-8") as fh:
+            bp_dict = json.load(fh)
+
+    if project_path.strip() and not wav_path.strip():
+        from vertical_tester import run_vertical_stage
+
+        res = run_vertical_stage(
+            project_path=project_path,
+            stage=stage,
+            profile=profile,
+            blueprint=bp_dict or (blueprint_path or None),
+            range_bars=range_bars,
+            render_stems_for_stage=render_stems,
+        )
+    else:
+        res = _analyze_vertical_stage_impl(
+            wav_path=wav_path,
+            stage=stage,
+            profile=profile,
+            blueprint=bp_dict,
+            stems=stems_dir.strip() or None,
+        )
+    return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def audit_horizontal_seam(
+    project_path: str = "",
+    wav_path: str = "",
+    is_outro: bool = False,
+    from_section: str = "Intro",
+    to_section: str = "Drop",
+    blueprint_path: str = "",
+    bpm: float = 132.0,
+    beats_per_bar: int = 4,
+    bars_before: float = 2.0,
+    bars_after: float = 2.0,
+    max_seams: int = 6,
+) -> str:
+    """
+    Audit ciblé des coutures horizontales (fenêtres 4 mesures centrées sur chaque transition + Outro) :
+    vérifie contraste d'énergie (ΔLUFS), marqueur de transition (beat4_dropout / filter_sweep),
+    propreté de jonction (±150 ms, 0 glitch) et extinction propre de l'Outro (< -45 dBFS).
+    """
+    from horizontal_tester import (
+        audit_outro_wav,
+        audit_project_horizontal_seams,
+        audit_seam_wav,
+    )
+
+    if wav_path.strip():
+        if is_outro:
+            res = audit_outro_wav(wav_path)
+        else:
+            res = audit_seam_wav(
+                wav_path,
+                from_section=from_section,
+                to_section=to_section,
+                bpm=bpm,
+                beats_per_bar=beats_per_bar,
+                bars_before=bars_before,
+                bars_after=bars_after,
+            )
+    elif project_path.strip():
+        res = audit_project_horizontal_seams(
+            project_path,
+            blueprint=blueprint_path.strip() or None,
+            bpm=bpm,
+            beats_per_bar=beats_per_bar,
+            max_seams=max_seams,
+        )
+    else:
+        res = {"error": "Fournir `project_path` ou `wav_path`."}
+    return json.dumps(res, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()

@@ -966,6 +966,436 @@ def analyze_stem_hierarchy(
     }
 
 
+VERTICAL_STAGES = ("V1_LOW_END", "V2_GROOVE", "V3_HARMONY", "V4_LEAD")
+
+_VERTICAL_PROFILE_LIMITS: dict[str, dict[str, float]] = {
+    "trap_rap":          {"low_mids_max": 24.0, "sharp_max": 1.90, "dark_sharp_max": 1.85, "pink_min": -5.5, "pink_max": -2.8},
+    "pop_rnb":           {"low_mids_max": 26.0, "sharp_max": 1.95, "dark_sharp_max": 1.85, "pink_min": -5.5, "pink_max": -2.8},
+    "edm_club":          {"low_mids_max": 24.0, "sharp_max": 2.05, "dark_sharp_max": 1.90, "pink_min": -5.5, "pink_max": -2.5},
+    "rock_metal":        {"low_mids_max": 28.0, "sharp_max": 2.10, "dark_sharp_max": 1.90, "pink_min": -5.5, "pink_max": -2.5},
+    "lofi_chill":        {"low_mids_max": 34.0, "sharp_max": 1.75, "dark_sharp_max": 1.75, "pink_min": -6.2, "pink_max": -3.0},
+    "jazz_acoustic":     {"low_mids_max": 36.0, "sharp_max": 1.85, "dark_sharp_max": 1.80, "pink_min": -6.0, "pink_max": -3.0},
+    "classical_ambient": {"low_mids_max": 40.0, "sharp_max": 1.75, "dark_sharp_max": 1.75, "pink_min": -6.5, "pink_max": -3.0},
+}
+
+
+def _detect_bass_harmony_chroma_clash(mono: np.ndarray, sr: int) -> dict[str, Any]:
+    """
+    Detect persistent bass (< 220 Hz) vs harmony (220-1800 Hz) minor-2nd chroma clashes
+    without false-positiving on legitimate maj7/m9 voicings (requires bass pitch class to be
+    weak in harmony while its semitone neighbor dominates).
+    """
+    if len(mono) < sr // 2:
+        return {"clash_ratio": 0.0, "active_frames": 0, "clash_detected": False}
+    try:
+        sos_b = signal.butter(4, [42.0, 220.0], btype="bandpass", fs=sr, output="sos")
+        sos_h = signal.butter(4, [220.0, min(1800.0, 0.45 * sr)], btype="bandpass", fs=sr, output="sos")
+        y_b = signal.sosfiltfilt(sos_b, mono.astype(np.float64)).astype(np.float32)
+        y_h = signal.sosfiltfilt(sos_h, mono.astype(np.float64)).astype(np.float32)
+
+        hop = 2048
+        # Use Constant-Q chroma with fixed tuning=0.0 so C2 (65.4Hz) and C#2 (69.3Hz)
+        # are cleanly resolved (STFT bins at 44.1kHz are too coarse below 150Hz).
+        c_b = librosa.feature.chroma_cqt(
+            y=y_b, sr=sr, hop_length=hop, fmin=32.703, n_octaves=3, bins_per_octave=24, tuning=0.0
+        )
+        c_h = librosa.feature.chroma_cqt(
+            y=y_h, sr=sr, hop_length=hop, fmin=130.813, n_octaves=4, bins_per_octave=24, tuning=0.0
+        )
+        r_b = librosa.feature.rms(y=y_b, frame_length=4096, hop_length=hop)[0]
+        r_h = librosa.feature.rms(y=y_h, frame_length=4096, hop_length=hop)[0]
+
+        n_f = min(c_b.shape[1], c_h.shape[1], len(r_b), len(r_h))
+        if n_f < 3:
+            return {"clash_ratio": 0.0, "active_frames": 0, "clash_detected": False}
+
+        th_b = max(1e-4, 0.20 * float(np.max(r_b)))
+        th_h = max(1e-4, 0.20 * float(np.max(r_h)))
+        active = 0
+        clashes = 0
+        for i in range(n_f):
+            if r_b[i] < th_b or r_h[i] < th_h:
+                continue
+            vb = c_b[:, i]
+            vh = c_h[:, i]
+            mb = float(np.max(vb))
+            mh = float(np.max(vh))
+            if mb < 1e-6 or mh < 1e-6:
+                continue
+            active += 1
+            b_pc = int(np.argmax(vb))
+            h_norm = vh / mh
+            semitone_hi = float(h_norm[(b_pc + 1) % 12])
+            semitone_lo = float(h_norm[(b_pc - 1) % 12])
+            bass_in_harm = float(h_norm[b_pc])
+            # True tonal clash: harmony strongly emphasizes semitone neighbor while bass root is absent
+            if max(semitone_hi, semitone_lo) >= 0.72 and bass_in_harm <= 0.35:
+                clashes += 1
+
+        ratio = round(clashes / float(active), 3) if active > 0 else 0.0
+        return {
+            "clash_ratio": ratio,
+            "active_frames": active,
+            "clash_detected": bool(active >= 4 and ratio >= 0.35),
+        }
+    except Exception:
+        return {"clash_ratio": 0.0, "active_frames": 0, "clash_detected": False}
+
+
+def analyze_vertical_stage(
+    wav_path: str,
+    stage: str,
+    profile: str = "trap_rap",
+    blueprint: dict[str, Any] | None = None,
+    stems: dict[str, str] | str | None = None,
+) -> dict[str, Any]:
+    """
+    Incremental vertical stage audit (RFC §4.2):
+      - `V1_LOW_END`: Kick + Bass/808 separation, low_end_corr < 150 Hz, sub inertia
+      - `V2_GROOVE`: V1 + Snare/Clap/Hats sharpness, 2.5-4.5 kHz peaks, anti-machine-gun variance
+      - `V3_HARMONY`: V2 + Chords/Pad chroma conflict vs bass, low_mids 250-500 Hz, low_mid_corr
+      - `V4_LEAD`: V3 + Lead/Vocals hierarchy, breathing silence ratio, pink slope, spectral match
+    Returns concise uniform JSON contract (`stage`, `verdict`, `score`, `human_diagnosis`, `next_action`).
+    """
+    st_norm = str(stage).strip().upper()
+    if st_norm not in VERTICAL_STAGES:
+        raise ValueError(f"Invalid vertical stage {stage!r}; expected one of {VERTICAL_STAGES}")
+
+    prof = profile if profile in _VERTICAL_PROFILE_LIMITS else "trap_rap"
+    limits = _VERTICAL_PROFILE_LIMITS[prof]
+    bp = blueprint or {}
+    ev = bp.get("emotion_vector") or {}
+    valence = float(ev.get("valence", 0.0))
+    is_dark = valence < -0.2
+    has_drums = bool(bp["has_drums"]) if "has_drums" in bp else (prof != "classical_ambient")
+
+    # V2_GROOVE automatically skipped when has_drums=False
+    if st_norm == "V2_GROOVE" and not has_drums:
+        return {
+            "stage": st_norm,
+            "verdict": "PASS",
+            "score": 1.0,
+            "skipped": True,
+            "human_diagnosis": [
+                f"Palier V2_GROOVE ignoré (has_drums=false pour profil '{prof}').",
+            ],
+            "next_action": {"code": "ADVANCE_TO_V3_HARMONY", "params": {"next_stage": "V3_HARMONY"}},
+            "checks": {"skipped_no_drums": True},
+            "metrics": {},
+        }
+
+    abs_wav = os.path.abspath(os.path.expanduser(wav_path))
+    if not os.path.isfile(abs_wav):
+        raise FileNotFoundError(f"Vertical stage WAV not found: {abs_wav}")
+
+    data, sr = sf.read(abs_wav, dtype="float64", always_2d=True)
+    mono = np.mean(data, axis=1)
+    rms = float(np.sqrt(np.mean(mono**2))) if len(mono) else 0.0
+    rms_db = _lin_to_db(rms)
+    if rms_db < -48.0:
+        return {
+            "stage": st_norm,
+            "verdict": "FAIL",
+            "score": 0.0,
+            "skipped": False,
+            "human_diagnosis": [f"Rendu {st_norm} silencieux (RMS {rms_db} dBFS)."],
+            "next_action": {"code": "CHECK_LAYER_MUTING_OR_LEVEL", "params": {"stage": st_norm}},
+            "checks": {"audible": False},
+            "metrics": {"rms_dbfs": rms_db},
+        }
+
+    # Shared spectral & stereo calculations
+    nperseg = min(16384, max(256, len(mono)))
+    freqs, psd = signal.welch(mono, fs=sr, nperseg=nperseg, scaling="spectrum")
+    tot_e = float(np.sum(psd)) + 1e-18
+
+    def _band_pct(lo: float, hi: float) -> float:
+        m = (freqs >= lo) & (freqs < min(hi, sr * 0.495))
+        return round(100.0 * float(np.sum(psd[m])) / tot_e, 2) if np.any(m) else 0.0
+
+    # Low-end stereo correlation (< 150 Hz) & low-mid (200-800 Hz)
+    low_end_corr = 1.0
+    low_mid_corr = 1.0
+    if data.shape[1] >= 2:
+        sos_le = signal.butter(4, min(150.0, sr * 0.45), btype="lowpass", fs=sr, output="sos")
+        l_le, r_le = signal.sosfiltfilt(sos_le, data[:, 0]), signal.sosfiltfilt(sos_le, data[:, 1])
+        d_le = float(np.sqrt(np.sum(l_le**2) * np.sum(r_le**2))) + 1e-18
+        low_end_corr = round(float(np.sum(l_le * r_le) / d_le), 3)
+
+        sos_lm = signal.butter(4, [200.0, 800.0], btype="bandpass", fs=sr, output="sos")
+        l_lm, r_lm = signal.sosfiltfilt(sos_lm, data[:, 0]), signal.sosfiltfilt(sos_lm, data[:, 1])
+        d_lm = float(np.sqrt(np.sum(l_lm**2) * np.sum(r_lm**2))) + 1e-18
+        low_mid_corr = round(float(np.sum(l_lm * r_lm) / d_lm), 3)
+
+    stems_dir = stems if isinstance(stems, str) and os.path.isdir(stems) else ""
+    stems_map = stems if isinstance(stems, dict) else {}
+
+    checks: dict[str, bool] = {}
+    metrics: dict[str, Any] = {"rms_dbfs": rms_db}
+    diag: list[str] = []
+    next_action: dict[str, Any] = {"code": "ADVANCE_NEXT_STAGE", "params": {}}
+    score = 1.0
+
+    if st_norm == "V1_LOW_END":
+        sub_20_45 = _band_pct(20.0, 45.0)
+        low_50_100 = _band_pct(50.0, 100.0)
+        low_total = max(0.01, _band_pct(20.0, 150.0))
+        infra_ratio = round(sub_20_45 / low_total, 3)
+
+        overlap: float | None = None
+        if stems_dir:
+            hier = analyze_stem_hierarchy(stems_dir=stems_dir, has_drums=has_drums)
+            overlap = (hier.get("metrics") or {}).get("kick_bass_transient_overlap")
+        elif stems_map.get("kick") and stems_map.get("bass"):
+            k_d, k_sr = sf.read(stems_map["kick"], always_2d=True, dtype="float64")
+            b_d, b_sr = sf.read(stems_map["bass"], always_2d=True, dtype="float64")
+            km = np.mean(k_d, axis=1)
+            bm = np.mean(b_d, axis=1)
+            n_min = min(len(km), len(bm))
+            if n_min > sr // 4:
+                sos_lp = signal.butter(4, 150.0, btype="lowpass", fs=k_sr, output="sos")
+                ek = np.abs(signal.sosfiltfilt(sos_lp, km[:n_min]))
+                eb = np.abs(signal.sosfiltfilt(sos_lp, bm[:n_min]))
+                hop = max(1, int(0.01 * k_sr))
+                nf = n_min // hop
+                ek_f = np.sqrt(np.mean(ek[: nf * hop].reshape(nf, hop) ** 2, axis=1))
+                eb_f = np.sqrt(np.mean(eb[: nf * hop].reshape(nf, hop) ** 2, axis=1))
+                pks, _ = signal.find_peaks(ek_f, height=max(1e-4, 0.25 * float(np.max(ek_f))), distance=12)
+                msk = np.zeros(nf, dtype=bool)
+                for pk in pks:
+                    msk[max(0, pk - 1) : min(nf, pk + 7)] = True
+                if np.sum(msk) >= 4 and np.std(ek_f[msk]) > 1e-9 and np.std(eb_f[msk]) > 1e-9:
+                    overlap = round(float(np.corrcoef(ek_f[msk], eb_f[msk])[0, 1]), 3)
+
+        corr_thresh = 0.70 if has_drums else 0.40
+        corr_ok = (low_end_corr >= corr_thresh) or (low_total < 5.0 and not has_drums)
+        overlap_ok = True if overlap is None else (overlap <= 0.30)
+        infra_ok = (infra_ratio <= 0.42) or (low_total < 8.0)
+
+        checks.update({"low_end_corr_ok": corr_ok, "transient_overlap_ok": overlap_ok, "infra_sub_ok": infra_ok})
+        metrics.update({
+            "low_end_corr": low_end_corr,
+            "kick_bass_transient_overlap": overlap,
+            "energy_50_100hz_pct": low_50_100,
+            "infra_sub_ratio_lt45hz": infra_ratio,
+        })
+
+        if not corr_ok:
+            score -= 0.35
+            diag.append(f"Phase grave < 150 Hz trop large (corr={low_end_corr} < {corr_thresh}) : forcer mono sur BUS Bass.")
+            next_action = {"code": "MONO_LOW_END", "params": {"mixer": 18, "plugin": "gl.stereo", "Width": 0.0}}
+        if not overlap_ok:
+            score -= 0.35
+            diag.append(f"Masquage Kick/Basse < 150 Hz (overlap={overlap} > 0.30) : renforcer sidechain ou apply_haas_pocket +12 ms.")
+            next_action = {"code": "ADJUST_SIDECHAIN_OR_POCKET", "params": {"sidechain_level": 1.0, "haas_bass_ms": 12.0}}
+        if not infra_ok:
+            score -= 0.25
+            diag.append(f"Infra-sub excessif < 45 Hz ({infra_ratio*100:.0f}% du grave) : monter Root note +12 st ou HPF 32 Hz.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "RAISE_SUB_OCTAVE_OR_HPF", "params": {"root_note_delta_st": 12, "hpf_hz": 32}}
+        if not diag:
+            diag.append(f"Palier V1_LOW_END propre : phase grave {low_end_corr} (>= {corr_thresh}), bas du spectre maîtrisé.")
+            next_action = {"code": "ADVANCE_TO_V2_GROOVE", "params": {"next_stage": "V2_GROOVE"}}
+
+    elif st_norm == "V2_GROOVE":
+        third_oct = _third_octave_profile(mono.astype(np.float32), sr)
+        peaks_25_45 = [
+            b for b in third_oct
+            if 2500.0 <= b["freq_hz"] <= 4500.0 and b.get("is_local_peak", True) and b["local_excess_db"] >= 5.5
+        ]
+        sharp_max = limits["dark_sharp_max"] if is_dark else limits["sharp_max"]
+        sharp_val = 0.0
+        try:
+            import mosqito
+            with contextlib.redirect_stdout(sys.stderr):
+                sharp_val = round(float(mosqito.sharpness_din_st(mono[: min(len(mono), sr * 8)].astype(np.float64), fs=sr, weighting="din")), 3)
+        except Exception:
+            sharp_val = 0.0
+
+        # Hi-hat band (5-14 kHz) anti-machine-gun variance check
+        hat_cv: float | None = None
+        hat_ok = True
+        try:
+            sos_hh = signal.butter(4, [5000.0, min(14000.0, sr * 0.45)], btype="bandpass", fs=sr, output="sos")
+            y_hh = signal.sosfiltfilt(sos_hh, mono)
+            if float(np.sqrt(np.mean(y_hh**2))) > 1e-4:
+                o_env = librosa.onset.onset_strength(y=y_hh.astype(np.float32), sr=sr, hop_length=256)
+                pks, _ = signal.find_peaks(o_env, height=0.25 * float(np.max(o_env)), distance=max(2, int(0.06 * sr / 256)))
+                if len(pks) >= 6:
+                    vals = o_env[pks]
+                    hat_cv = round(float(np.std(vals) / (float(np.mean(vals)) + 1e-9)), 3)
+                    hat_ok = hat_cv >= 0.03
+        except Exception:
+            pass
+
+        sharp_ok = sharp_val < sharp_max
+        peaks_ok = len(peaks_25_45) == 0
+        checks.update({"sharpness_ok": sharp_ok, "no_harsh_drum_peaks": peaks_ok, "hat_groove_variance_ok": hat_ok})
+        metrics.update({
+            "sharpness_din_acum": sharp_val,
+            "sharp_max": sharp_max,
+            "peaks_2500_4500hz": peaks_25_45[:3],
+            "hat_velocity_cv": hat_cv,
+            "crest_factor_db": round(_lin_to_db(float(np.max(np.abs(mono)))) - rms_db, 2),
+        })
+
+        if not sharp_ok:
+            score -= 0.35
+            diag.append(f"Batterie trop aiguë/agressive (sharpness={sharp_val} >= {sharp_max}) : baisser hats -2 dB ou creuser 3.2 kHz.")
+            next_action = {"code": "TAME_DRUMS_OR_HATS", "params": {"eq_cut_hz": 3200.0, "eq_cut_db": -3.0, "hat_volume_delta_db": -2.0}}
+        if not peaks_ok:
+            score -= 0.30
+            f_pk = peaks_25_45[0]["freq_hz"]
+            diag.append(f"Pic étroit batterie à {f_pk:.0f} Hz (+{peaks_25_45[0]['local_excess_db']} dB) : EQ Peak -3 dB.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "TAME_DRUMS_OR_HATS", "params": {"eq_cut_hz": f_pk, "eq_cut_db": -3.0, "q": 2.8}}
+        if not hat_ok:
+            score -= 0.25
+            diag.append(f"Hi-hats trop mécaniques ('mitraillette', CV={hat_cv}) : appliquer groove_lib.apply_anti_machine_gun.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "APPLY_ANTI_MACHINE_GUN", "params": {"target": "hihat_perc"}}
+        if not diag:
+            diag.append(f"Palier V2_GROOVE validé : sharpness={sharp_val} (< {sharp_max}), 0 pic 2.5-4.5 kHz, groove vivant.")
+            next_action = {"code": "ADVANCE_TO_V3_HARMONY", "params": {"next_stage": "V3_HARMONY"}}
+
+    elif st_norm == "V3_HARMONY":
+        low_mids_pct = _band_pct(250.0, 500.0)
+        lm_max = limits["low_mids_max"]
+        corr_min = 0.55 if prof == "classical_ambient" else 0.65
+        chroma_info = _detect_bass_harmony_chroma_clash(mono, sr)
+
+        lm_ok = low_mids_pct <= lm_max
+        corr_ok = low_mid_corr >= corr_min
+        chroma_ok = not chroma_info["clash_detected"]
+
+        checks.update({"low_mids_ok": lm_ok, "low_mid_corr_ok": corr_ok, "chroma_consonance_ok": chroma_ok})
+        metrics.update({
+            "low_mids_pct": low_mids_pct,
+            "low_mids_max": lm_max,
+            "low_mid_corr": low_mid_corr,
+            "low_mid_corr_min": corr_min,
+            "bass_harmony_chroma_clash": chroma_info,
+        })
+
+        if not chroma_ok:
+            score -= 0.45
+            diag.append(
+                f"Conflit tonal audio détecté entre basse et accords (clash_ratio={chroma_info['clash_ratio']}) : "
+                "vérifier Root note / Fine tune ou accordage de la couche Chords."
+            )
+            next_action = {"code": "FIX_HARMONY_CHROMA_CLASH", "params": {"target_layer": "Chords", "clash_ratio": chroma_info["clash_ratio"]}}
+        if not lm_ok:
+            score -= 0.30
+            diag.append(f"Bas-médiums chargés (250-500 Hz = {low_mids_pct}% > {lm_max}%) : HPF 180 Hz + Peak -3.5 dB @ 300 Hz sur Chords.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "CARVE_HARMONY_LOW_MIDS", "params": {"hpf_hz": 180.0, "peak_hz": 300.0, "peak_db": -3.5}}
+        if not corr_ok:
+            score -= 0.25
+            diag.append(f"Phase bas-médiums trop large (corr={low_mid_corr} < {corr_min}) : appliquer stabilize_stereo_low_mid.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "STABILIZE_HARMONY_PHASE", "params": {"cutoff_hz": 650.0, "side_keep_low": 0.18}}
+        if not diag:
+            diag.append(f"Palier V3_HARMONY validé : bas-médiums {low_mids_pct}% (<= {lm_max}%), phase {low_mid_corr}, 0 conflit tonal.")
+            next_action = {"code": "ADVANCE_TO_V4_LEAD", "params": {"next_stage": "V4_LEAD"}}
+
+    else:  # V4_LEAD
+        pink_slope = compute_pink_slope_db_per_oct(mono, sr)
+        lead_vs_harm: float | None = None
+        lead_silence_ratio: float | None = None
+
+        if stems_dir:
+            hier = analyze_stem_hierarchy(stems_dir=stems_dir, has_drums=has_drums)
+            hm = hier.get("metrics") or {}
+            lead_vs_harm = hm.get("lead_vs_harmony_db")
+            if hm.get("lead_active_pct") is not None:
+                lead_silence_ratio = round(1.0 - float(hm["lead_active_pct"]) / 100.0, 3)
+        elif stems_map.get("lead") and stems_map.get("harmony"):
+            ld, lsr = sf.read(stems_map["lead"], always_2d=True, dtype="float64")
+            hd, _ = sf.read(stems_map["harmony"], always_2d=True, dtype="float64")
+            lm = np.mean(ld, axis=1)
+            hm_s = np.mean(hd, axis=1)
+            n_min = min(len(lm), len(hm_s))
+            if n_min > lsr // 4:
+                sos_bp = signal.butter(4, [800.0, min(3500.0, 0.45 * lsr)], btype="bandpass", fs=lsr, output="sos")
+                l_bp = signal.sosfiltfilt(sos_bp, lm[:n_min])
+                h_bp = signal.sosfiltfilt(sos_bp, hm_s[:n_min])
+                win = max(1, int(0.05 * lsr))
+                nf = n_min // win
+                l_raw_f = np.sqrt(np.mean(lm[: nf * win].reshape(nf, win) ** 2, axis=1))
+                act = l_raw_f >= max(1e-4, 0.15 * float(np.max(l_raw_f)))
+                if np.any(act):
+                    lb = float(np.sqrt(np.mean(l_bp[: nf * win].reshape(nf, win)[act] ** 2)))
+                    hb = float(np.sqrt(np.mean(h_bp[: nf * win].reshape(nf, win)[act] ** 2)))
+                    lead_vs_harm = round(float(20.0 * math.log10((lb + 1e-9) / (hb + 1e-9))), 2)
+                    lead_silence_ratio = round(1.0 - float(np.mean(act)), 3)
+
+        spec_match = None
+        try:
+            scripts_d = str(Path(__file__).resolve().parents[2] / "scripts")
+            if scripts_d not in sys.path:
+                sys.path.insert(0, scripts_d)
+            from bootstrap_golden_refs import compute_spectral_match
+            sm = compute_spectral_match(mono=mono, sr=sr, profile=prof)
+            spec_match = sm.get("spectral_match_score")
+        except Exception:
+            spec_match = None
+
+        lead_ok = True if lead_vs_harm is None else (lead_vs_harm >= 2.0)
+        slope_ok = (limits["pink_min"] <= pink_slope <= limits["pink_max"])
+        mid_1_3k_pct = _band_pct(1000.0, 3000.0)
+        masking_1_3k_ok = mid_1_3k_pct <= 48.0
+
+        checks.update({"lead_hierarchy_ok": lead_ok, "pink_slope_ok": slope_ok, "no_mid_congestion_1_3k": masking_1_3k_ok})
+        metrics.update({
+            "lead_vs_harmony_db": lead_vs_harm,
+            "lead_silence_ratio": lead_silence_ratio,
+            "pink_slope_db_per_oct": pink_slope,
+            "pink_slope_range": [limits["pink_min"], limits["pink_max"]],
+            "spectral_match_score": spec_match,
+            "band_1_3khz_pct": mid_1_3k_pct,
+        })
+
+        if not lead_ok:
+            score -= 0.40
+            diag.append(f"Lead masqué par l'harmonie ({lead_vs_harm:+.2f} dB < +2.0 dB) : EQ miroir -3 dB @ 1.8 kHz sur Chords ou +2 dB Lead.")
+            next_action = {"code": "CARVE_LEAD_POCKET", "params": {"chords_eq_hz": 1800.0, "chords_eq_db": -3.0, "lead_gain_db": 2.0}}
+        if not slope_ok:
+            score -= 0.25
+            direction = "trop sombre/boomy" if pink_slope < limits["pink_min"] else "trop brillant/agressif"
+            diag.append(f"Pente rose hors cible ({pink_slope:.2f} dB/oct, {direction}) : ajuster équilibre aigu/grave de la couche Lead.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {
+                    "code": "ADJUST_LEAD_TONAL_BALANCE",
+                    "params": {"pink_slope_db_per_oct": pink_slope, "direction": direction},
+                }
+        if not masking_1_3k_ok:
+            score -= 0.20
+            diag.append(f"Congestion 1-3 kHz ({mid_1_3k_pct}%) : creuser Chords -3 dB @ 2 kHz.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "CARVE_LEAD_POCKET", "params": {"chords_eq_hz": 2000.0, "chords_eq_db": -3.0}}
+        if not diag:
+            diag.append(
+                f"Palier V4_LEAD validé : pente rose {pink_slope:.2f} dB/oct"
+                + (f", Lead/Harmonie {lead_vs_harm:+.1f} dB" if lead_vs_harm is not None else "")
+                + (f", spectral_match={spec_match}" if spec_match is not None else "")
+                + " -> noyau verrouillable."
+            )
+            next_action = {"code": "LOCK_CORE_LOOP", "params": {"core_loop_locked": True}}
+
+    all_ok = all(checks.values())
+    verdict = "PASS" if all_ok else ("SWAP" if score < 0.45 else "FIX")
+    return {
+        "stage": st_norm,
+        "verdict": verdict,
+        "score": round(max(0.0, min(1.0, score)), 4),
+        "skipped": False,
+        "human_diagnosis": diag[:3],
+        "next_action": next_action,
+        "checks": checks,
+        "metrics": metrics,
+    }
+
+
 def inspect_pipewire() -> dict[str, Any]:
     """Vérifie le quantum PipeWire, la présence d'un casque Bluetooth et les xruns temps réel."""
     try:

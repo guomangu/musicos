@@ -566,6 +566,123 @@ def build_gridline_project(
         mcp.close()
 
 
+def select_core_section(
+    sections: list[tuple[str, int, int, str]],
+    tracks: dict[str, list[dict[str, Any]]] | None = None,
+    beats_per_bar: int = 4,
+    max_bars: int = 8,
+) -> tuple[str, int, int, str]:
+    """
+    Pick the densest Refrain / Drop / Chorus / Climax section (clamped to 4 or 8 bars)
+    for Stage 2 incremental vertical testing (`--core-only`).
+    Note: `start_bar` in `sections` is 0-indexed (matching `build_gridline_project`).
+    """
+    if not sections:
+        raise ValueError("sections cannot be empty")
+
+    priority_kw = ("drop", "refrain", "chorus", "climax", "hook", "peak")
+    best_sec = sections[0]
+    best_rank = -1.0
+
+    for sec in sections:
+        sec_name, start_bar, bars, kind = sec
+        hay = f"{sec_name} {kind}".lower()
+        score = 2.0 if any(k in hay for k in priority_kw) else 0.0
+        if tracks:
+            s0 = float(start_bar * beats_per_bar)
+            s1 = float((start_bar + bars) * beats_per_bar)
+            active_tr = sum(
+                1 for evs in tracks.values()
+                if any(s0 - 1e-6 <= float(e["start"]) < s1 - 1e-6 for e in evs)
+            )
+            score += float(active_tr)
+        if score > best_rank:
+            best_rank = score
+            best_sec = sec
+
+    name, start_bar, bars, kind = best_sec
+    eff_bars = min(int(bars), int(max_bars))
+    return (name, int(start_bar), max(1, eff_bars), kind)
+
+
+def build_core_loop_project(
+    proj_path: str,
+    export_dir: str,
+    samples_dir: str,
+    meta: dict[str, Any],
+    sections: list[tuple[str, int, int, str]],
+    channels: list[ChannelSpec],
+    tracks: dict[str, list[dict[str, Any]]],
+    *,
+    max_bars: int = 8,
+    insert_eq_params: list[tuple[str, Any]] | None = None,
+    insert_eq_mixers: list[int] | None = None,
+    bus_eq_params: list[tuple[str, Any]] | None = None,
+    extra_plugins: list[tuple[int, str]] | None = None,
+    limiter_ceiling_db: float = -2.55,
+    limiter_gain_db: float = 12.0,
+    fx_room_vol: float = 0.32,
+    min_pattern_lufs: float = -36.0,
+) -> dict[str, Any]:
+    """
+    Build a compact 4- or 8-bar `core_loop.gridline` containing only the densest
+    Refrain/Drop section re-based to bar 1 (`start=0.0`), ready for `vertical_tester.py`.
+    """
+    bpb = int(meta["beats_per_bar"])
+    sec_name, orig_start_bar, eff_bars, kind = select_core_section(
+        sections, tracks=tracks, beats_per_bar=bpb, max_bars=max_bars
+    )
+    orig_start_beat = float(orig_start_bar * bpb)
+    orig_end_beat = float((orig_start_bar + eff_bars) * bpb)
+
+    rebased_tracks: dict[str, list[dict[str, Any]]] = {}
+    for tkey, evs in tracks.items():
+        sliced: list[dict[str, Any]] = []
+        for ev in evs:
+            st = float(ev["start"])
+            if orig_start_beat - 1e-6 <= st < orig_end_beat - 1e-6:
+                new_ev = dict(ev)
+                new_ev["start"] = round(st - orig_start_beat, 4)
+                ln = float(new_ev.get("length", new_ev.get("duration", 0.25)))
+                max_ln = (orig_end_beat - st)
+                new_ev["length"] = round(max(0.05, min(ln, max_ln)), 4)
+                sliced.append(new_ev)
+        if sliced:
+            rebased_tracks[tkey] = sliced
+
+    core_sections = [(f"Core {sec_name}", 0, eff_bars, kind)]
+    core_markers = [{"name": f"Core {sec_name}", "position": 0.0}]
+    core_meta = dict(meta)
+    core_meta["total_bars"] = eff_bars
+
+    build_gridline_project(
+        proj_path=proj_path,
+        export_dir=export_dir,
+        samples_dir=samples_dir,
+        meta=core_meta,
+        sections=core_sections,
+        channels=channels,
+        tracks=rebased_tracks,
+        markers=core_markers,
+        insert_eq_params=insert_eq_params,
+        insert_eq_mixers=insert_eq_mixers,
+        bus_eq_params=bus_eq_params,
+        extra_plugins=extra_plugins,
+        automations=[],
+        limiter_ceiling_db=limiter_ceiling_db,
+        limiter_gain_db=limiter_gain_db,
+        fx_room_vol=fx_room_vol,
+        min_pattern_lufs=min_pattern_lufs,
+    )
+    return {
+        "core_gridline": os.path.abspath(proj_path),
+        "source_section": sec_name,
+        "orig_start_bar": orig_start_bar + 1,
+        "bars": eff_bars,
+        "active_track_keys": sorted(rebased_tracks.keys()),
+    }
+
+
 def run_song_cli(
     proj_dir: str,
     out_gridline: str,
@@ -585,9 +702,11 @@ def run_song_cli(
     fx_room_vol: float = 0.32,
     samples_subdir: str = "samples",
 ) -> None:
-    """Turnkey CLI entrypoint (`--midi-only` + full build) for per-song scripts."""
+    """Turnkey CLI entrypoint (`--midi-only`, `--core-only`, or full build) for per-song scripts."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--midi-only", action="store_true", help="Only export master_sketch.mid and run verify_midi_gate")
+    ap.add_argument("--core-only", action="store_true", help="Build only the 4-8 bar Refrain/Drop into core_loop.gridline for vertical testing")
+    ap.add_argument("--core-bars", type=int, default=8, help="Max bars for --core-only (4 or 8)")
     args = ap.parse_args()
 
     bp_path = os.path.join(proj_dir, "song_blueprint.json")
@@ -622,24 +741,48 @@ def run_song_cli(
         "out_of_scale": res.get("out_of_scale_notes"),
     }, indent=2))
 
-    if not args.midi_only:
-        autos = automations_fn(meta) if automations_fn else []
-        build_gridline_project(
-            proj_path=out_gridline,
+    if args.midi_only:
+        return
+
+    if args.core_only:
+        core_path = os.path.join(proj_dir, "core_loop.gridline")
+        info = build_core_loop_project(
+            proj_path=core_path,
             export_dir=os.path.join(proj_dir, "exports"),
             samples_dir=os.path.join(proj_dir, samples_subdir),
             meta=meta,
             sections=sections,
             channels=channels,
             tracks=tracks,
-            markers=markers,
+            max_bars=max(4, min(8, int(args.core_bars))),
             insert_eq_params=insert_eq_params,
             insert_eq_mixers=insert_eq_mixers,
             bus_eq_params=bus_eq_params,
             extra_plugins=extra_plugins,
-            automations=autos,
             limiter_ceiling_db=limiter_ceiling_db,
             limiter_gain_db=limiter_gain_db,
             fx_room_vol=fx_room_vol,
         )
-        print(f"Built {out_gridline} ({meta['total_bars']} bars @ {meta['bpm']} BPM, {meta['key']})")
+        print(f"Built core loop {info['core_gridline']} ({info['bars']} bars from '{info['source_section']}')")
+        return
+
+    autos = automations_fn(meta) if automations_fn else []
+    build_gridline_project(
+        proj_path=out_gridline,
+        export_dir=os.path.join(proj_dir, "exports"),
+        samples_dir=os.path.join(proj_dir, samples_subdir),
+        meta=meta,
+        sections=sections,
+        channels=channels,
+        tracks=tracks,
+        markers=markers,
+        insert_eq_params=insert_eq_params,
+        insert_eq_mixers=insert_eq_mixers,
+        bus_eq_params=bus_eq_params,
+        extra_plugins=extra_plugins,
+        automations=autos,
+        limiter_ceiling_db=limiter_ceiling_db,
+        limiter_gain_db=limiter_gain_db,
+        fx_room_vol=fx_room_vol,
+    )
+    print(f"Built {out_gridline} ({meta['total_bars']} bars @ {meta['bpm']} BPM, {meta['key']})")

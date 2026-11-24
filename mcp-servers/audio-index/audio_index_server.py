@@ -16,7 +16,16 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 import numpy as np
 from mcp.server.mcpserver import MCPServer
 
-from indexer import DEFAULT_DB_PATH, DEFAULT_SAMPLES_DIR, NOTE_TO_PC, STUDIO_DIR, index_directory, init_db
+from indexer import (
+    DEFAULT_ANCHORS_NPZ,
+    DEFAULT_DB_PATH,
+    DEFAULT_SAMPLES_DIR,
+    NOTE_TO_PC,
+    STUDIO_DIR,
+    index_directory,
+    init_db,
+    load_semantic_anchors,
+)
 
 SCRIPTS_DIR = os.path.join(STUDIO_DIR, "scripts")
 if SCRIPTS_DIR not in sys.path:
@@ -181,6 +190,7 @@ def _row_to_dict(row: sqlite3.Row, score: float | None = None) -> dict[str, Any]
         "r_harsh",
         "hnr_db",
         "low_mid_corr",
+        "timbre_card",
     ):
         if col in keys and row[col] is not None:
             out[col] = bool(row[col]) if col == "playable_chromatically" else row[col]
@@ -224,6 +234,7 @@ def search_samples(
     """
     conn = _get_conn(db_path)
     has_dsp = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_dsp_metrics'").fetchone() is not None
+    has_cards = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_semantic_cards'").fetchone() is not None
     clauses = ["s.ext != '.mid' AND s.ext != '.midi'"]
     params: list[Any] = []
 
@@ -250,6 +261,9 @@ def search_samples(
         clauses.append("s.bpm IS NOT NULL AND s.bpm <= ?")
         params.append(float(bpm_max))
 
+    card_sel = ", c.timbre_card, c.clap_vec AS card_clap_vec" if has_cards else ""
+    card_join = " LEFT JOIN sample_semantic_cards c ON c.sample_id = s.id" if has_cards else ""
+
     if has_dsp:
         clauses.append("COALESCE(d.hard_reject, 0) = 0")
         if playable_chromatically is True:
@@ -268,37 +282,45 @@ def search_samples(
         select_cols = (
             "s.*, d.sample_nature, d.playable_chromatically, d.f0_hz, "
             "d.recommended_root_midi, d.recommended_fine_tune_ct, "
-            "d.centroid_hz AS dsp_centroid_hz, d.r_harsh, d.hnr_db, d.low_mid_corr"
+            f"d.centroid_hz AS dsp_centroid_hz, d.r_harsh, d.hnr_db, d.low_mid_corr{card_sel}"
         )
-        join_sql = "LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id"
+        join_sql = f"LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id{card_join}"
     else:
         if max_centroid_hz is not None:
             clauses.append("COALESCE(s.spectral_centroid_hz, 0.0) <= ?")
             params.append(float(max_centroid_hz))
-        select_cols = "s.*"
-        join_sql = ""
+        select_cols = f"s.*{card_sel}"
+        join_sql = card_join
 
     where_sql = " AND ".join(clauses)
     rows = conn.execute(f"SELECT {select_cols} FROM samples s {join_sql} WHERE {where_sql}", params).fetchall()
     conn.close()
 
     tokens = _expand_query_tokens(query)
-    has_clap_vecs = any(r["clap_embedding"] is not None for r in rows)
+    has_clap_vecs = any(
+        (r["clap_embedding"] is not None) or (has_cards and r["card_clap_vec"] is not None)
+        for r in rows
+    )
     warning: str | None = None
     clap_text_vec: np.ndarray | None = None
     if use_clap and not has_clap_vecs:
         warning = "clap_index_missing_fallback_dsp"
     elif use_clap and query.strip() and has_clap_vecs:
-        enc = _get_clap_text_encoder()
-        if enc is not None:
-            processor, text_model, torch = enc
-            eng_query = " ".join(tokens) if tokens else query
-            t_in = processor(text=[f"{query} ({eng_query})"], return_tensors="pt", padding=True)
-            with torch.no_grad():
-                out = text_model(**t_in)
-                t_feat = getattr(out, "text_embeds", getattr(out, "pooler_output", out[0]))
-                t_feat = t_feat / t_feat.norm(dim=-1, keepdim=True)
-            clap_text_vec = t_feat.squeeze(0).cpu().numpy().astype(np.float32)
+        # Zero-PyTorch runtime path: build query vector from pre-encoded semantic_anchors.npz
+        anchors = load_semantic_anchors(DEFAULT_ANCHORS_NPZ)
+        if anchors is not None and tokens:
+            emb = anchors["embeddings"]
+            matched_idx = [
+                i
+                for i, (aid, pr, lbl) in enumerate(zip(anchors["ids"], anchors["prompts"], anchors["fr_labels"]))
+                if anchors["axes"][i] != "defect_flags"
+                and any(tok in f"{aid} {pr} {lbl}".lower() for tok in tokens)
+            ]
+            if matched_idx:
+                v = np.mean(emb[matched_idx], axis=0)
+                nrm = float(np.linalg.norm(v))
+                if nrm > 1e-12:
+                    clap_text_vec = (v / nrm).astype(np.float32)
 
     scored: list[tuple[float, sqlite3.Row]] = []
     for r in rows:
@@ -313,16 +335,21 @@ def search_samples(
 
         lex_s = 0.0
         if tokens:
-            tags = r["tags"]
+            tags = f"{r['tags']} {r['timbre_card'] if (has_cards and r['timbre_card']) else ''}".lower()
             hits = sum(1 for tok in tokens if tok in tags)
             lex_s = hits / max(len(tokens), 1)
             if r["category"] in tokens:
                 lex_s += 0.45
 
         clap_s = 0.0
-        if clap_text_vec is not None and r["clap_embedding"] is not None:
-            vec = np.frombuffer(r["clap_embedding"], dtype=np.float32)
-            if len(vec) == len(clap_text_vec):
+        if clap_text_vec is not None:
+            if has_cards and r["card_clap_vec"] is not None:
+                vec = np.frombuffer(r["card_clap_vec"], dtype=np.float16).astype(np.float32)
+            elif r["clap_embedding"] is not None:
+                vec = np.frombuffer(r["clap_embedding"], dtype=np.float32)
+            else:
+                vec = None
+            if vec is not None and len(vec) == len(clap_text_vec):
                 clap_s = float(np.dot(clap_text_vec, vec))
 
         total_score = (lex_s * 1.4) + (clap_s * 2.2) + (bpm_s * 0.8) + (key_s * 0.9)
@@ -783,6 +810,54 @@ def analyze_sample_dsp(
     if include_vocal_signature:
         out["vocal_signature"] = analyze_vocal_signature(abs_p)
     return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def propose_palettes(
+    mix_profile: str = "trap_rap",
+    valence: float = -0.3,
+    tension: float = 0.4,
+    energy: float = 0.7,
+    depth: float = 0.5,
+    target_key: str = "C minor",
+    roles: list[str] | None = None,
+    project_samples_dir: str | None = None,
+    allow_gl_synths: bool = True,
+    num_palettes: int = 3,
+    db_path: str = "",
+) -> str:
+    """
+    Génère 3 palettes sonores complémentaires (4–6 rôles) en < 50 ms sans PyTorch (Bark24 + relais d'attaques + ancres).
+    Si `project_samples_dir` est renseigné, n'utilise STRICTEMENT que les samples du projet (0 import externe).
+    """
+    from palette_builder import propose_palettes as _propose_palettes
+
+    res = _propose_palettes(
+        mix_profile=mix_profile,
+        emotion_vector={"valence": valence, "tension": tension, "energy": energy, "depth": depth},
+        target_key=target_key,
+        roles=roles,
+        project_samples_dir=project_samples_dir,
+        allow_gl_synths=allow_gl_synths,
+        num_palettes=num_palettes,
+        db_path=db_path.strip() or DEFAULT_DB_PATH,
+    )
+    return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def index_project_samples(
+    project_dir: str,
+    with_clap: bool = False,
+) -> str:
+    """
+    Indexe exclusivement `<project_dir>/Samples/` (et `samples/` dérivés) dans `<project_dir>/samples_catalog.json`
+    avec `timbre_card`, `playable_chromatically`, `recommended_gl_fine_tune_ct` et recettes `sample_prep_lib.py`.
+    """
+    from index_project_samples import index_project_samples as _index_project_samples
+
+    res = _index_project_samples(project_dir=project_dir, with_clap=with_clap, write_catalog=True)
+    return json.dumps(res, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

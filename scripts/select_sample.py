@@ -43,10 +43,79 @@ from audio_metrics import (
     score_candidate,
 )
 from fetch_samples_api import fetch_and_filter_samples
-from indexer import DEFAULT_DB_PATH
+from indexer import (
+    DEFAULT_ANCHORS_NPZ,
+    DEFAULT_DB_PATH,
+    build_timbre_card_from_dsp,
+    load_semantic_anchors,
+)
 
 DEFAULT_OUT_DB = DEFAULT_DB_PATH
 DEFAULT_REFS_PATH = os.path.join(INDEX_DIR, "golden_embeddings.npz")
+
+
+def _build_anchor_query_vec(
+    anchors: dict[str, Any] | None,
+    query_tokens: list[str],
+    valence: float | None,
+    role: str,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Build positive and defect unit vectors from pre-encoded `semantic_anchors.npz` (0 PyTorch)."""
+    if anchors is None:
+        return None, None
+    emb = anchors["embeddings"]
+    axes = anchors["axes"]
+    ids = anchors["ids"]
+    prompts = anchors["prompts"]
+    labels = anchors["fr_labels"]
+
+    pos_idx: list[int] = []
+    def_idx: list[int] = []
+    for i, ax in enumerate(axes):
+        if ax == "defect_flags":
+            def_idx.append(i)
+            continue
+        hay = f"{ids[i]} {prompts[i]} {labels[i]}".lower()
+        if query_tokens and any(tok in hay for tok in query_tokens):
+            pos_idx.append(i)
+        elif valence is not None and ax == "mood":
+            if valence <= -0.3 and any(k in ids[i] for k in ("sad", "dark", "aggressive", "tense", "hypnotic")):
+                pos_idx.append(i)
+            elif valence >= 0.3 and any(k in ids[i] for k in ("uplifting", "energetic", "dreamy", "chill", "epic")):
+                pos_idx.append(i)
+        elif not query_tokens and valence is None and ax == "texture" and ids[i] == "tex_clean_studio":
+            pos_idx.append(i)
+
+    # Add role-matching instrument anchor if no explicit token hit
+    if not pos_idx:
+        role_kw = {
+            "kick": "kick",
+            "bass_sub": "808",
+            "snare_clap": "snare",
+            "hihat_perc": "hihat",
+            "lead_melody": "lead",
+            "pad_atmosphere": "pad",
+            "chord_keys": "piano",
+        }.get(role, "")
+        if role_kw:
+            for i, ax in enumerate(axes):
+                if ax == "instrument_family" and role_kw in prompts[i].lower():
+                    pos_idx.append(i)
+
+    pos_vec: np.ndarray | None = None
+    if pos_idx:
+        v = np.mean(emb[pos_idx], axis=0)
+        nrm = float(np.linalg.norm(v))
+        if nrm > 1e-12:
+            pos_vec = (v / nrm).astype(np.float32)
+
+    def_vec: np.ndarray | None = None
+    if def_idx:
+        v = np.mean(emb[def_idx], axis=0)
+        nrm = float(np.linalg.norm(v))
+        if nrm > 1e-12:
+            def_vec = (v / nrm).astype(np.float32)
+    return pos_vec, def_vec
 
 
 def _fit(val: float, lo: float | None, hi: float | None, margin: float) -> float:
@@ -203,9 +272,16 @@ def _select_best_from_sqlite(
     has_dsp_table = (
         conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_dsp_metrics'").fetchone() is not None
     )
+    has_cards_table = (
+        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_semantic_cards'").fetchone() is not None
+    )
     has_any_clap = (
         conn.execute("SELECT EXISTS(SELECT 1 FROM samples WHERE clap_embedding IS NOT NULL)").fetchone()[0] == 1
     )
+    if not has_any_clap and has_cards_table:
+        has_any_clap = (
+            conn.execute("SELECT EXISTS(SELECT 1 FROM sample_semantic_cards WHERE clap_vec IS NOT NULL)").fetchone()[0] == 1
+        )
 
     warning: str | None = None
     eff_clap = bool(with_clap and has_any_clap)
@@ -220,6 +296,10 @@ def _select_best_from_sqlite(
                 ref_matrix = rz[role]
         except Exception:
             ref_matrix = None
+
+    anchors = load_semantic_anchors(DEFAULT_ANCHORS_NPZ) if eff_clap else None
+    tokens_early = [t for t in query_filter.lower().split() if t] if query_filter else []
+    anchor_pos_vec, anchor_def_vec = _build_anchor_query_vec(anchors, tokens_early, valence, role) if eff_clap else (None, None)
 
     mix_bark: list[float] | None = None
     mix_evaluated = False
@@ -275,7 +355,7 @@ def _select_best_from_sqlite(
         "pad_atmosphere": "(COALESCE(d.band_lowmid,0) + COALESCE(d.band_mid,0) + 0.5*COALESCE(d.r_harm,0)) - 0.7*COALESCE(d.r_harsh,0)",
         "chord_keys": "(COALESCE(d.band_bass,0) + COALESCE(d.band_lowmid,0) + COALESCE(d.band_mid,0) + 0.5*COALESCE(d.r_harm,0)) - 0.7*COALESCE(d.r_harsh,0)",
     }.get(role, "-COALESCE(d.r_harsh, 0)")
-    pre_limit = max(top_k * 24, 120) if (has_dsp_table and not eff_clap and mix_bark is None) else 0
+    pre_limit = max(top_k * 24, 150) if (has_dsp_table and mix_bark is None) else 0
     limit_sql = f" ORDER BY ({role_order_expr}) DESC LIMIT {int(pre_limit)}" if pre_limit > 0 else ""
 
     if has_dsp_table:
@@ -385,21 +465,26 @@ def _select_best_from_sqlite(
         scored_items.append((base_score, r, s_comfort, s_role, bright_warn))
 
     scored_items.sort(key=lambda x: x[0], reverse=True)
-    # Re-rank top candidates with optional Bark masking / precomputed CLAP vectors (no torch!)
+    # Re-rank top candidates with optional Bark masking / precomputed CLAP vectors & semantic cards (0 PyTorch!)
     pool = scored_items[: max(top_k * 5, 40)] if (mix_bark is not None or eff_clap) else scored_items[: max(1, top_k)]
 
-    extra_by_id: dict[int, tuple[bytes | None, str | None]] = {}
-    if pool and (mix_bark is not None or eff_clap):
+    extra_by_id: dict[int, tuple[bytes | None, str | None, bytes | None, str | None, str | None, str | None]] = {}
+    if pool:
         ids_str = ",".join(str(int(item[1][0])) for item in pool)
-        if has_dsp_table:
-            q_extra = (
-                f"SELECT s.id, s.clap_embedding, d.bark_24_json FROM samples s "
-                f"LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id WHERE s.id IN ({ids_str})"
-            )
+        sel_bark = "d.bark_24_json" if has_dsp_table else "NULL"
+        join_dsp = "LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id" if has_dsp_table else ""
+        if has_cards_table:
+            sel_card = "c.clap_vec, c.timbre_card, c.top_tags_json, c.defect_tags_json"
+            join_card = "LEFT JOIN sample_semantic_cards c ON c.sample_id = s.id"
         else:
-            q_extra = f"SELECT s.id, s.clap_embedding, NULL FROM samples s WHERE s.id IN ({ids_str})"
-        for eid, blob, bark_js in conn.execute(q_extra).fetchall():
-            extra_by_id[int(eid)] = (blob, bark_js)
+            sel_card = "NULL, NULL, NULL, NULL"
+            join_card = ""
+        q_extra = (
+            f"SELECT s.id, s.clap_embedding, {sel_bark}, {sel_card} "
+            f"FROM samples s {join_dsp} {join_card} WHERE s.id IN ({ids_str})"
+        )
+        for eid, blob32, bark_js, blob16, t_card, t_tags, d_tags in conn.execute(q_extra).fetchall():
+            extra_by_id[int(eid)] = (blob32, bark_js, blob16, t_card, t_tags, d_tags)
 
     conn.close()
 
@@ -416,7 +501,9 @@ def _select_best_from_sqlite(
             *_bands,
         ) = r
         playable = bool(play_int) if play_int is not None else True
-        blob, bark_js = extra_by_id.get(int(sid), (None, None))
+        blob32, bark_js, blob16, t_card, t_tags_js, d_tags_js = extra_by_id.get(
+            int(sid), (None, None, None, None, None, None)
+        )
         p_mask = 0.0
         if mix_bark is not None and bark_js:
             try:
@@ -424,15 +511,31 @@ def _select_best_from_sqlite(
             except Exception:
                 p_mask = 0.0
 
-        s_aesth = 0.5
+        cvec: np.ndarray | None = None
         if eff_clap:
-            if blob is not None and ref_matrix is not None:
-                cvec = np.frombuffer(blob, dtype=np.float32)
+            if blob16 is not None:
+                cvec = np.frombuffer(blob16, dtype=np.float16).astype(np.float32)
+            elif blob32 is not None:
+                cvec = np.frombuffer(blob32, dtype=np.float32)
+            else:
+                missing_clap_in_pool = True
+
+        s_aesth = 0.5
+        s_anchor: float | None = None
+        if eff_clap and cvec is not None:
+            if ref_matrix is not None:
                 s_ref = reference_aesthetic_score(cvec, ref_matrix)
                 if s_ref is not None:
                     s_aesth = s_ref
-            elif blob is None:
-                missing_clap_in_pool = True
+            if anchor_pos_vec is not None and len(cvec) == len(anchor_pos_vec):
+                pos_sim = float(np.dot(cvec, anchor_pos_vec))
+                def_sim = float(np.dot(cvec, anchor_def_vec)) if anchor_def_vec is not None else 0.0
+                # Map cosine difference cleanly to [0, 1]
+                s_anchor = round(float(max(0.0, min(1.0, 0.5 + (pos_sim - def_sim) * 2.0))), 4)
+                if ref_matrix is None:
+                    s_aesth = s_anchor
+                else:
+                    s_aesth = round(0.6 * s_aesth + 0.4 * s_anchor, 4)
 
         if eff_clap:
             penalty = 0.28 if (role in ("lead_melody", "chord_keys", "bass_sub") and not playable) else 0.0
@@ -442,6 +545,30 @@ def _select_best_from_sqlite(
         s_final = round(float(s_final), 4)
         if s_final < min_score:
             continue
+
+        top_tags: list[dict[str, Any]] = []
+        defect_tags: list[dict[str, Any]] = []
+        if t_card:
+            try:
+                top_tags = json.loads(t_tags_js) if t_tags_js else []
+                defect_tags = json.loads(d_tags_js) if d_tags_js else []
+            except Exception:
+                pass
+        else:
+            t_card, top_tags, defect_tags = build_timbre_card_from_dsp(
+                category=role,
+                sample_nature=nat,
+                detected_note=det_note,
+                centroid_hz=d_cent if d_cent is not None else s_cent,
+                attack_ms=att_ms,
+                duration_sec=dur,
+                r_harsh=r_harsh,
+                r_harm=r_harm,
+                roughness=rough,
+                low_mid_corr=lm_corr,
+                playable_chromatically=playable,
+                comfort_score=s_comfort,
+            )
 
         warnings_list: list[str] = []
         if needs_fade_int:
@@ -487,10 +614,14 @@ def _select_best_from_sqlite(
             "tier": tier,
             "duration_sec": dur,
             "needs_fade": bool(needs_fade_int),
+            "timbre_card": t_card,
+            "top_tags": top_tags[:5],
+            "defect_tags": defect_tags[:3],
             "scores": {
                 "comfort": s_comfort,
                 "role_fit": s_role,
                 "aesthetic": s_aesth,
+                "semantic_anchor": s_anchor,
                 "masking_penalty": p_mask,
             },
             "pitch_info": pitch_info,

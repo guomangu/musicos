@@ -32,6 +32,7 @@ if SCRIPTS_DIR not in sys.path:
 
 DEFAULT_SAMPLES_DIR = os.path.join(STUDIO_DIR, "samples")
 DEFAULT_DB_PATH = os.path.join(STUDIO_DIR, "mcp-servers/audio-index/samples.db")
+DEFAULT_ANCHORS_NPZ = os.path.join(STUDIO_DIR, "mcp-servers/audio-index/semantic_anchors.npz")
 AUDIO_EXTS = {".wav", ".ogg", ".flac", ".mp3", ".aiff", ".aif"}
 MIDI_EXTS = {".mid", ".midi"}
 
@@ -148,6 +149,18 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
             bark_24_json TEXT,
             inharmonic_warnings_json TEXT,
             updated_at REAL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sample_semantic_cards (
+            sample_id INTEGER PRIMARY KEY REFERENCES samples(id) ON DELETE CASCADE,
+            clap_vec BLOB,
+            top_tags_json TEXT,
+            defect_tags_json TEXT,
+            timbre_card TEXT,
+            indexed_at TEXT
         )
         """
     )
@@ -580,6 +593,339 @@ def _compute_clap_embeddings(conn: sqlite3.Connection, batch_limit: int = 0, bat
     return updated
 
 
+_ANCHORS_CACHE: dict[str, dict[str, Any] | None] = {}
+
+_CATEGORY_FR: dict[str, str] = {
+    "808": "808 sub",
+    "kick": "Kick",
+    "snare": "Snare",
+    "clap": "Clap",
+    "open_hat": "Hi-hat ouvert",
+    "hat": "Hi-hat",
+    "perc": "Percussion",
+    "vocal": "Voix",
+    "guitar": "Guitare",
+    "piano": "Piano/Keys",
+    "synth": "Synthé",
+    "fx": "FX",
+    "bass": "Basse",
+    "loop": "Boucle",
+    "other": "Son",
+}
+
+
+def load_semantic_anchors(anchors_path: str = DEFAULT_ANCHORS_NPZ) -> dict[str, Any] | None:
+    """Charge en pur NumPy (0 PyTorch) les ancres sémantiques pré-encodées."""
+    abs_p = os.path.abspath(os.path.expanduser(anchors_path))
+    if abs_p in _ANCHORS_CACHE:
+        return _ANCHORS_CACHE[abs_p]
+    if not os.path.isfile(abs_p):
+        _ANCHORS_CACHE[abs_p] = None
+        return None
+    try:
+        z = np.load(abs_p, allow_pickle=True)
+        emb = np.asarray(z["embeddings"], dtype=np.float32)
+        norms = np.linalg.norm(emb, axis=1, keepdims=True)
+        emb = emb / np.maximum(norms, 1e-12)
+        bundle = {
+            "embeddings": emb,
+            "embeddings_f16": emb.astype(np.float16),
+            "ids": [str(x) for x in z["ids"].tolist()],
+            "axes": [str(x) for x in z["axes"].tolist()],
+            "fr_labels": [str(x) for x in z["fr_labels"].tolist()],
+            "prompts": [str(x) for x in z["prompts"].tolist()],
+            "thresholds": [float(x) for x in z["thresholds"].tolist()] if "thresholds" in z else [0.24] * len(emb),
+        }
+        _ANCHORS_CACHE[abs_p] = bundle
+        return bundle
+    except Exception:
+        _ANCHORS_CACHE[abs_p] = None
+        return None
+
+
+def _truncate_card(text: str, max_len: int = 140) -> str:
+    clean = " ".join(text.split())
+    if len(clean) <= max_len:
+        return clean
+    return clean[: max_len - 1].rstrip(" ,;(") + "…"
+
+
+def build_timbre_card_from_dsp(
+    *,
+    category: str = "other",
+    sample_nature: str | None = None,
+    detected_note: str | None = None,
+    centroid_hz: float | None = None,
+    attack_ms: float | None = None,
+    duration_sec: float | None = None,
+    r_harsh: float | None = None,
+    r_harm: float | None = None,
+    roughness: float | None = None,
+    low_mid_corr: float | None = None,
+    playable_chromatically: bool | None = None,
+    comfort_score: float | None = None,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Construit une `timbre_card` déterministe (<= 140 chars) + tags à partir des métriques DSP."""
+    fam = _CATEGORY_FR.get(str(category or "other").lower(), str(category or "Son").capitalize())
+    cent = float(centroid_hz or 1000.0)
+    att = float(attack_ms if attack_ms is not None else 15.0)
+    rh = float(r_harsh or 0.0)
+    harm = float(r_harm if r_harm is not None else 0.5)
+    rg = float(roughness or 0.0)
+    dur = float(duration_sec or 0.5)
+
+    if cent < 180:
+        bri_lbl = "très grave/sub"
+        bri_tag = "bri_deep_sub"
+    elif cent < 650:
+        bri_lbl = "sombre/chaud"
+        bri_tag = "bri_dark_warm"
+    elif cent < 1800:
+        bri_lbl = "chaud/équilibré"
+        bri_tag = "bri_warm_mellow"
+    elif cent < 3600:
+        bri_lbl = "clair/présent"
+        bri_tag = "bri_clear_present"
+    elif rh > 0.38:
+        bri_lbl = "brillant/métallique"
+        bri_tag = "bri_harsh_metallic"
+    else:
+        bri_lbl = "brillant/aéré"
+        bri_tag = "bri_bright_shimmer"
+
+    if att <= 12.0 and dur < 0.7:
+        env_lbl = "attaque sèche"
+        env_tag = "env_sharp_perc"
+    elif att <= 30.0:
+        env_lbl = "attaque franche"
+        env_tag = "env_plucked"
+    elif att >= 110.0:
+        env_lbl = "attaque lente"
+        env_tag = "env_slow_pad"
+    else:
+        env_lbl = "attaque douce"
+        env_tag = "env_soft_attack"
+
+    defects: list[dict[str, Any]] = []
+    if rh > 0.36:
+        defects.append({"id": "def_piercing_whistle", "label": "aigu dur", "score": round(min(1.0, rh), 3)})
+    if rg > 0.28 and category not in ("hat", "open_hat", "perc"):
+        defects.append({"id": "def_clipping_dist", "label": "rugueux", "score": round(min(1.0, rg), 3)})
+    if low_mid_corr is not None and float(low_mid_corr) < 0.45 and category not in ("hat", "open_hat", "fx"):
+        defects.append({"id": "def_hollow_reverb", "label": "phase bas-médiums large", "score": round(1.0 - float(low_mid_corr), 3)})
+
+    tex_lbl = "propre" if not defects else defects[0]["label"]
+    if comfort_score is None:
+        comfort_score = max(0.0, min(1.0, 1.0 - max(0.0, rh - 0.25) * 1.1 - max(0.0, rg - 0.20) * 0.8))
+
+    nature_str = sample_nature or ("mono_oneshot" if playable_chromatically else ("perc" if category in ("kick", "snare", "clap", "hat", "open_hat", "perc") else "sample"))
+    note_part = f" {detected_note}" if detected_note else ""
+    card = _truncate_card(f"{fam} {bri_lbl}, {env_lbl}, {tex_lbl} ({nature_str}{note_part}, confort {comfort_score:.2f})")
+
+    top_tags = [
+        {"id": bri_tag, "axis": "brightness", "label": bri_lbl, "score": 0.75},
+        {"id": env_tag, "axis": "envelope", "label": env_lbl, "score": 0.72},
+        {
+            "id": "tex_clean_studio" if not defects else "tex_gritty_dist",
+            "axis": "texture",
+            "label": "harmonique" if harm >= 0.65 else "percussif/bruité",
+            "score": round(max(0.5, harm), 3),
+        },
+    ]
+    return card, top_tags, defects
+
+
+def build_semantic_card_from_clap(
+    clap_vec_f32: np.ndarray,
+    anchors_bundle: dict[str, Any],
+    *,
+    category: str = "other",
+    sample_nature: str | None = None,
+    detected_note: str | None = None,
+    playable_chromatically: bool | None = None,
+    comfort_score: float | None = None,
+) -> tuple[bytes, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Projette un vecteur audio CLAP sur les ancres pré-encodées en pur NumPy (< 0.1 ms)."""
+    v = np.asarray(clap_vec_f32, dtype=np.float32).reshape(-1)
+    nrm = float(np.linalg.norm(v))
+    if nrm > 1e-12:
+        v = v / nrm
+    v16_bytes = v.astype(np.float16).tobytes()
+
+    emb = anchors_bundle["embeddings"]
+    sims = emb @ v
+    axes = anchors_bundle["axes"]
+    ids = anchors_bundle["ids"]
+    labels = anchors_bundle["fr_labels"]
+    thresholds = anchors_bundle["thresholds"]
+
+    by_axis: dict[str, list[tuple[float, int]]] = {}
+    defects: list[dict[str, Any]] = []
+    pos_candidates: list[tuple[float, int]] = []
+
+    for i, ax in enumerate(axes):
+        sc = float(sims[i])
+        if ax == "defect_flags":
+            if sc >= float(thresholds[i]):
+                defects.append({"id": ids[i], "label": labels[i], "score": round(sc, 4)})
+        else:
+            by_axis.setdefault(ax, []).append((sc, i))
+            pos_candidates.append((sc, i))
+
+    defects.sort(key=lambda x: x["score"], reverse=True)
+    pos_candidates.sort(key=lambda x: x[0], reverse=True)
+    top_tags = [
+        {"id": ids[i], "axis": axes[i], "label": labels[i], "score": round(sc, 4)}
+        for sc, i in pos_candidates[:5]
+    ]
+
+    def _best_label(ax: str, fallback: str = "") -> str:
+        items = by_axis.get(ax)
+        if not items:
+            return fallback
+        items.sort(key=lambda x: x[0], reverse=True)
+        return labels[items[0][1]]
+
+    inst_lbl = _best_label("instrument_family", _CATEGORY_FR.get(category, "Son"))
+    env_lbl = _best_label("envelope", "")
+    mood_lbl = _best_label("mood", _best_label("brightness", ""))
+    tex_lbl = "propre" if not defects else f"alerte: {defects[0]['label']}"
+
+    parts = [p for p in (inst_lbl, env_lbl, mood_lbl, tex_lbl) if p]
+    nature_str = sample_nature or ("mono_oneshot" if playable_chromatically else "sample")
+    note_part = f" {detected_note}" if detected_note else ""
+    conf_part = f", confort {comfort_score:.2f}" if comfort_score is not None else ""
+    card = _truncate_card(f"{', '.join(parts)} ({nature_str}{note_part}{conf_part})")
+    return v16_bytes, card, top_tags, defects[:4]
+
+
+def populate_semantic_cards(
+    conn: sqlite3.Connection,
+    anchors_path: str = DEFAULT_ANCHORS_NPZ,
+    force: bool = False,
+    limit: int = 0,
+) -> dict[str, int]:
+    """Remplit `sample_semantic_cards` en pur NumPy (0 PyTorch) : ancres CLAP si vecteur dispo, sinon DSP -> texte."""
+    anchors = load_semantic_anchors(anchors_path)
+    if force:
+        sql = (
+            "SELECT s.id, s.category, s.duration_sec, s.spectral_centroid_hz, s.attack_ms, s.clap_embedding, "
+            "d.sample_nature, d.playable_chromatically, d.detected_note, d.centroid_hz, d.attack_ms AS d_attack_ms, "
+            "d.r_harsh, d.r_harm, d.roughness, d.low_mid_corr "
+            "FROM samples s LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id "
+            "WHERE s.ext NOT IN ('.mid', '.midi')"
+        )
+    else:
+        sql = (
+            "SELECT s.id, s.category, s.duration_sec, s.spectral_centroid_hz, s.attack_ms, s.clap_embedding, "
+            "d.sample_nature, d.playable_chromatically, d.detected_note, d.centroid_hz, d.attack_ms AS d_attack_ms, "
+            "d.r_harsh, d.r_harm, d.roughness, d.low_mid_corr "
+            "FROM samples s "
+            "LEFT JOIN sample_dsp_metrics d ON d.sample_id = s.id "
+            "LEFT JOIN sample_semantic_cards c ON c.sample_id = s.id "
+            "WHERE s.ext NOT IN ('.mid', '.midi') "
+            "AND (c.sample_id IS NULL OR (s.clap_embedding IS NOT NULL AND c.clap_vec IS NULL))"
+        )
+    if limit > 0:
+        sql += f" LIMIT {int(limit)}"
+
+    rows = conn.execute(sql).fetchall()
+    if not rows:
+        return {"cards_updated": 0, "cards_with_clap": 0, "cards_dsp_only": 0}
+
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    updated = 0
+    with_clap_n = 0
+    dsp_only_n = 0
+    batch_rows: list[tuple[Any, ...]] = []
+
+    for r in rows:
+        sid = int(r["id"])
+        rh = float(r["r_harsh"] or 0.0)
+        rg = float(r["roughness"] or 0.0)
+        comfort = max(0.0, min(1.0, 1.0 - max(0.0, rh - 0.25) * 1.1 - max(0.0, rg - 0.20) * 0.8))
+        playable = bool(r["playable_chromatically"]) if r["playable_chromatically"] is not None else None
+
+        blob = r["clap_embedding"]
+        clap_v16: bytes | None = None
+        if blob is not None and anchors is not None:
+            vec = np.frombuffer(blob, dtype=np.float32)
+            if len(vec) == anchors["embeddings"].shape[1]:
+                clap_v16, card, top_tags, defects = build_semantic_card_from_clap(
+                    vec,
+                    anchors,
+                    category=r["category"],
+                    sample_nature=r["sample_nature"],
+                    detected_note=r["detected_note"],
+                    playable_chromatically=playable,
+                    comfort_score=comfort,
+                )
+                with_clap_n += 1
+            else:
+                card, top_tags, defects = build_timbre_card_from_dsp(
+                    category=r["category"],
+                    sample_nature=r["sample_nature"],
+                    detected_note=r["detected_note"],
+                    centroid_hz=r["centroid_hz"] if r["centroid_hz"] is not None else r["spectral_centroid_hz"],
+                    attack_ms=r["d_attack_ms"] if r["d_attack_ms"] is not None else r["attack_ms"],
+                    duration_sec=r["duration_sec"],
+                    r_harsh=r["r_harsh"],
+                    r_harm=r["r_harm"],
+                    roughness=r["roughness"],
+                    low_mid_corr=r["low_mid_corr"],
+                    playable_chromatically=playable,
+                    comfort_score=comfort,
+                )
+                dsp_only_n += 1
+        else:
+            if blob is not None:
+                vec = np.frombuffer(blob, dtype=np.float32)
+                nrm = float(np.linalg.norm(vec))
+                if nrm > 1e-12:
+                    clap_v16 = (vec / nrm).astype(np.float16).tobytes()
+            card, top_tags, defects = build_timbre_card_from_dsp(
+                category=r["category"],
+                sample_nature=r["sample_nature"],
+                detected_note=r["detected_note"],
+                centroid_hz=r["centroid_hz"] if r["centroid_hz"] is not None else r["spectral_centroid_hz"],
+                attack_ms=r["d_attack_ms"] if r["d_attack_ms"] is not None else r["attack_ms"],
+                duration_sec=r["duration_sec"],
+                r_harsh=r["r_harsh"],
+                r_harm=r["r_harm"],
+                roughness=r["roughness"],
+                low_mid_corr=r["low_mid_corr"],
+                playable_chromatically=playable,
+                comfort_score=comfort,
+            )
+            dsp_only_n += 1
+
+        batch_rows.append((
+            sid,
+            clap_v16,
+            json.dumps(top_tags, ensure_ascii=False),
+            json.dumps(defects, ensure_ascii=False),
+            card,
+            now_iso,
+        ))
+        updated += 1
+
+    conn.executemany(
+        """
+        INSERT INTO sample_semantic_cards (sample_id, clap_vec, top_tags_json, defect_tags_json, timbre_card, indexed_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(sample_id) DO UPDATE SET
+            clap_vec=excluded.clap_vec,
+            top_tags_json=excluded.top_tags_json,
+            defect_tags_json=excluded.defect_tags_json,
+            timbre_card=excluded.timbre_card,
+            indexed_at=excluded.indexed_at
+        """,
+        batch_rows,
+    )
+    conn.commit()
+    return {"cards_updated": updated, "cards_with_clap": with_clap_n, "cards_dsp_only": dsp_only_n}
+
+
 def enrich_clap_embeddings(
     db_path: str = DEFAULT_DB_PATH,
     batch_size: int = 64,
@@ -588,10 +934,17 @@ def enrich_clap_embeddings(
     """Standalone incremental CLAP enrichment for CLI usage (`scripts/index_samples.py --enrich-clap`)."""
     conn = init_db(db_path)
     embedded = _compute_clap_embeddings(conn, batch_limit=batch_limit, batch_size=batch_size)
+    cards = populate_semantic_cards(conn, force=False)
     total = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
     clap_total = conn.execute("SELECT COUNT(*) FROM samples WHERE clap_embedding IS NOT NULL").fetchone()[0]
     conn.close()
-    return {"total": total, "clap_embedded_now": embedded, "clap_total": clap_total}
+    return {
+        "total": total,
+        "clap_embedded_now": embedded,
+        "clap_total": clap_total,
+        "cards_updated": cards["cards_updated"],
+        "cards_with_clap": cards["cards_with_clap"],
+    }
 
 
 def index_directory(
@@ -641,8 +994,10 @@ def index_directory(
 
     dsp_stats = populate_dsp_metrics(conn, force=force, limit=limit, workers=workers) if with_dsp else {"dsp_indexed": 0, "dsp_errors": 0}
     clap_count = _compute_clap_embeddings(conn) if with_clap else 0
+    card_stats = populate_semantic_cards(conn, force=force, limit=limit)
     total = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
     dsp_total = conn.execute("SELECT COUNT(*) FROM sample_dsp_metrics").fetchone()[0]
+    cards_total = conn.execute("SELECT COUNT(*) FROM sample_semantic_cards").fetchone()[0]
     conn.close()
     return {
         "total": total,
@@ -653,6 +1008,8 @@ def index_directory(
         "dsp_errors": dsp_stats["dsp_errors"],
         "dsp_total": dsp_total,
         "clap_embedded": clap_count,
+        "cards_updated": card_stats["cards_updated"],
+        "cards_total": cards_total,
     }
 
 

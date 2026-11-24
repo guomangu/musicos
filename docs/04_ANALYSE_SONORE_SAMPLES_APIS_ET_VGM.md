@@ -1,8 +1,9 @@
 # Facette 4 — Mémoire Sonore `samples.db`, DSP Déterministe, APIs, Remix & Chant
 
-> **Cheatsheet IA (L'essentiel v2.0)**
-> - **Samples fournis initialement** : Si `Samples/` ou un `.gridline` initial existe, **interdiction d'ajouter de nouveaux samples** externes/APIs ; autorisé de **créer des versions alternatives** (`sample_prep_lib.py` : chop, filtre, pitch, reverse, saturation) dans `samples/`.
-> - **Ordre économique** : (1) Samples utilisateur → (2) `audio-index:search_samples` / `select_best_samples` / `scripts/select_sample.py` (**base SQLite `samples.db` unifiée `< 25 ms`**, `samples` + `sample_dsp_metrics`, fallback DSP sans CLAP + `"warning"` si vecteurs absents) ou synthés natifs `gl.*` (`gl_dsl.synth_voice`) → (3) `audio-index:analyze_sample_dsp` (`< 50 ms`) → (4) `fetch_samples_online(..., monophonic_only=True)` si besoin.
+> **Cheatsheet IA (L'essentiel v2.1 — Loop-First É0)**
+> - **Samples fournis initialement** : Si `Samples/` ou un `.gridline` initial existe, lancer **`scripts/index_project_samples.py <proj>`** (MCP `audio-index:index_project_samples`) → `<proj>/samples_catalog.json` (`user_samples_locked = true`, **interdiction d'ajouter de nouveaux samples** externes/APIs ; autorisé de créer des dérivés via `sample_prep_lib.py` dans `samples/`).
+> - **Mémoire Sémantique Offline & Palettes (`0 PyTorch`)** : `samples.db` intègre `sample_semantic_cards` (`timbre_card` 1 ligne `<= 140 chars` + `clap_vec` `float16[512]`) projetés contre les 72 ancres pré-encodées `semantic_anchors.npz` (`scripts/build_semantic_anchors.py`). Appeler **`audio-index:propose_palettes`** (`scripts/palette_builder.py`, `< 50 ms`) pour obtenir **3 palettes complémentaires** (Bark24 + relais d'attaques + humeur) au lieu de fouiller 5 000+ fichiers.
+> - **Ordre économique** : (1) `index_project_samples.py` (si `Samples/`) → (2) `audio-index:propose_palettes` / `search_samples` / `scripts/select_sample.py` (`< 25 ms`, `timbre_card`, 0 PyTorch) ou synthés natifs `gl.*` (`gl_dsl.synth_voice`) → (3) `audio-index:analyze_sample_dsp` (`< 50 ms`) → (4) `fetch_samples_online(..., monophonic_only=True)` si besoin.
 > - **Zéro dissonance chromatique** : Exiger `playable_chromatically == True` (`sample_nature == "mono_oneshot"`) avant de charger un sample mélodique dans `gl.sampler` ; sinon isoler 1 note via `studio_lib.extract_clean_oneshot(...)`.
 > - **Hygiène** : `A4 = 440.0 Hz ± 5 ct` (`measure_fft_tuning()` → `recommended_gl_fine_tune_ct`, jamais `pitch_shift` sur `< 80 Hz`) · one-shots `< 2.5 s` en peak norm `-1.0 dBFS` · boucles `>= 2.5 s` stabilisées (`stabilize_stereo_low_mid`) · carte fichiers → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md).
 > - **Remix / Chant** : `reverse-engineer` (`analyze_song_for_rap_flip` → `split_stems` → `transcribe_audio_to_midi` → `HPF >= 130 Hz`) · `vocaloid` (`list_voicebanks` → `syllabify_lyrics` → `create_ustx` → `synthesize_vocal_preview` → `addAudioClip`).
@@ -13,11 +14,14 @@
 
 Suivre cet ordre exact :
 
-1. **Projet / Samples fournis initialement** : `.venv/bin/python scripts/audit_project_sources.py <projet.gridline> --prepare-samples <proj>/samples`. Zéro ajout externe ; préparer les dérivés uniquement depuis les sources fournies.
-2. **Base SQLite unifiée `samples.db` (`< 25 ms`, 0 GPU, 0 CLAP synchrone)** :
-   - `search_samples`, `find_compatible_samples`, `select_best_samples` et `scripts/select_sample.py` (`--role`, `--target-key`, `--mono-only`, `--top 8`) lisent `samples` + `sample_dsp_metrics` dans `samples.db` (`sfz/` exclu). Sans `clap_embedding`, le classement DSP retourne immédiatement avec `"warning": "clap_index_missing_fallback_dsp"`.
-   - Vérifier les finalistes avec `audio-index:analyze_sample_dsp(filepath)` (`< 50 ms`).
-   - *Maintenance CLI* : `OMP_NUM_THREADS=1 .venv/bin/python scripts/index_samples.py --no-clap --workers 6` (`spectral_profiles.json` géré sans PyTorch par `bootstrap_golden_refs.py`).
+1. **Projet / Samples fournis initialement (`scripts/index_project_samples.py`)** :
+   - Exécuter `.venv/bin/python scripts/index_project_samples.py <proj>` (ou MCP `audio-index:index_project_samples`) : scanne **uniquement** `<proj>/Samples/` (et dérivés `samples/`), écrit `<proj>/samples_catalog.json` avec rôles compatibles, `playable_chromatically`, `recommended_gl_fine_tune_ct`, `timbre_card` et recettes `sample_prep_lib.py` (dont les 2 meilleurs `slice_s` d'onsets si `melodic_sequence`).
+   - Compléter si besoin par `scripts/audit_project_sources.py <projet.gridline> --prepare-samples <proj>/samples`. Zéro ajout externe (`user_samples_locked = true`).
+2. **Mémoire Sémantique Offline (`timbre_card`) & Générateur de Palettes (`propose_palettes`, `< 50 ms`, 0 PyTorch)** :
+   - **`semantic_anchors.json` + `.npz`** (`scripts/build_semantic_anchors.py --populate-db`) : 72 descripteurs sur 6 axes (`instrument_family`, `envelope`, `brightness`, `texture`, `mood`, `defect_flags`) pré-encodés une seule fois via CLAP en `float16`. La table **`sample_semantic_cards`** de `samples.db` stocke `clap_vec` (`float16`), `top_tags_json`, `defect_tags_json` et une **`timbre_card`** lisible sur 1 ligne (`<= 140 chars`).
+   - **`audio-index:propose_palettes` / `scripts/palette_builder.py`** : combine score rôle, pénalité de chevauchement **Bark24** (surpondérée sur `Kick/Bass` `40–120 Hz` et `Chords/Lead` `800–3500 Hz`), relais d'attaques et adéquation humeur pour proposer **3 palettes distinctes** (`palette_A` Organique/Feutrée, `palette_B` Sombre/Synthétique, `palette_C` Hybride/Percussive). Respecte strictement le verrou `project_samples_dir` en Scénario B.
+   - `search_samples`, `select_best_samples` et `scripts/select_sample.py` (`--role`, `--target-key`, `--mono-only`, `--top 8`) retournent `timbre_card` en pur NumPy (`< 25 ms`, 0 PyTorch) avec repli DSP + `"warning": "clap_index_missing_fallback_dsp"` si aucun vecteur CLAP n'est présent.
+   - *Maintenance CLI* : `OMP_NUM_THREADS=1 .venv/bin/python scripts/index_samples.py --no-clap --workers 6` (ou `--enrich-clap --batch-size 64` / `--populate-cards`).
 3. **Synthèse native `gl.*`** : 18 synthés dans `gl_dsl.SYNTH_REGISTRY` (`search_synth_presets`, zéro téléchargement).
 4. **Récupération CC0 en ligne (si absent en local)** : `audio-index:fetch_samples_online(..., monophonic_only=True)` ou `scripts/fetch_samples_api.py --mono-only --no-clap` (clés `.env` : `FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`).
 

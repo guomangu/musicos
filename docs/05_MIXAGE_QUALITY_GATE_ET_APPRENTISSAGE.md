@@ -1,7 +1,11 @@
 # Facette 5 — Mixage Multi-Genres, Stems, Auto-Fix, Quality Gate & Références
 
-> **Cheatsheet IA (L'essentiel v2.0)**
-> - **Boucle fermée & Auto-Fix** : Lancer `render_and_audit.py <projet.gridline> --profile <genre> --blueprint song_blueprint.json --range <b1>-<b2> --no-neural --auto-fix --max-passes 2` (~5× plus rapide ; corrige déterministement EQ résonances/low_mids, Gain LUFS et Limiter Ceiling, journalisé dans `renders/autofix_history.json`). Terminer par **1 seul rendu complet** `--mp3 --sections "..."`.
+> **Cheatsheet IA (L'essentiel v2.1 — Loop-First É1 → É4)**
+> - **Validation Incrémentale Loop-First (`scripts/loop_first_runner.py` → `pipeline_state.json`)** :
+>   - **É1 Sound Check Unitaire (`audio-analyzer:audit_track_soundcheck` / `scripts/soundcheck_lib.py`)** : teste chaque piste isolée jouée sur `2–4` mes. (audibilité, justesse `<= 8 ct`, intégrité chromatique, propreté `2–5 kHz`, enveloppe vs BPM, fidélité valence) via `ListenerBackend` (`DeterministicSemanticListener` 0 GPU ou `MultimodalAudioListener`). Optionnel : `scripts/export_palette_preview.py --human-gate` (`renders/palette_preview.wav`).
+>   - **É2 Tests Verticaux sur Noyau `4/8` mes. (`--core-only` + `audio-analyzer:audit_vertical_step` / `scripts/vertical_tester.py`)** : `V1_LOW_END` → `V2_GROOVE` *(sauté si `has_drums=false`)* → `V3_HARMONY` *(conflit chroma CQT basse/accords + `low_mids`)* → `V4_LEAD` → gèle `core_loop_locked = true`. **Isolation stricte** : interdit d'éditer `forbidden_tracks` ($1 \dots k-1$) ; max 2 retries avant `SWAP_SAMPLE`.
+>   - **É3 Audit des Coutures (`audio-analyzer:audit_horizontal_seam` / `scripts/horizontal_tester.py`)** : rend uniquement les fenêtres `4` mes. (`±2` mes.) sur chaque transition majeure + `Outro` (`ΔLUFS`, `beat4_dropout`/`filter_sweep`, `0` glitch `±150 ms`, Outro `< -45 dBFS`).
+> - **É4 Boucle fermée & Auto-Fix** : Lancer `render_and_audit.py <projet.gridline> --profile <genre> --blueprint song_blueprint.json --range <b1>-<b2> --no-neural --auto-fix --max-passes 2` puis **1 seul rendu complet** `--mp3 --sections "..."` (`renders/autofix_history.json`).
 > - **Stems & Référence Spectrale** : Auditer les stems via `render_project_stems` + `analyze_stem_hierarchy` (`lead_vs_harmony_db >= 2.0`, `kick_bass_transient_overlap`, `pink_slope_db_per_oct` `-3..-6.5`). `render_and_audit` calcule aussi `spectral_match_score` (`0..1`) via `golden_references/spectral_profiles.json` (0 PyTorch).
 > - **Genres sans batterie (`has_drums=false` / `classical_ambient`)** : Passer `--no-drums` ou `--blueprint song_blueprint.json` (`"has_drums": false`) ; le gate désactive l'exigence `dynamic_arc` et filtre les résonances inter-harmoniques.
 > - **Topologie Buses (`setup_standard_buses`)** : `BUS Drums (17)` · `BUS Bass (18)` · `BUS Music (19)` · `FX Room (20)` · `Master (0)` configurés via **`scripts/gl_dsl.py`** (carte → [`docs/00_SOMMAIRE.md`](00_SOMMAIRE.md)).
@@ -72,7 +76,16 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 
 ---
 
-## Chapitre 3 — Quality Gate Conditionnel, Stems, Référence Spectrale & Auto-Fix
+## Chapitre 3 — Pipeline Loop-First (`É1 → É3`), Quality Gate Conditionnel (`É4`), Stems & Auto-Fix
+
+### 3.0 Audits Incrémentaux Loop-First (`soundcheck_lib`, `vertical_tester`, `horizontal_tester`, `loop_first_runner`)
+Tous les nouveaux outils retournent un **contrat JSON uniforme concis** (`verdict`: `PASS|FIX|SWAP`, `score`, `human_diagnosis` 1–3 phrases FR, `next_action` unique) et écrivent les métriques détaillées dans `<proj>/renders/diagnostics/`.
+
+| Étage | Outil MCP / Script | Ce qui est vérifié | Action unique / Garde-fou |
+| :---: | :--- | :--- | :--- |
+| **É1** | `audio-analyzer:audit_track_soundcheck` (`scripts/soundcheck_lib.py`, `scripts/listener_backend.py`) | Rendu headless `2–4` mes. par piste isolée : RMS `> -42 dBFS`, justesse jouée `<= 8 ct`, intégrité chromatique, `0` pic `> +5 dB` (`2–5 kHz`) ni glitch, enveloppe vs BPM, fidélité `valence`. | `CHECK_ROUTING_OR_SWAP`, `ADJUST_FINE_TUNE`, `APPLY_LPF`, `ADD_NOTCH_EQ`, `ADJUST_ADSR` · `export_palette_preview.py` (`palette_preview.wav`). |
+| **É2** | `audio-analyzer:audit_vertical_step` (`scripts/vertical_tester.py`, `song_builder.py --core-only`) | Paliers cumulatifs sur `core_loop.gridline` (`4/8` mes.) : `V1_LOW_END` (overlap/phase `<150 Hz`), `V2_GROOVE` (sharpness/mitraillette, sauté si `has_drums=false`), `V3_HARMONY` (conflit chroma CQT basse/accords + `low_mids`), `V4_LEAD` (hiérarchie `>= +2 dB`, pente rose, `spectral_match`). | **Isolation** : `forbidden_tracks` verrouillé (`loop_first_runner.py` bloque toute édition hors couche $k$ ; escalade `SWAP_SAMPLE` après 2 échecs) → `core_loop_locked = true`. |
+| **É3** | `audio-analyzer:audit_horizontal_seam` (`scripts/horizontal_tester.py`) | Fenêtres `4` mes. (`±2` mes.) sur transitions majeures + `Outro` : contraste `ΔLUFS`, événement (`beat4_dropout` / `filter_sweep`), `0` glitch `±150 ms`, RMS dernière seconde Outro `< -45 dBFS`. | `INCREASE_SECTION_CONTRAST`, `ADD_TRANSITION_EVENT`, `CLEAN_SEAM_FADE`, `APPLY_OUTRO_FADE` via `transitions_lib.py`. |
 
 ### 3.1 Critères `render_and_audit.py` + `analyze_stem_hierarchy` + `spectral_match_score`
 * **Checklist Structure & Timbre Pré-Rendu** : `100 % Mono < 120 Hz` · aucune note `< 100 Hz` plus courte que `1/8` (`Release < 50 ms`) · `1–8` pistes simultanées par mesure · Lead dominant de `>= +3 dB` · aucune boucle de 8 mesures identique · isolation strictement `1 sonorité = 1 piste` · aucun pic isolé `> +4 dB` dans `2,5–4,5 kHz` · pente rose `-3..-5 dB/oct` · transitoires décalés `>= 5 ms` (`groove_lib`).
@@ -137,3 +150,4 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
 | `morceaux/song1` *Ombre Phrygienne* | Dark Trap / `142` / `C Phryg` | `121.7 s` | `-12.14` / `-1.62` | `1.00` / `0.898` | **`8.05`** | Samples `morceaux/SAMPLES`, `440.25 Hz` (`+1 ct`), 0 glitch/résonance, arc `7.04 dB` |
 | `morceaux/song3` *Sillage de Minuit (Rap Inst.)* | Dark Trap / `144` / `Gm` | `120.0 s` | `-12.05` / `-1.32` | `1.00` / `0.922` | **`7.47`** | Instru Rap sans vox (`song3/Samples/` + alts `samples/`), 808 longues `1-2/mes`, `440.0 Hz (0.0 ct)`, 0 glitch/résonance, arc `4.44 dB` |
 | `morceaux/song4` *Ondes de Verre (Rap Inst.)* | Dark Trap / `172` / `Fm` | `178.6 s` | `-12.18` / `-1.29` | `1.00` / `0.990` | **`7.28`** | 100 % samples fournis (`air/Samples/` + 22 alts), 22 pistes isolées, `440.51 Hz (+2.0 ct)`, 0 glitch/résonance, arc `10.19 dB`, centralisation `sample_prep_lib` + `song_builder` |
+| `morceaux/song5` *Brume d'Automne (Rap Inst.)* | Melancholic Trap / `134` / `Dm` | `122.4 s` | `-11.59` / `-1.08` | `0.999` / `0.730` | **`7.44`** | 100 % samples fournis (`Untitled/Samples/` + 13 alts) + `gl.*`, 15 pistes isolées, `440.0 Hz (0.0 ct)`, 0 glitch/résonance, pente `-4.44 dB/oct`, `spectral_match=0.894` |
