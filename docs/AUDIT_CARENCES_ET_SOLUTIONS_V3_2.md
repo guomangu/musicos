@@ -4,6 +4,16 @@
 
 **Objectif v3.2 :** des morceaux vraiment mélodieux, vivants, cohérents d'un bout à l'autre — en conservant le budget (≤ 3 macro-tours LLM, ≤ 8 000 tokens, ≤ 2 rendus Gridline).
 
+**État d'implémentation (v3.2 — terminé) :** les 5 priorités sont développées, un commit par jalon, et couvertes par la CI documentaire (`tests/test_docs_hygiene.py`) :
+
+| Priorité | Jalon | Commit |
+| :---: | :--- | :--- |
+| P1 (#5b) | Purge contradictions docs + 3 assertions CI | `2b3b6ae` |
+| P2 (#3) | `FullCoverageCoreValidator` + `compile_song --probe` | `38ac66d` |
+| P3 (#1) | `NarrativeHarmony` (sections, phrasé 8 mesures, suspensions) | `bd379e0` |
+| P4 (#2) | `ExpressionArticulations` (glides 808, vibrato retardé, vélocité→cutoff, ritardando) | `1129f93` |
+| P5 (#4 + #5a) | `TimbralCohesion` (wetness/DRR, archétypes `gl.*`, banque grooves MIDI) + `MelodicAppealIndex` (tournoi Tour 2) | `3531038` |
+
 ## Feuille de route (ordre de priorité)
 
 | Priorité | Problème | Modules ciblés | Impact audible |
