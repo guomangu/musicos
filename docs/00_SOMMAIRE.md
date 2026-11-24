@@ -106,6 +106,7 @@ Lire **just-in-time** uniquement la facette correspondant à l'étape courante :
 | # | Script | Fonctions clés | Rôle |
 | :--- | :--- | :--- | :--- |
 | **v3.x** | `scripts/narrative_harmony.py` | `apply_narrative_harmony`, `motif_answer`, `rhythmic_lift`, `call_and_response`, `melodic_climax_arch`, `mark_suspensions` | v3.2 NarrativeHarmony : progressions par section (`section_progressions`), phrasé 8 mesures Antécédent/Conséquent, opérateurs motiviques déterministes, suspensions 4→3/9→8/b6→5 vérifiées. |
+| **v3.x** | `scripts/midi_groove_bank.py` | `build_groove_bank`, `query_groove_bank`, `groove_to_notes` | v3.2 banque de grooves : mine les `.mid` percussifs locaux (soundbanks) en templates 1-4 mesures + vélocité, sans jamais copier de mélodie. |
 | **v3.x** | `scripts/full_coverage_validator.py` | `validate_full_score_ir`, `build_probe_plan`, `run_full_coverage_check` | v3.2 pré-vol symbolique 100 % du morceau (clones 8 mesures, charge cognitive 1-8/mesure, arc d'énergie, outro) + sonde stems 12 mesures (8 noyau + 1 silence + 4 hors-noyau). |
 | **v3.x** | `scripts/asset_hygiene.py` | `asset_hygiene` | Hygiène banques : whitelist extensions audio, magic bytes, parasites OS (`__MACOSX`, `.DS_Store`, `.wav.zpa`, `.fst`), fichiers < 1 Ko. Pas de détection de licence (responsabilité utilisateur). |
 | **v3.x** | `scripts/autofix_transaction.py` | `autofix_transaction` | Autofix transactionnel 3 paliers : rollback immédiat si invariant Palier 1 régresse, blacklist anti-oscillation, journal `renders/autofix_history.json`. |

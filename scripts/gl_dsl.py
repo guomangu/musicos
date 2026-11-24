@@ -10,6 +10,9 @@ and cutoff units.
 """
 from __future__ import annotations
 
+import json
+import os
+
 import math
 import warnings
 from dataclasses import dataclass, field
@@ -888,3 +891,34 @@ def synth_voice(
         unison=eff_unison,
         makeup_gain_db=lpf_makeup_gain_db(eff_cutoff),
     )
+
+
+# ---------------------------------------------------------------------------
+# v3.2 TimbralCohesion — archétypes timbraux gl.* calibrés par (profil, rôle, valence)
+# ---------------------------------------------------------------------------
+
+def load_timbre_archetypes(path: str | None = None) -> dict[str, Any]:
+    """Charge `config/timbre_archetypes.json` (21+ recettes vérifiées)."""
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "timbre_archetypes.json")
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh).get("archetypes", {})
+    except Exception:
+        return {}
+
+
+def resolve_archetype(profile: str, role: str, valence: float = 0.0) -> dict[str, Any] | None:
+    """v3.2 : recette `gl.*` calibrée pour (mix_profile, role), avec `dark_overrides`
+    appliqués si valence < -0.2. Retourne {"plugin", "params"} ou None."""
+    arch = load_timbre_archetypes()
+    key = f"{str(profile).strip()}:{str(role).strip()}"
+    entry = arch.get(key) or arch.get(f"trap_rap:{role}")
+    if not entry:
+        return None
+    params = dict(entry.get("params") or {})
+    if float(valence) < -0.2:
+        params.update(entry.get("dark_overrides") or {})
+    return {"plugin": entry.get("plugin", "gl.warmsynth"), "params": params}

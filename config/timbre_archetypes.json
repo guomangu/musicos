@@ -1,0 +1,179 @@
+{
+  "schema_version": "3.2",
+  "description": "Archétypes timbraux gl.* calibrés par (mix_profile, role, valence) — remplacent le repli générique. Micro-detune <= 4 ct sur couches secondaires uniquement, jamais sur la fondation.",
+  "archetypes": {
+    "trap_rap:bass": {
+      "plugin": "gl.sampler",
+      "params": {
+        "attack_ms": 2,
+        "release_ms": 120,
+        "glide_ms": 60
+      },
+      "dark_overrides": {}
+    },
+    "trap_rap:chords": {
+      "plugin": "gl.warmsynth",
+      "params": {
+        "cutoff_hz": 6500,
+        "attack_ms": 8,
+        "release_ms": 180
+      },
+      "dark_overrides": {}
+    },
+    "trap_rap:lead": {
+      "plugin": "gl.fm",
+      "params": {
+        "cutoff_hz": 8200,
+        "vibrato_delay_ms": 250
+      },
+      "dark_overrides": {
+        "cutoff_hz": 8200
+      }
+    },
+    "pop_rnb:bass": {
+      "plugin": "gl.fingerbass",
+      "params": {
+        "attack_ms": 3,
+        "release_ms": 90
+      },
+      "dark_overrides": {}
+    },
+    "pop_rnb:chords": {
+      "plugin": "gl.keys",
+      "params": {
+        "cutoff_hz": 7500
+      },
+      "dark_overrides": {}
+    },
+    "pop_rnb:lead": {
+      "plugin": "gl.twinva",
+      "params": {
+        "cutoff_hz": 9500,
+        "vibrato_delay_ms": 220
+      },
+      "dark_overrides": {}
+    },
+    "edm_club:bass": {
+      "plugin": "gl.analog",
+      "params": {
+        "attack_ms": 2,
+        "release_ms": 80,
+        "glide_ms": 55,
+        "voice_mode": 1
+      },
+      "dark_overrides": {}
+    },
+    "edm_club:chords": {
+      "plugin": "gl.sawswarm",
+      "params": {
+        "cutoff_hz": 8000
+      },
+      "dark_overrides": {}
+    },
+    "edm_club:lead": {
+      "plugin": "gl.wavetable",
+      "params": {
+        "cutoff_hz": 10000,
+        "vibrato_delay_ms": 240
+      },
+      "dark_overrides": {}
+    },
+    "rock_metal:bass": {
+      "plugin": "gl.fingerbass",
+      "params": {
+        "attack_ms": 2,
+        "release_ms": 70
+      },
+      "dark_overrides": {}
+    },
+    "rock_metal:chords": {
+      "plugin": "gl.analog",
+      "params": {
+        "cutoff_hz": 6800
+      },
+      "dark_overrides": {}
+    },
+    "rock_metal:lead": {
+      "plugin": "gl.sawswarm",
+      "params": {
+        "cutoff_hz": 9200
+      },
+      "dark_overrides": {}
+    },
+    "lofi_chill:bass": {
+      "plugin": "gl.sampler",
+      "params": {
+        "attack_ms": 4,
+        "release_ms": 140
+      },
+      "dark_overrides": {}
+    },
+    "lofi_chill:chords": {
+      "plugin": "gl.keys",
+      "params": {
+        "cutoff_hz": 5200,
+        "tremolo_depth": 0.06
+      },
+      "dark_overrides": {
+        "cutoff_hz": 4600
+      }
+    },
+    "lofi_chill:lead": {
+      "plugin": "gl.warmsynth",
+      "params": {
+        "cutoff_hz": 9000,
+        "vibrato_delay_ms": 300
+      },
+      "dark_overrides": {}
+    },
+    "jazz_acoustic:bass": {
+      "plugin": "gl.fingerbass",
+      "params": {
+        "attack_ms": 3,
+        "release_ms": 110
+      },
+      "dark_overrides": {}
+    },
+    "jazz_acoustic:chords": {
+      "plugin": "gl.keys",
+      "params": {
+        "cutoff_hz": 6800
+      },
+      "dark_overrides": {}
+    },
+    "jazz_acoustic:lead": {
+      "plugin": "gl.string",
+      "params": {
+        "cutoff_hz": 8500,
+        "vibrato_delay_ms": 260
+      },
+      "dark_overrides": {}
+    },
+    "classical_ambient:bass": {
+      "plugin": "gl.string",
+      "params": {
+        "attack_ms": 12,
+        "release_ms": 300
+      },
+      "dark_overrides": {}
+    },
+    "classical_ambient:chords": {
+      "plugin": "gl.string",
+      "params": {
+        "cutoff_hz": 5800,
+        "attack_ms": 15
+      },
+      "dark_overrides": {
+        "cutoff_hz": 5800
+      }
+    },
+    "classical_ambient:lead": {
+      "plugin": "gl.string",
+      "params": {
+        "cutoff_hz": 8000,
+        "vibrato_delay_ms": 280
+      },
+      "dark_overrides": {}
+    }
+  }
+}

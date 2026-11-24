@@ -1429,6 +1429,49 @@ def _default_channels_for_plan(
     return channels
 
 
+def apply_wetness_sends(
+    channels: list[ChannelSpec],
+    proj_dir: str,
+    dry_gain: float = 0.8,
+) -> dict[str, dict[str, float]]:
+    """v3.2 TimbralCohesion — pondère `fx_send`/`hall_send` par `(1 - dry_gain * wetness)` :
+    un sample déjà réverbéré (wetness haut, lu dans `samples_catalog.json`) reçoit quasi 0
+    send FX Hall, un synthé sec reçoit l'ambiance nécessaire pour s'unifier dans le même espace."""
+    cat_path = os.path.join(proj_dir, "samples_catalog.json")
+    wet_by_base: dict[str, float] = {}
+    if os.path.isfile(cat_path):
+        try:
+            with open(cat_path, encoding="utf-8") as fh:
+                cat = json.load(fh)
+            entries = cat.get("samples") if isinstance(cat, dict) else cat
+            if isinstance(entries, dict):
+                entries = list(entries.values())
+            for e in entries or []:
+                if isinstance(e, dict):
+                    p = str(e.get("path") or e.get("file") or e.get("sample_path") or "")
+                    if p:
+                        wet_by_base[os.path.basename(p)] = float(e.get("wetness_score", 0.5) or 0.5)
+        except Exception:
+            pass
+    report: dict[str, dict[str, float]] = {}
+    for ch in channels:
+        sf = str(getattr(ch, "sample_file", "") or "")
+        if not sf:
+            continue
+        w = wet_by_base.get(os.path.basename(sf))
+        if w is None:
+            continue
+        factor = max(0.0, 1.0 - dry_gain * w)
+        old_fx, old_hall = float(ch.fx_send), float(ch.hall_send)
+        if old_fx > 0.0:
+            ch.fx_send = round(old_fx * factor, 4)
+        if old_hall > 0.0:
+            ch.hall_send = round(old_hall * factor, 4)
+        if old_fx > 0.0 or old_hall > 0.0:
+            report[ch.track_key] = {"wetness": w, "fx_send": [old_fx, ch.fx_send], "hall_send": [old_hall, ch.hall_send]}
+    return report
+
+
 def _timbre_features_for_channel(ch: Any, proj_dir: str) -> dict[str, Any]:
     """v3.1 HARM-03 : features timbre d'un canal (synthé gl.* ou sample du catalogue)."""
     plugin = str(getattr(ch, "plugin", "") or "")
@@ -1554,6 +1597,8 @@ def compile_arrangement_plan(
 
     eff_channels = list(channels) if channels is not None else _default_channels_for_plan(plan, roles_ordered, abs_proj, valence)
     role_to_ch = {ch.track_key: ch for ch in eff_channels}
+    # v3.2 TimbralCohesion : sends FX pondérés par le DRR natif des samples (wetness)
+    wetness_report = apply_wetness_sends(eff_channels, abs_proj)
 
     tracks: dict[str, list[dict[str, Any]]] = {ch.track_key: [] for ch in eff_channels}
     sections_tuples: list[tuple[str, int, int, str]] = []
@@ -1613,6 +1658,29 @@ def compile_arrangement_plan(
         if any(k in rl for k in ("bass", "808", "sub")):
             tracks[r_key] = enforce_frequency_inertia(r_notes, bpm=bpm)
     _voices_by_role = {str(ch.track_key).lower(): int(getattr(ch, "voices", 4) or 4) for ch in eff_channels}
+    # v3.2 #4 — banque de grooves extraits des .mid locaux (pistes percussives uniquement)
+    groove_bank_report: dict[str, Any] = {}
+    gb_cfg = plan.get("groove_bank") or {}
+    if isinstance(gb_cfg, dict) and gb_cfg.get("enabled"):
+        try:
+            from midi_groove_bank import DEFAULT_BANK_PATH, groove_to_notes, query_groove_bank
+            tpl = query_groove_bank(gb_cfg.get("bank_path") or DEFAULT_BANK_PATH,
+                                    role=gb_cfg.get("role", "hihat_perc"), bpm=bpm, profile=meta["mix_profile"])
+            if tpl:
+                target = gb_cfg.get("track") or next((k for k in tracks if "hat" in k.lower()), None)
+                if target:
+                    pitch = int(gb_cfg.get("pitch", 42))
+                    added = 0
+                    for _nm, s_bar, n_bars, _k in sections_tuples:
+                        sec_start = float(s_bar * bpb)
+                        for rep in range(max(1, n_bars // max(1, int(tpl.get("bars", 1))))):
+                            tracks.setdefault(target, []).extend(
+                                groove_to_notes(tpl, sec_start + rep * int(tpl.get("bars", 1)) * bpb, float(bpb), pitch)
+                            )
+                            added += len(tpl.get("steps", []))
+                    groove_bank_report = {"template": tpl.get("source"), "role": tpl.get("role"), "added": added, "track": target}
+        except Exception as exc:
+            groove_bank_report = {"error": str(exc)[:120]}
     score_ir = build_score_ir(hc_plan, meta, tracks, channels=eff_channels, voices_by_role=_voices_by_role, section_spans=sections_tuples)
     # v3.2 NarrativeHarmony : opérateurs motiviques déterministes (phrasé 8 mesures Q/R,
     # syncope au refrain, call-and-response, apex unique) + suspensions 4->3/9->8/b6->5.
@@ -1623,6 +1691,27 @@ def compile_arrangement_plan(
             narrative_report = apply_narrative_harmony(score_ir, plan, section_spans=sections_tuples)
         except ImportError:
             narrative_report = {"error": "narrative_harmony indisponible"}
+    # v3.2 #5a — tournoi de 2-3 variantes d'ornementation en Tour 2 (0 rendu audio) :
+    # on retient celle qui maximise le MelodicAppealIndex à invariants durs égaux.
+    motif_selection_report: dict[str, Any] = {}
+    if plan.get("motif_selection"):
+        try:
+            import copy as _copy
+            from musicality_metrics import select_best_motif_variant
+            from narrative_harmony import melodic_climax_arch, rhythmic_lift
+            variants = [(score_ir, "base")]
+            v1 = _copy.deepcopy(score_ir)
+            melodic_climax_arch(v1, period_bars=8)
+            variants.append((v1, "climax_arch"))
+            v2 = _copy.deepcopy(score_ir)
+            rhythmic_lift(v2, section_spans=sections_tuples)
+            variants.append((v2, "rhythmic_lift"))
+            sel = select_best_motif_variant(score_ir, variants)
+            score_ir = sel["score_ir"]
+            motif_selection_report = {"selected": sel["selected"], "mai": sel["mai"],
+                                      "evaluate_passed": sel["evaluate_passed"]}
+        except Exception as exc:
+            motif_selection_report = {"error": str(exc)[:120]}
     swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
     groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb))
     tracks, score_ir_report = compile_score_ir_to_notes(score_ir)
@@ -1939,6 +2028,9 @@ def compile_arrangement_plan(
         "narrative_harmony": narrative_report,
         "ritardando": ritardando_report,
         "velocity_cutoff": vel_cutoff_report,
+        "wetness_sends": wetness_report,
+        "motif_selection": motif_selection_report,
+        "groove_bank": groove_bank_report,
     }
 
     # Export master_sketch.mid and verify MIDI gate

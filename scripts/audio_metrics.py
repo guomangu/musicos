@@ -798,6 +798,30 @@ def analyze_vocal_signature(filepath: str) -> dict[str, Any]:
     return out
 
 
+def compute_wetness_tail(mono: np.ndarray, sr: int = 44100) -> dict[str, Any]:
+    """v3.2 TimbralCohesion — DRR/queue de réverbération natifs, 0 GPU :
+    `wetness_score` = énergie de la queue [150, 600] ms / (direct [0, 80] ms + queue), dans [0, 1] ;
+    `tail_duration_ms` = durée pendant laquelle l'enveloppe reste > -40 dB après le pic d'attaque."""
+    y = np.asarray(mono, dtype=np.float64)
+    if len(y) < 2048 or sr <= 0:
+        return {"wetness_score": 0.0, "tail_duration_ms": 0.0}
+    hop = 256
+    env = np.sqrt(np.convolve(y ** 2, np.ones(hop) / hop, mode="same")) + 1e-12
+    peak = float(np.max(env))
+    peak_idx = int(np.argmax(env))
+    direct = float(np.sum(env[: max(1, int(0.080 * sr))] ** 2))
+    q_lo, q_hi = int(0.150 * sr), min(len(env), int(0.600 * sr))
+    queue = float(np.sum(env[q_lo:q_hi] ** 2)) if q_hi > q_lo else 0.0
+    wetness = queue / (direct + queue + 1e-12)
+    # tail : dernier échantillon après le pic au-dessus de -40 dB
+    thr = peak * 10.0 ** (-40.0 / 20.0)
+    after = env[peak_idx:]
+    above = np.where(after > thr)[0]
+    tail_ms = float((above[-1] / sr) * 1000.0) if len(above) else 0.0
+    return {"wetness_score": round(float(min(1.0, max(0.0, wetness))), 4),
+            "tail_duration_ms": round(tail_ms, 1)}
+
+
 def extract_dsp_metrics(
     y_stereo: np.ndarray,
     mono_norm: np.ndarray,
@@ -811,6 +835,8 @@ def extract_dsp_metrics(
         sig = np.pad(mono_norm, (0, n_fft - len(mono_norm)))
     else:
         sig = mono_norm
+
+    wet = compute_wetness_tail(mono_norm, sr)
 
     stft = librosa.stft(sig, n_fft=n_fft, hop_length=hop)
     mag = np.abs(stft)
@@ -903,6 +929,8 @@ def extract_dsp_metrics(
         "phase_corr": round(float(phase_corr), 4),
         "low_mid_corr": pitch_purity["low_mid_corr"],
         "spectral_centroid_hz": spectral_centroid_hz,
+        "wetness_score": wet["wetness_score"],
+        "tail_duration_ms": wet["tail_duration_ms"],
         "crest_factor_db": crest_factor_db,
         "attack_ms": attack_ms,
         "r_harsh": round(r_harsh, 4),

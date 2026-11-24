@@ -677,9 +677,53 @@ def _load_sqlite_candidates(
     return by_role
 
 
-def _build_gl_synth_pool(roles: list[str], valence: float) -> dict[str, list[dict[str, Any]]]:
+def _build_gl_synth_pool(roles: list[str], valence: float, mix_profile: str = "trap_rap") -> dict[str, list[dict[str, Any]]]:
     pool: dict[str, list[dict[str, Any]]] = {r: [] for r in roles}
+    # v3.2 TimbralCohesion : archétype calibré par (profil, rôle, valence) en priorité
+    from gl_dsl import resolve_archetype
+    arch_map = {}
+    role_map = {"bass_sub": "bass", "chord_keys": "chords", "pad_atmosphere": "chords", "lead_melody": "lead",
+                "snare_clap": "chords", "hihat_perc": "lead", "kick": "bass"}
     for role in roles:
+        arch_map[role] = resolve_archetype(mix_profile, role_map.get(role, role), valence=valence)
+    for role in roles:
+        arch_entry = arch_map.get(role)
+        if arch_entry and arch_entry["plugin"] in SYNTH_REGISTRY:
+            gl_role = {"bass": "bass", "chords": "chords", "lead": "lead"}.get(role_map.get(role, role), "lead")
+            ap = arch_entry["params"]
+            voice = synth_voice(
+                arch_entry["plugin"], gl_role, valence=valence,
+                cutoff_hz=float(ap.get("cutoff_hz")) if ap.get("cutoff_hz") else None,
+                attack_ms=float(ap.get("attack_ms")) if ap.get("attack_ms") else None,
+                release_ms=float(ap.get("release_ms")) if ap.get("release_ms") else None,
+                glide_ms=float(ap.get("glide_ms")) if ap.get("glide_ms") else None,
+                vibrato_delay_ms=float(ap.get("vibrato_delay_ms", 220.0)),
+            )
+            item = {
+                "id": f"arch:{mix_profile}:{role}",
+                "role": role,
+                "source_type": "gridline_native",
+                "plugin": arch_entry["plugin"],
+                "filepath": None,
+                "playable_chromatically": True,
+                "recommended_fine_tune_ct": 0,
+                "theme": "synthetic",
+                "role_score": 0.9,
+                "comfort_score": 0.9,
+                "attack_ms": ap.get("attack_ms", 3.0),
+                "centroid_hz": ap.get("cutoff_hz", 6500.0),
+                "timbre_card": f"archetype {mix_profile}/{role}",
+                "bark_24": _make_bark_profile([(3, 0.8), (5, 0.9), (7, 0.6)]),
+                "gl_dsl_hint": {
+                    "plugin": arch_entry["plugin"],
+                    "role": gl_role,
+                    "cutoff_hz": voice.cutoff_hz,
+                    "needs_insert_lpf": voice.needs_insert_lpf,
+                    "archetype_params": ap,
+                },
+                "_clap_vec": None,
+            }
+            pool[role].append(item)
         for tpl in _GL_SYNTH_CANDIDATES.get(role, []):
             plugin = tpl["plugin"]
             if plugin not in SYNTH_REGISTRY:
@@ -702,6 +746,28 @@ def _build_gl_synth_pool(roles: list[str], valence: float) -> dict[str, list[dic
     return pool
 
 
+def space_coherence_penalty(items: list[dict[str, Any]], max_diff: float = 0.35, weight: float = 0.35) -> float:
+    """v3.2 TimbralCohesion — pénalise l'association d'un son très réverbéré (wetness haut)
+    avec un son très sec (wetness bas) sans compensation : évite la « boue spatiale » /
+    le collage entre pièces acoustiques incompatibles. 0 si tous les wetness sont proches."""
+    perc_roles = ("kick", "snare_clap", "hihat_perc")
+    mel_roles = ("lead_melody", "chord_keys", "pad_atmosphere", "bass_sub")
+    pen = 0.0
+    n = 0
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            a, b = items[i], items[j]
+            ra, rb = str(a.get("role", "")), str(b.get("role", ""))
+            if (ra in mel_roles and rb in perc_roles) or (ra in perc_roles and rb in mel_roles):
+                wa = float(a.get("wetness_score", 0.5))
+                wb = float(b.get("wetness_score", 0.5))
+                d = abs(wa - wb)
+                if d > max_diff:
+                    pen += weight * (d - max_diff)
+                n += 1
+    return round(pen / max(1, n), 4)
+
+
 def _score_palette(
     items: list[dict[str, Any]],
     emotion_vector: dict[str, float],
@@ -709,6 +775,7 @@ def _score_palette(
     lam_overlap: float = 0.28,
     lam_attack: float = 0.22,
     lam_mood: float = 0.25,
+    lam_space: float = 0.18,
 ) -> tuple[float, dict[str, float]]:
     if not items:
         return 0.0, {"role_mean": 0.0, "overlap_mean": 0.0, "attack_penalty": 0.0, "mood_mean": 0.0}
@@ -721,7 +788,8 @@ def _score_palette(
     att_pen = _attack_relay_penalty(items)
     mood_mean = float(np.mean([_mood_match_score(it, emotion_vector, mood_vec) for it in items]))
 
-    raw = role_mean - lam_overlap * overlap_mean - lam_attack * att_pen + lam_mood * mood_mean
+    space_pen = space_coherence_penalty(items)
+    raw = role_mean - lam_overlap * overlap_mean - lam_attack * att_pen + lam_mood * mood_mean - lam_space * space_pen
     # Normalize cleanly to [0, 1]
     norm_score = max(0.0, min(1.0, raw / (1.0 + lam_mood)))
     return round(float(norm_score), 4), {
@@ -729,6 +797,7 @@ def _score_palette(
         "overlap_mean": round(overlap_mean, 4),
         "attack_penalty": round(att_pen, 4),
         "mood_mean": round(mood_mean, 4),
+        "space_coherence_penalty": space_pen,
     }
 
 
@@ -821,7 +890,7 @@ def propose_palettes(
     else:
         sample_pool = _load_sqlite_candidates(db_path, eff_roles, target_key=target_key, bpm=bpm)
 
-    synth_pool = _build_gl_synth_pool(eff_roles, valence=valence) if allow_gl_synths else {r: [] for r in eff_roles}
+    synth_pool = _build_gl_synth_pool(eff_roles, valence=valence, mix_profile=str(mix_profile or "trap_rap")) if allow_gl_synths else {r: [] for r in eff_roles}
 
     # v3.1 ASSET-05: diagnostic de couverture — si un rôle critique a < 3 samples propres,
     # basculer sur un synthé natif gl.* vérifié au lieu d'un sample douteux.
