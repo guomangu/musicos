@@ -1496,3 +1496,108 @@ def infer_score_ir_from_midi(midi_path: str, expected_key: str = "", bpm: Option
             "total_bars": max(1, int(round(total_beats / 4.0))), "tonic": expected_key or "C", "key": expected_key or "C"}
     hc = {"key": expected_key or "C", "mode": "minor" if "minor" in (expected_key or "").lower() else "major"}
     return build_score_ir(hc, meta, tracks)
+
+
+# ---------------------------------------------------------------------------
+# v3.1 HARM-03 — couplage Timbre <-> Voicing (rugosité psychoacoustique).
+# ---------------------------------------------------------------------------
+
+def _lil_violations(voicing: List[int]) -> List[tuple]:
+    out = []
+    for i in range(len(voicing) - 1):
+        iv = voicing[i + 1] - voicing[i]
+        lim = LOW_INTERVAL_LIMIT.get(iv)
+        if lim is not None and voicing[i] < lim:
+            out.append((i, iv, voicing[i], lim))
+    return out
+
+
+def _enforce_lil(voicing: List[int], high: int = 88) -> List[int]:
+    """Low Interval Limit : aucune seconde sous G3, aucune tierce sous C3, etc."""
+    v = sorted(set(int(p) for p in voicing))
+    for _ in range(10):
+        viols = _lil_violations(v)
+        if not viols:
+            break
+        i, _iv, low, _lim = viols[0]
+        if low + 12 <= high and (low + 12) not in v:
+            v[i] = low + 12
+            v = sorted(set(v))
+        else:
+            del v[i + 1]
+            if len(v) < 2:
+                break
+    return v
+
+
+def adapt_voicing_to_timbre(
+    voicing: List[int],
+    timbre_features: Optional[Dict[str, Any]] = None,
+    valence: float = 0.0,
+    chord_root_pc: int = 0,
+) -> Tuple[List[int], Dict[str, Any]]:
+    """v3.1 HARM-03 : adapte un voicing d'accord au timbre qui le joue.
+
+    - Timbre **inharmonique** (`inharmonicity > 0.15` ou famille bell/metallic/fm) :
+      2 à 3 notes max, confinement `{1, 5, 8}` (offsets {0, 7, 12} vs racine d'accord),
+      espacement minimal >= 5 st dans le médium-grave (< MIDI 60).
+    - Timbre **riche/brillant** (`centroid > 2200 Hz` ou saw/fm/wavetable) avec >= 4 notes :
+      drop-2 (2e note la plus haute abaissée d'une octave) si la LIL le permet, sinon
+      shell voicing (quinte redondante retirée quand 7e/9e présentes).
+    - La **Low Interval Limit** est toujours respectée en sortie.
+    Retourne `(voicing, report)`.
+    """
+    v = sorted(set(int(p) for p in voicing))
+    if len(v) < 2:
+        return v, {"changes": [], "inharmonic": False, "bright": False}
+    feats = dict(timbre_features or {})
+    inhar = float(feats.get("inharmonicity", 0.0) or 0.0)
+    family = str(feats.get("family") or feats.get("timbre_class") or feats.get("plugin") or "").lower()
+    centroid = float(feats.get("spectral_centroid_hz", feats.get("centroid_hz", 0.0)) or 0.0)
+    inharmonic = inhar > 0.15 or any(k in family for k in ("bell", "metallic", "fm", "matrixfm"))
+    bright = centroid > 2200.0 or any(k in family for k in ("saw", "fm", "matrixfm", "supersaw", "wavetable"))
+    root = int(chord_root_pc) % 12
+    changes: List[str] = []
+
+    if inharmonic and len(v) > 3:
+        sel = [v[0]]
+        for p in v[1:]:
+            if len(sel) >= 3:
+                break
+            if (p - root) % 12 not in (0, 7):
+                continue
+            if p < 60 and p - sel[-1] < 5:
+                continue
+            if p - sel[-1] < 1:
+                continue
+            sel.append(p)
+        if len(sel) < 2:
+            sel = v[:3]
+        v = sorted(sel)
+        changes.append("inharmonic_confinement_2_3_notes")
+
+    if bright and len(v) >= 4:
+        pcs = {p % 12 for p in v}
+        fifth = (root + 7) % 12
+        has_ext = any((root + iv) % 12 in pcs for iv in (10, 11, 2, 3))
+        if has_ext and any(p % 12 == fifth for p in v):
+            v = [p for p in v if p % 12 != fifth]
+            changes.append("shell_remove_fifth")
+        else:
+            v2 = list(v)
+            v2[-2] -= 12
+            v2 = sorted(set(v2))
+            if not _lil_violations(v2):
+                v = v2
+                changes.append("drop2")
+            elif any(p % 12 == fifth for p in v):
+                v = [p for p in v if p % 12 != fifth]
+                changes.append("shell_remove_fifth")
+            else:
+                v = v[:-1]
+                changes.append("drop_top_note")
+
+    v = _enforce_lil(v)
+    if v != sorted(set(int(p) for p in voicing)) and not changes:
+        changes.append("lil_enforced")
+    return v, {"changes": changes, "inharmonic": inharmonic, "bright": bright}

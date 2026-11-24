@@ -213,5 +213,119 @@ class TestScoreIRPostGrooveHarmony(unittest.TestCase):
         self.assertEqual(grid[3]["chord_pcs"], [0, 3, 8])  # bVI = Ab maj (tri sorted)
 
 
+
+class TestTimbreVoicing(unittest.TestCase):
+    """v3.1 HARM-03 (d) : adapt_voicing_to_timbre allège selon le timbre et respecte la LIL."""
+
+    def test_bell_inharmonic_confinement(self):
+        from musicality_metrics import adapt_voicing_to_timbre
+        v, rep = adapt_voicing_to_timbre([60, 63, 67, 70, 74], {"inharmonicity": 0.4, "family": "bell"}, -0.5, chord_root_pc=0)
+        self.assertTrue(rep["inharmonic"])
+        self.assertLessEqual(len(v), 3)
+        for p in v:
+            self.assertIn((p - 0) % 12, (0, 7))  # confinement {1, 5, 8}
+        # espacement >= 5 st dans le médium-grave
+        for a, b in zip(v, v[1:]):
+            if a < 60:
+                self.assertGreaterEqual(b - a, 5)
+
+    def test_bright_saw_drop2_or_shell(self):
+        from musicality_metrics import adapt_voicing_to_timbre, _lil_violations
+        v, rep = adapt_voicing_to_timbre([60, 64, 67, 71, 74], {"spectral_centroid_hz": 2600.0, "family": "sawswarm"}, 0.2, chord_root_pc=0)
+        self.assertTrue(rep["bright"])
+        self.assertLessEqual(len(v), 4)
+        self.assertEqual(_lil_violations(v), [])
+        self.assertIn(rep["changes"][0], ("drop2", "shell_remove_fifth", "drop_top_note"))
+
+    def test_plain_pad_untouched(self):
+        from musicality_metrics import adapt_voicing_to_timbre
+        v, rep = adapt_voicing_to_timbre([60, 64, 67], {"family": "warmsynth"}, 0.0, chord_root_pc=0)
+        self.assertEqual(v, [60, 64, 67])
+        self.assertEqual(rep["changes"], [])
+
+    def test_lil_enforced(self):
+        from musicality_metrics import adapt_voicing_to_timbre, _lil_violations
+        v, _rep = adapt_voicing_to_timbre([36, 38, 43], {"family": "keys"}, 0.0, chord_root_pc=0)
+        self.assertEqual(_lil_violations(v), [])
+
+
+class TestBarwiseHarmonicAlignment(unittest.TestCase):
+    """v3.1 HARM-03 : evaluate_barwise_harmonic_alignment (contrat §4.3) sur stems synthétiques."""
+
+    def _stems(self, bass_shift_st: int = 0, clash_pc: int | None = None):
+        import numpy as np
+        from stem_matrix_evaluator import evaluate_barwise_harmonic_alignment  # noqa: F401
+        sr = 22050
+        bpm = 120.0
+        grid = harmonic_grid_from_core(
+            {"key": "C", "mode": "phrygian", "degree_progression": ["i", "bII", "i", "bVI"]},
+            bpm=bpm, beats_per_bar=4, total_bars=4,
+        )
+        beat = 60.0 / bpm
+
+        def wave(pcs, octave, dur):
+            t = np.arange(int(dur * sr)) / sr
+            w = sum(np.sin(2 * np.pi * (440.0 * 2 ** ((octave * 12 + pc - 69) / 12.0)) * t) for pc in pcs)
+            return w / max(1, len(pcs))
+
+        total = int(sum(float(s["end_beat"] - s["start_beat"]) for s in grid) * beat * sr)
+        bass = np.zeros(total)
+        chords = np.zeros(total)
+        pos = 0
+        for seg in grid:
+            dur = (float(seg["end_beat"]) - float(seg["start_beat"])) * beat
+            n = int(dur * sr)
+            bpc = (int(seg["bass_pc"]) + bass_shift_st) % 12
+            bass[pos:pos + n] = wave([bpc], 2, dur)
+            cpcs = list(seg["chord_pcs"])
+            if clash_pc is not None and seg["chord_idx"] == 1:
+                cpcs = cpcs + [clash_pc]
+            chords[pos:pos + n] = wave(cpcs, 4, dur)
+            pos += n
+        return grid, bpm, {"bass": (bass, sr), "chords": (chords, sr)}
+
+    def test_clean_stems_pass(self):
+        from stem_matrix_evaluator import evaluate_barwise_harmonic_alignment
+        grid, bpm, stems = self._stems()
+        r = evaluate_barwise_harmonic_alignment(stems, grid, bpm, valence=-0.75)
+        self.assertTrue(r["passed"], msg=str(r["per_segment"]))
+        self.assertLessEqual(r["harmonic_audio_clash_ratio"], 0.08)
+        self.assertEqual(r["recommended_actions"], [])
+        self.assertAlmostEqual(r["per_track_pitch_bias_st"]["bass"], 0.0, delta=0.35)
+
+    def test_constant_root_bias_emits_fix_track_root_note(self):
+        from stem_matrix_evaluator import evaluate_barwise_harmonic_alignment
+        grid, bpm, stems = self._stems(bass_shift_st=2)
+        r = evaluate_barwise_harmonic_alignment(stems, grid, bpm)
+        self.assertGreaterEqual(abs(r["per_track_pitch_bias_st"]["bass"]), 1.0)
+        acts = [a for a in r["recommended_actions"] if a["code"] == "FIX_TRACK_ROOT_NOTE"]
+        self.assertTrue(acts)
+        self.assertEqual(acts[0]["params"]["delta_semitones"], -2)
+        self.assertEqual(acts[0]["track"], "bass")
+
+    def test_b2_clash_detected(self):
+        from stem_matrix_evaluator import evaluate_barwise_harmonic_alignment
+        # bII = {1,5,8}, basse Db=1 : injecter pc 2 (b2 vs basse, hors accord) dans les chords du segment 1
+        grid, bpm, stems = self._stems(clash_pc=2)
+        r = evaluate_barwise_harmonic_alignment(stems, grid, bpm)
+        self.assertGreater(r["harmonic_audio_clash_ratio"], 0.0)
+        self.assertIn(2, r["problematic_bars"])
+        self.assertFalse(r["passed"])
+
+    def test_fix_track_root_note_patches_blueprint(self):
+        import json as _json
+        import tempfile
+        from multiscale_autofix import _fix_track_root_note
+        with tempfile.TemporaryDirectory() as td:
+            bp = {"tracks": [{"name": "ChordKey", "role": "chords", "root_note": 60, "source_type": "sample"}]}
+            with open(os.path.join(td, "song_blueprint.json"), "w", encoding="utf-8") as fh:
+                _json.dump(bp, fh)
+            res = _fix_track_root_note(td, {"track": "ChordKey", "delta_semitones": -2})
+            self.assertTrue(res["applied"])
+            with open(os.path.join(td, "song_blueprint.json"), encoding="utf-8") as fh:
+                bp2 = _json.load(fh)
+            self.assertEqual(bp2["tracks"][0]["root_note"], 58)
+
+
 if __name__ == "__main__":
     unittest.main()
