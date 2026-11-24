@@ -28,6 +28,29 @@
           "type": "number",
           "default": 1.0,
           "minimum": 0.0
+        },
+        "articulation": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "legato",
+            "staccato",
+            "glide_to_next",
+            "accent",
+            "swell"
+          ],
+          "default": "normal"
+        },
+        "vibrato_delay_beats": {
+          "type": "number",
+          "default": 0.0,
+          "minimum": 0.0
+        },
+        "glide_ms": {
+          "type": "number",
+          "default": 0.0,
+          "minimum": 0.0,
+          "maximum": 90.0
         }
       },
       "additionalProperties": true

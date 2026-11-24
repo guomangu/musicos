@@ -637,10 +637,15 @@ def _apply_expressive_params(
     plugin: str,
     role: str,
     params: dict[str, Any],
+    vibrato_delay_ms: float = 220.0,
 ) -> dict[str, Any]:
     """
     Add verified organic motion to native `gl.*` synths (`Phase 8 Q6.1`).
     Every emitted parameter name/range was checked with `gridline plugin-params` (0.7.7).
+
+    v3.2 : `vibrato_delay_ms` (défaut 220 ms) retarde la profondeur du LFO de hauteur :
+    l'attaque reste juste (<= 6 ct), la tenue "chante" ensuite — jamais de vibrato
+    constant dès l'attaque (lu comme un désaccord).
     """
     if role in ("pad", "chords"):
         if plugin in ("gl.analog", "gl.wavetable", "gl.dcosynth", "gl.twinva", "gl.sawswarm"):
@@ -686,7 +691,7 @@ def _apply_expressive_params(
             params["LFO target"] = 3  # Cutoff
             params["LFO rate"] = 0.25
             params["LFO amount"] = 0.04
-            params["LFO delay"] = 0.40
+            params["LFO delay"] = _ms_to_norm_env(float(vibrato_delay_ms))  # v3.2 vibrato retardé
     elif role == "lead":
         # Timbral motion via filter LFOs: no measurable pitch bias (|tuning| <= 6.5 ct).
         if plugin == "gl.analog":
@@ -779,6 +784,7 @@ def synth_voice(
     unison: int | None = None,
     glide_ms: float | None = None,
     expressive: bool = True,
+    vibrato_delay_ms: float = 220.0,
 ) -> SynthVoiceConfig:
     """
     Build a safe, anti-stridence, CPU-bounded parameter profile for a native `gl.*` synth.
@@ -863,7 +869,7 @@ def synth_voice(
 
     # Phase 8 Q6.1 — Organic timbral motion (verified native params only)
     if expressive:
-        params = _apply_expressive_params(plugin, role, params)
+        params = _apply_expressive_params(plugin, role, params, vibrato_delay_ms=vibrato_delay_ms)
 
     needs_insert_lpf = not spec.has_internal_lpf
     insert_bands: list[dict[str, Any]] = []

@@ -612,3 +612,39 @@ def outro_fade(
     }
     automations.append(clip)
     return clip
+
+
+def apply_outro_ritardando(
+    tracks: dict[str, list[dict[str, Any]]],
+    bpm: float,
+    bars: int = 2,
+    amount: float = 0.06,
+) -> dict[str, Any]:
+    """v3.2 ExpressionArticulations — respiration finale organique (`outro_ritardando`) :
+    décélération douce de `amount` (4-8 %) sur les `bars` dernières mesures (styles
+    organiques lofi/jazz/classical) par étirement symbolique monotone des starts/lengths
+    dans la fenêtre (le début de fenêtre reste ancré ; l'ordre des notes est préservé)."""
+    amount = max(0.0, min(0.15, float(amount)))
+    if amount <= 0.0 or bars <= 0:
+        return {"applied": 0, "amount": amount}
+    total = 0.0
+    for notes in tracks.values():
+        for n in notes:
+            total = max(total, float(n["start"]) + _note_len(n))
+    if total <= 0.0:
+        return {"applied": 0, "amount": amount}
+    bpb = 4.0
+    win_start = max(0.0, total - bars * bpb)
+    win_len = total - win_start
+    applied = 0
+    for notes in tracks.values():
+        for n in notes:
+            st = float(n["start"])
+            if st < win_start - 1e-6:
+                continue
+            t = (st - win_start) / win_len
+            new_st = win_start + win_len * (t * (1.0 + amount))
+            n["start"] = round(max(0.0, new_st), 5)
+            _set_note_len(n, _note_len(n) * (1.0 + amount * t))
+            applied += 1
+    return {"applied": applied, "amount": amount, "window_beats": [round(win_start, 3), round(total, 3)]}

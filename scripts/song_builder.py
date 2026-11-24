@@ -185,6 +185,7 @@ class ChannelSpec:
     hall_send: float = 0.0
     sidechain_buses: list[tuple[int, float]] = field(default_factory=list)
     single_shot_clips: bool = False  # True for isolated FX triggers (creates 1-bar clip per event)
+    glide_ms: float | None = None  # v3.2 : glide/portamento 808 (notes `glide_to_next`), 35-90 ms
 
 
 # --- Semantic + Legacy gl.eq builders (backed by gl_dsl.py) ---
@@ -637,6 +638,9 @@ def build_gridline_project(
                         (f"channel/{idx}/Cutoff", ch.lpf_hz),
                         (f"channel/{idx}/Resonance", ch.resonance),
                     ])
+                if getattr(ch, "glide_ms", None):
+                    # v3.2 : portamento 808 vérifié (Glide en secondes, clamp [0.035, 0.090])
+                    param_changes.append((f"channel/{idx}/Glide", round(min(max(float(ch.glide_ms) / 1000.0, 0.035), 0.090), 4)))
             elif voice_cfg is not None:
                 param_changes.extend(voice_cfg.to_channel_tuples(idx))
                 if voice_cfg.needs_insert_lpf:
@@ -1885,6 +1889,37 @@ def compile_arrangement_plan(
             outro_fade(autos, master_or_bus_idx=0, start_beat=f_start, end_beat=f_end, track_idx=min(31, auto_track_cursor))
             auto_track_cursor = min(31, auto_track_cursor + 1)
 
+    # v3.2 ExpressionArticulations — respiration finale organique (ritardando 4-8 % sur les
+    # 2 dernières mesures) pour les styles organiques, puis couplage vélocité -> Cutoff sur
+    # l'harmonie (automation douce par phrase de 4 mesures).
+    ritardando_report: dict[str, Any] = {}
+    organic_profiles = ("lofi_chill", "jazz_acoustic", "classical_ambient")
+    rit_cfg = plan.get("outro_ritardando") or {}
+    if isinstance(rit_cfg, dict) and rit_cfg.get("enabled", str(meta["mix_profile"]) in organic_profiles):
+        from transitions_lib import apply_outro_ritardando
+        ritardando_report = apply_outro_ritardando(
+            tracks, bpm,
+            bars=int(rit_cfg.get("bars", 2)),
+            amount=float(rit_cfg.get("amount", 0.06)),
+        )
+    expr_layers = plan.get("expression_layers") or {}
+    vel_cutoff_report: dict[str, Any] = {}
+    if expr_layers.get("velocity_cutoff", True):
+        try:
+            from phrasing_engine import velocity_cutoff_automation
+            for ck in chords_keys_all:
+                ch = role_to_ch.get(ck)
+                if ch is None:
+                    continue
+                t_lane = min(31, auto_track_cursor)
+                auto_track_cursor = min(31, auto_track_cursor + 1)
+                vel_cutoff_report[ck] = velocity_cutoff_automation(
+                    tracks, sections_tuples, autos, bpm,
+                    track_key=ck, mixer_idx=ch.mixer, track_idx=t_lane,
+                )
+        except ImportError:
+            pass
+
     # v3.1 IR-02 — clamp de frontière harmonique final (post-groove / post-transitions) :
     # aucune note chords/pad/bass/counter ne bave sur un accord suivant incompatible,
     # puis sanitize final (vérification post-groove < 5 ms : 0 clash b2, 0 chevauchement 808).
@@ -1902,6 +1937,8 @@ def compile_arrangement_plan(
         "score_ir_report": score_ir_report,
         "voicing_adaptation": voicing_report,
         "narrative_harmony": narrative_report,
+        "ritardando": ritardando_report,
+        "velocity_cutoff": vel_cutoff_report,
     }
 
     # Export master_sketch.mid and verify MIDI gate

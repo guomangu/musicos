@@ -433,3 +433,54 @@ def apply_instrumental_prosody(
         evs.sort(key=lambda e: (float(e["start"]), int(e["pitch"])))
 
     return out_tracks, autos
+
+
+def velocity_cutoff_automation(
+    tracks: dict[str, list[dict[str, Any]]],
+    sections_tuples: list[tuple[str, int, int, str]],
+    autos: list[dict[str, Any]],
+    bpm: float,
+    *,
+    track_key: str = "chords",
+    mixer_idx: int = 19,
+    track_idx: int = 30,
+    lo_hz: float = 6500.0,
+    hi_hz: float = 12000.0,
+    phrase_bars: int = 4,
+) -> dict[str, Any]:
+    """v3.2 ExpressionArticulations — couplage vélocité -> Cutoff (dynamique timbrale) :
+    par phrase de `phrase_bars` mesures, le LPF du canal harmonie suit l'enveloppe de
+    vélocité moyenne (passages intimes vel<75 plus chaleureux/fermés, sommets ouverts).
+    N'émet que des automations `filter_sweep` douces ; ne touche aucune note."""
+    from transitions_lib import filter_sweep
+
+    notes = [n for n in tracks.get(track_key, []) if n]
+    if not notes:
+        return {"applied": 0, "reason": "no notes"}
+    bpb = 4.0
+    total = max(float(n["start"]) + _note_len(n) for n in notes)
+    applied = 0
+    p = 0.0
+    while p < total - 1e-6:
+        pend = p + phrase_bars * bpb
+        in_phrase = [n for n in notes if p - 1e-6 <= float(n["start"]) < pend]
+        if in_phrase:
+            mean_v = sum(float(n.get("velocity", 80)) for n in in_phrase) / len(in_phrase)
+            t = max(0.0, min(1.0, (mean_v - 40.0) / 60.0))  # vel 40 -> fermé, 100 -> ouvert
+            hz = lo_hz + t * (hi_hz - lo_hz)
+            filter_sweep(
+                autos,
+                mixer_idx=mixer_idx,
+                slot_idx=1,
+                start_beat=round(p, 4),
+                end_beat=round(pend, 4),
+                start_hz=hz,
+                end_hz=hz,
+                curve="linear",
+                track_idx=track_idx,
+                steps=2,
+                name=f"{track_key} vel->cutoff",
+            )
+            applied += 1
+        p += phrase_bars * bpb
+    return {"applied": applied, "track": track_key, "lo_hz": lo_hz, "hi_hz": hi_hz}

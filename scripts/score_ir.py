@@ -269,9 +269,15 @@ def segment_index_for_beat(grid: list[dict[str, Any]], beat: float) -> int:
     if not grid:
         return 0
     for seg in grid:
-        if float(seg["start_beat"]) - 1e-6 <= beat < float(seg["end_beat"]) + 1e-6:
+        # borne end EXCLUSIVE : une note commençant exactement sur un changement d'accord
+        # appartient au NOUVEL accord (sinon clamp de frontière faux + faux clash b2).
+        if float(seg["start_beat"]) - 1e-6 <= beat < float(seg["end_beat"]):
             return int(seg["chord_idx"])
     return int(grid[-1]["chord_idx"]) if beat >= float(grid[-1]["end_beat"]) else 0
+
+
+ARTICULATIONS = ("normal", "legato", "staccato", "glide_to_next", "accent", "swell")
+GLIDE_MS_RANGE = (35.0, 90.0)
 
 
 @dataclass
@@ -279,21 +285,32 @@ class ExpressionIR:
     timing_offset_beats: float = 0.0
     velocity_delta: int = 0
     gate_scale: float = 1.0
+    # v3.2 ExpressionArticulations : couche d'articulation par note (non destructive)
+    articulation: str = "normal"
+    vibrato_delay_beats: float = 0.0
+    glide_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "timing_offset_beats": round(float(self.timing_offset_beats), 5),
             "velocity_delta": int(self.velocity_delta),
             "gate_scale": round(float(self.gate_scale), 5),
+            "articulation": str(self.articulation),
+            "vibrato_delay_beats": round(float(self.vibrato_delay_beats), 5),
+            "glide_ms": round(float(self.glide_ms), 2),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> "ExpressionIR":
         d = d or {}
+        art = str(d.get("articulation", "normal") or "normal")
         return cls(
             timing_offset_beats=float(d.get("timing_offset_beats", 0.0) or 0.0),
             velocity_delta=int(d.get("velocity_delta", 0) or 0),
             gate_scale=float(d.get("gate_scale", 1.0) or 1.0),
+            articulation=art if art in ARTICULATIONS else "normal",
+            vibrato_delay_beats=float(d.get("vibrato_delay_beats", 0.0) or 0.0),
+            glide_ms=float(d.get("glide_ms", 0.0) or 0.0),
         )
 
 
@@ -642,8 +659,12 @@ def compile_score_ir_to_notes(
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     """Compile le ScoreIR en pistes plates avec clamp de frontière harmonique (obligatoire).
 
+    v3.2 : une note mono portant `articulation="glide_to_next"` (808/bass) est compilée avec
+    un chevauchement de glide court (`glide_ms` borné à [35, 90] ms) vers la note suivante,
+    et cette paire est exemptée du coupe-chevauchement brutal de `sanitize_note_overlaps`.
+
     Retourne `(tracks, report)` où report contient la vérification post-groove :
-    `boundary_bleeds`, `b2_boundary_clashes`, `mono_overlaps` (doivent être 0).
+    `boundary_bleeds`, `b2_boundary_clashes`, `mono_overlaps` (hors glides exemptés).
     """
     bpm = float(score_ir.bpm)
     guard_beats = ms_to_beats(float(guard_ms), bpm)
@@ -652,15 +673,19 @@ def compile_score_ir_to_notes(
     voices_by_role: dict[str, int] = {}
     boundary_bleeds = 0
     b2_clashes = 0
+    glide_pairs: set[tuple[str, float]] = set()
+    glide_count = 0
 
     for tkey, tir in score_ir.tracks.items():
         clampable = _is_clampable_role(tir.role)
+        sorted_notes = sorted(tir.notes, key=lambda n: (n.grid_beat, n.pitch))
         out_notes: list[dict[str, Any]] = []
-        for note in tir.notes:
+        for ni, note in enumerate(sorted_notes):
             real_start = note.real_start()
             real_end = note.real_end()
+            is_glide = bool(tir.monophonic and note.expression.articulation == "glide_to_next")
             cidx = note.chord_idx if 0 <= note.chord_idx < len(grid) else segment_index_for_beat(grid, note.grid_beat)
-            if clampable and note.note_role != "anticipation" and not note.allow_bleed and 0 <= cidx < len(grid):
+            if clampable and note.note_role != "anticipation" and not note.allow_bleed and not is_glide and 0 <= cidx < len(grid):
                 seg = grid[cidx]
                 chord_end = float(seg["end_beat"])
                 if cidx + 1 < len(grid):
@@ -670,7 +695,7 @@ def compile_score_ir_to_notes(
                         allowed_end = chord_end - guard_beats
                         if real_end > allowed_end + 1e-6:
                             real_end = max(real_start + 0.02, allowed_end)
-            if clampable and 0 <= cidx < len(grid) and cidx + 1 < len(grid):
+            if clampable and not is_glide and 0 <= cidx < len(grid) and cidx + 1 < len(grid):
                 seg = grid[cidx]
                 nxt = grid[cidx + 1]
                 pc = int(note.pitch) % 12
@@ -679,6 +704,18 @@ def compile_score_ir_to_notes(
                     d = min((pc - int(nxt.get("bass_pc", 0))) % 12, (int(nxt.get("bass_pc", 0)) - pc) % 12)
                     if d == 1:
                         b2_clashes += 1
+            # v3.2 : glide 808/bass — chevauchement mono court vers la note suivante
+            if (tir.monophonic and note.expression.articulation == "glide_to_next"
+                    and ni + 1 < len(sorted_notes)):
+                nxt = sorted_notes[ni + 1]
+                g_ms = min(max(float(note.expression.glide_ms or 60.0), GLIDE_MS_RANGE[0]), GLIDE_MS_RANGE[1])
+                g_beats = ms_to_beats(g_ms, bpm)
+                nxt_start = nxt.real_start()
+                target_end = min(nxt_start + g_beats, real_end + g_beats)
+                if target_end > real_end + 1e-6:
+                    real_end = target_end
+                    glide_pairs.add((tkey, round(real_start, 5)))
+                    glide_count += 1
             length = max(0.02, real_end - real_start)
             vel = _clamp_vel(float(note.velocity) + float(note.expression.velocity_delta))
             out_notes.append({"start": round(real_start, 5), "length": round(length, 5), "pitch": int(note.pitch), "velocity": int(vel)})
@@ -686,7 +723,8 @@ def compile_score_ir_to_notes(
         tracks[tkey] = out_notes
         voices_by_role[str(tkey).lower()] = 1 if tir.monophonic else 4
 
-    tracks = sanitize_note_overlaps(tracks, bpm=bpm, guard_ms=overlap_guard_ms, voices_by_role=voices_by_role)
+    tracks = sanitize_note_overlaps(tracks, bpm=bpm, guard_ms=overlap_guard_ms, voices_by_role=voices_by_role,
+                                    exempt_pairs=glide_pairs)
 
     mono_overlaps = 0
     for tkey, tir in score_ir.tracks.items():
@@ -695,6 +733,8 @@ def compile_score_ir_to_notes(
         ns = sorted(tracks.get(tkey, []), key=lambda n: (float(n["start"]), int(n["pitch"])))
         for i in range(len(ns) - 1):
             if float(ns[i]["start"]) + float(ns[i]["length"]) > float(ns[i + 1]["start"]) + 1e-6:
+                if (tkey, round(float(ns[i]["start"]), 5)) in glide_pairs:
+                    continue  # glide 808 volontaire (exempté)
                 mono_overlaps += 1
 
     report = {
@@ -702,6 +742,7 @@ def compile_score_ir_to_notes(
         "boundary_bleeds": boundary_bleeds,
         "b2_boundary_clashes": b2_clashes,
         "mono_overlaps": mono_overlaps,
+        "glide_pairs": glide_count,
         "passed": boundary_bleeds == 0 and b2_clashes == 0 and mono_overlaps == 0,
     }
     return tracks, report
