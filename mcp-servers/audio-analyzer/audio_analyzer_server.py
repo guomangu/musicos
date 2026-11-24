@@ -472,6 +472,99 @@ def analyze_stem_hierarchy(
 
 
 @mcp.tool()
+def audit_track_soundcheck_fast(
+    project_dir: str = "",
+    role: str = "lead_melody",
+    track_name: str = "",
+    plugin: str = "gl.sampler",
+    sample_file: str = "",
+    bpm: float = 132.0,
+    key: str = "C minor",
+    valence: float = 0.0,
+    audition: str = "dsp",
+    pattern: int = 1,
+    channel: int = 1,
+) -> str:
+    """Soundcheck RAPIDE d'une piste SANS compiler de .wav : `audition="dsp"` (pur DSP sur le
+    sample, ~50 ms, aucun processus Gridline) ou `audition="session"` (sonde `analyze_loudness`
+    in-session sur le pattern en solo, toujours pas de .wav). `audition="render"` = legacy (wav)."""
+    from soundcheck_lib import audit_track_soundcheck_fast as _fast
+
+    res = _fast(
+        track_spec={"name": track_name or role, "role": role, "plugin": plugin, "sample_file": sample_file},
+        role=role,
+        track_name=track_name,
+        bpm=bpm,
+        key=key,
+        valence=valence,
+        audition=audition,
+        pattern=pattern,
+        channel=channel,
+    )
+    return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def balance_tracks_in_session(
+    project_path: str,
+    export_dir: str = "",
+    mix_profile: str = "trap_rap",
+    has_drums: bool = True,
+    max_trim_db: float = 6.0,
+) -> str:
+    """Équilibre les volumes des pistes DANS LA SESSION Gridline (aucun .wav rendu) :
+    solo de chaque canal + `analyze_loudness` sur son pattern + trim du fader vers la cible
+    du rôle (ancrage -16 LUFS actifs), borné à +/- max_trim_db."""
+    from gain_staging_lib import balance_tracks_in_session as _balance
+    from studio_lib import GridlineMCP
+
+    abs_proj = os.path.abspath(os.path.expanduser(project_path))
+    exp = export_dir.strip() or os.path.dirname(abs_proj)
+    mcp = GridlineMCP(abs_proj, exp, client_name="balance_session")
+    try:
+        channels = mcp.call("list_channels", {}).get("channels", [])
+        pats = mcp.call("list_patterns", {}).get("patterns", [])
+        tracks = []
+        for i, c in enumerate(channels, start=1):
+            tracks.append({
+                "name": c.get("name") or f"ch{i}",
+                "channel": int(c.get("channel", i)),
+                "pattern": 1,
+                "role": c.get("name") or "lead",
+                "volume": float(c.get("volume", 0.8)),
+            })
+        report = _balance(mcp, tracks, profile=mix_profile, has_drums=has_drums, max_trim_db=max_trim_db)
+        mcp.call("save_project", {})
+    finally:
+        mcp.close()
+    return json.dumps(report, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+def audit_vertical_stage_session(
+    project_path: str,
+    export_dir: str = "",
+    stage: str = "V4_LEAD",
+    profile: str = "trap_rap",
+) -> str:
+    """Audit vertical V1..V4 EN SESSION (solo par couche, `analyze_loudness` par pattern) :
+    aucun rendu .wav, verdict sur la hiérarchie des niveaux (low-end, groove, harmonie, lead)."""
+    from vertical_tester import analyze_vertical_stage_session as _vs
+    from studio_lib import GridlineMCP
+
+    abs_proj = os.path.abspath(os.path.expanduser(project_path))
+    exp = export_dir.strip() or os.path.dirname(abs_proj)
+    mcp = GridlineMCP(abs_proj, exp, client_name="vertical_session")
+    try:
+        channels = mcp.call("list_channels", {}).get("channels", [])
+        active = [int(c.get("channel", i)) for i, c in enumerate(channels, start=1) if not c.get("muted", False)]
+        res = _vs(mcp, stage, active_channels=active, profile=profile)
+    finally:
+        mcp.close()
+    return json.dumps(res, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
 def audit_track_soundcheck(
     project_dir: str = "",
     wav_path: str = "",

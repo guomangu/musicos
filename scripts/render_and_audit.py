@@ -69,13 +69,13 @@ def parse_sections(spec: str) -> list[tuple[str, int, int]]:
 
 
 GENRE_GATES: dict[str, dict[str, float]] = {
-    "trap_rap":          {"low_mids_max": 24.0, "air_min": 3.0, "dark_air_min": 1.2,  "sharp_max": 1.90, "dark_sharp_max": 1.85, "arc_min": 2.5, "default_lufs": -11.0},
-    "pop_rnb":           {"low_mids_max": 26.0, "air_min": 3.0, "dark_air_min": 1.5,  "sharp_max": 1.95, "dark_sharp_max": 1.85, "arc_min": 2.5, "default_lufs": -10.5},
-    "edm_club":          {"low_mids_max": 24.0, "air_min": 3.5, "dark_air_min": 1.75, "sharp_max": 2.05, "dark_sharp_max": 1.90, "arc_min": 2.5, "default_lufs": -9.0},
-    "rock_metal":        {"low_mids_max": 28.0, "air_min": 2.5, "dark_air_min": 1.25, "sharp_max": 2.10, "dark_sharp_max": 1.90, "arc_min": 2.0, "default_lufs": -10.0},
-    "lofi_chill":        {"low_mids_max": 34.0, "air_min": 0.5, "dark_air_min": 0.25, "sharp_max": 1.75, "dark_sharp_max": 1.75, "arc_min": 1.8, "default_lufs": -14.0},
-    "jazz_acoustic":     {"low_mids_max": 36.0, "air_min": 1.0, "dark_air_min": 0.50, "sharp_max": 1.85, "dark_sharp_max": 1.80, "arc_min": 2.5, "default_lufs": -14.5},
-    "classical_ambient": {"low_mids_max": 40.0, "air_min": 0.3, "dark_air_min": 0.15, "sharp_max": 1.75, "dark_sharp_max": 1.75, "arc_min": 3.0, "default_lufs": -16.0},
+    "trap_rap":          {"low_mids_max": 24.0, "air_min": 3.0, "dark_air_min": 1.2,  "sharp_max": 1.90, "dark_sharp_max": 1.85, "arc_min": 2.5, "default_lufs": -11.0, "low_end_max": 42.0},
+    "pop_rnb":           {"low_mids_max": 26.0, "air_min": 3.0, "dark_air_min": 1.5,  "sharp_max": 1.95, "dark_sharp_max": 1.85, "arc_min": 2.5, "default_lufs": -10.5, "low_end_max": 44.0},
+    "edm_club":          {"low_mids_max": 24.0, "air_min": 3.5, "dark_air_min": 1.75, "sharp_max": 2.05, "dark_sharp_max": 1.90, "arc_min": 2.5, "default_lufs": -9.0, "low_end_max": 46.0},
+    "rock_metal":        {"low_mids_max": 28.0, "air_min": 2.5, "dark_air_min": 1.25, "sharp_max": 2.10, "dark_sharp_max": 1.90, "arc_min": 2.0, "default_lufs": -10.0, "low_end_max": 44.0},
+    "lofi_chill":        {"low_mids_max": 34.0, "air_min": 0.5, "dark_air_min": 0.25, "sharp_max": 1.75, "dark_sharp_max": 1.75, "arc_min": 1.8, "default_lufs": -14.0, "low_end_max": 50.0},
+    "jazz_acoustic":     {"low_mids_max": 36.0, "air_min": 1.0, "dark_air_min": 0.50, "sharp_max": 1.85, "dark_sharp_max": 1.80, "arc_min": 2.5, "default_lufs": -14.5, "low_end_max": 52.0},
+    "classical_ambient": {"low_mids_max": 40.0, "air_min": 0.3, "dark_air_min": 0.15, "sharp_max": 1.75, "dark_sharp_max": 1.75, "arc_min": 3.0, "default_lufs": -16.0, "low_end_max": 58.0},
 }
 
 
@@ -305,6 +305,9 @@ def render_and_evaluate(
         float(base["spectral_bands"]["sub"]["energy_pct"])
         + float(base["spectral_bands"]["bass"]["energy_pct"])
     )
+    # Low-end dominance cap: too much energy < 120 Hz reads as boomy/muddy, not "natural".
+    low_end_max = float(gate_cfg.get("low_end_max", 42.0)) if not no_drums_ambient else 55.0
+    low_end_share = sub_bass_pct
     gate_failures: list[str] = []
     if base["clipped_samples"] > 0:
         gate_failures.append(f"clipped_samples={base['clipped_samples']} > 0")
@@ -353,6 +356,8 @@ def render_and_evaluate(
         gate_failures.append(f"resonances={[r['freq_hz'] for r in deep['third_octave_resonances']]}")
     if base["spectral_bands"]["low_mids"]["energy_pct"] > low_mids_max:
         gate_failures.append(f"low_mids={base['spectral_bands']['low_mids']['energy_pct']}% > {low_mids_max}%")
+    if low_end_share > low_end_max:
+        gate_failures.append(f"low_end_share={low_end_share:.1f}% > {low_end_max}% (boomy/muddy)")
     if base["spectral_bands"]["air"]["energy_pct"] < air_min:
         gate_failures.append(f"air={base['spectral_bands']['air']['energy_pct']}% < {air_min}%")
     tune_ct = abs(float(deep["psychoacoustics"].get("tuning_cents_offset", 0.0)))
@@ -913,6 +918,29 @@ def _apply_autofix_mutations(
                 if bm_bands:
                     param_changes.extend(eq_params(bm_idx, bm_bands, slot=prim_slot))
 
+        # Rule 6b: low_end_share > max -> trim BUS Bass insert (max 2 passes, -1.5 dB each) + raise BUS Music HPF once
+        low_end_share_val = float(summary.get("spectral_bands", {}).get("sub", {}).get("energy_pct", 0.0)) + float(
+            summary.get("spectral_bands", {}).get("bass", {}).get("energy_pct", 0.0)
+        )
+        low_end_max_eff = float((summary.get("effective_thresholds") or {}).get("low_end_max", 42.0))
+        if any(f.startswith("low_end_share=") for f in failures) and low_end_share_val > low_end_max_eff:
+            if bus_bass_track is not None and state.get("bass_trims", 0) < 2:
+                bb_idx = int(bus_bass_track["mixer"])
+                cur_bb = float(bus_bass_track.get("volume", 1.0))
+                new_bb = round(max(0.5, cur_bb * (10.0 ** (-1.5 / 20.0))), 4)
+                param_changes.append((f"mixer/{bb_idx}/volume", new_bb))
+                state["bass_trims"] = state.get("bass_trims", 0) + 1
+                mutations.append({
+                    "rule": "low_end_dominance_bass_trim",
+                    "target": f"mixer/{bb_idx}/volume",
+                    "old": cur_bb, "new": new_bb, "low_end_share": round(low_end_share_val, 1),
+                })
+            if bus_music_track is not None and not state.get("music_hpf_raised"):
+                bm_idx = int(bus_music_track["mixer"])
+                param_changes.extend(eq_params(bm_idx, [eq_band(1, "hpf", 160.0)], slot=2, quality=0))
+                state["music_hpf_raised"] = True
+                mutations.append({"rule": "low_end_dominance_music_hpf", "target": f"mixer/{bm_idx}/slot/2 Band 1", "hpf_hz": 160.0})
+
         # Rule 6: low_end_corr < 0.50 (idempotent mono low-end enforcement)
         if any(f.startswith("low_end_corr=") for f in failures):
             if bus_bass_track is not None:
@@ -1038,7 +1066,9 @@ def _apply_autofix_mutations(
 
         if param_changes:
             mcp.set_params(param_changes)
-        if mutations:
+        if param_changes or mutations:
+            # Persist ALWAYS when any parameter changed: otherwise the next render pass is
+            # bit-identical to the previous one (the "versions don't differ" bug).
             mcp.call("save_project", {})
     finally:
         mcp.close()

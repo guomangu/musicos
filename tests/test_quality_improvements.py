@@ -253,5 +253,131 @@ class TestPortabilityAndPackaging(unittest.TestCase):
         self.assertNotIn("online_fallback", res)
 
 
+
+
+class StubMCP:
+    """Minimal GridlineMCP stub for in-session audition tests (no gridline binary)."""
+
+    def __init__(self, channels: list[dict], lufs_by_channel: dict[int, float]):
+        self._channels = channels
+        self._lufs = lufs_by_channel
+        self._solo: int | None = None
+        self.edits: list[dict] = []
+
+    def call(self, tool: str, args: dict):
+        if tool == "list_channels":
+            return {"channels": self._channels}
+        if tool == "get_channel":
+            ch = int(args["channel"])
+            return next((c for c in self._channels if int(c.get("channel", 0)) == ch), {"name": f"ch{ch}"})
+        if tool == "edit_channel":
+            self.edits.append(dict(args))
+            return {}
+        if tool == "save_project":
+            return {}
+        raise RuntimeError(f"unexpected tool {tool}")
+
+    def solo_channel(self, channel: int, channels=None):
+        self._solo = int(channel)
+        return [int(c["channel"]) for c in self._channels if int(c["channel"]) != int(channel)]
+
+    def unsolo(self, muted, keep_solo=None):
+        self._solo = keep_solo
+
+    def analyze_loudness(self, scope="pattern", **kw):
+        return {"lufs": self._lufs.get(self._solo, -30.0), "silent": False}
+
+
+class TestInSessionAudition(unittest.TestCase):
+    def test_balance_tracks_in_session_trims_toward_role_targets(self):
+        from gain_staging_lib import balance_tracks_in_session
+
+        channels = [
+            {"channel": 1, "name": "Kick", "muted": False},
+            {"channel": 2, "name": "HiHat", "muted": False},
+        ]
+        mcp = StubMCP(channels, {1: -16.0, 2: -8.0})  # hat way too loud vs target ~-26
+        tracks = [
+            {"name": "Kick", "channel": 1, "pattern": 1, "role": "kick", "volume": 0.76},
+            {"name": "HiHat", "channel": 2, "pattern": 2, "role": "hihat_perc", "volume": 0.52},
+        ]
+        report = balance_tracks_in_session(mcp, tracks, profile="trap_rap", has_drums=True)
+        self.assertTrue(report["balanced"])
+        hat = next(t for t in report["tracks"] if t["name"] == "HiHat")
+        self.assertEqual(hat["status"], "TRIMMED")
+        self.assertLess(hat["volume_after"], hat["volume_before"])  # too loud -> trimmed down
+        self.assertLessEqual(abs(hat["delta_db"]), 6.0)  # bounded
+        kick = next(t for t in report["tracks"] if t["name"] == "Kick")
+        self.assertEqual(kick["status"], "OK")  # already at anchor target
+
+    def test_vertical_session_hierarchy_verdict(self):
+        from vertical_tester import analyze_vertical_stage_session
+
+        channels = [
+            {"channel": 1, "name": "Kick"},
+            {"channel": 2, "name": "Bass"},
+            {"channel": 3, "name": "Chords"},
+            {"channel": 4, "name": "Lead"},
+        ]
+        mcp = StubMCP(channels, {})
+        lufs = {1: -15.0, 2: -18.0, 3: -24.0, 4: -17.0}  # lead 7 dB above harmony
+
+        def fn(ch, pattern=1):
+            return {"lufs": lufs[ch], "silent": False}
+
+        res = analyze_vertical_stage_session(mcp, "V4_LEAD", active_channels=[1, 2, 3, 4], loudness_fn=fn)
+        self.assertEqual(res["verdict"], "PASS")
+        self.assertTrue(res["checks"]["lead_hierarchy_ok"])
+        # now make harmony too loud vs lead -> FIX
+        lufs[3] = -14.0
+        res2 = analyze_vertical_stage_session(mcp, "V4_LEAD", active_channels=[1, 2, 3, 4], loudness_fn=fn)
+        self.assertEqual(res2["verdict"], "FIX")
+        self.assertIn("lead_hierarchy_ok", res2["failed_checks"])
+
+    def test_fast_soundcheck_dsp_mode_no_wav(self):
+        import soundfile as sf
+        import numpy as np
+        from soundcheck_lib import audit_track_soundcheck_fast
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = os.path.join(tmp, "a4.wav")
+            sr = 44100
+            t = np.arange(int(0.6 * sr)) / sr
+            sf.write(wav, 0.5 * np.sin(2 * np.pi * 440.0 * t), sr)
+            res = audit_track_soundcheck_fast(
+                track_spec={"name": "Lead", "role": "lead_melody", "plugin": "gl.sampler", "sample_file": wav},
+                audition="dsp",
+            )
+        self.assertEqual(res["verdict"], "PASS")
+        self.assertTrue(res["fast"])
+        self.assertEqual(res["metrics"].get("detected_note"), "A")
+        self.assertNotIn("wav_path", res)  # no wav rendered
+
+
+class TestNaturalSoundAndGates(unittest.TestCase):
+    def test_genre_gates_have_low_end_max(self):
+        import render_and_audit
+
+        for prof, gate in render_and_audit.GENRE_GATES.items():
+            self.assertIn("low_end_max", gate, prof)
+            self.assertGreater(gate["low_end_max"], 20.0)
+
+    def test_nominal_balance_evens_default_faders(self):
+        import song_builder
+        from gain_staging_lib import apply_nominal_balance
+
+        chans = [
+            song_builder.ChannelSpec("Kick", "kick", 1, "drums", plugin="gl.kick", volume=0.76),
+            song_builder.ChannelSpec("HiHat", "hihat_perc", 2, "drums", plugin="gl.hat", volume=0.52),
+            song_builder.ChannelSpec("Lead", "lead_melody", 3, "music", plugin="gl.pluck", volume=0.74),
+        ]
+        meta = {"mix_profile": "trap_rap", "has_drums": True}
+        out = apply_nominal_balance(chans, meta)
+        by = {c.name: c.volume for c in out}
+        self.assertAlmostEqual(by["Kick"], 0.76, places=2)  # anchor untouched
+        self.assertLess(by["HiHat"], 0.52)  # hats pulled down toward their role target
+        self.assertLessEqual(abs(by["Lead"] - 0.74), 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

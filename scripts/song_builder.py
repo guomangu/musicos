@@ -399,6 +399,14 @@ def _apply_auto_gain_staging(
             ch_by_key[ch.track_key] = ch
 
     plan: dict[str, Any] = {}
+    if auto_gain_stage and not meas_for_plan:
+        # No measured soundcheck metrics (cache hit / fast session audition): fall back to
+        # NOMINAL per-role balance so tracks are still calibrated relative to the anchor role,
+        # instead of keeping arbitrary default faders (uneven track volumes).
+        from gain_staging_lib import apply_nominal_balance
+
+        eff_channels = apply_nominal_balance(eff_channels, meta)
+        plan = {"nominal_balance": True}
     if auto_gain_stage and meas_for_plan:
         plan = compute_gain_staging_plan(
             meas_for_plan,
@@ -488,8 +496,8 @@ def build_gridline_project(
     bus_eq_params: list[tuple[str, Any]] | None = None,
     extra_plugins: list[tuple[int, str]] | None = None,
     automations: list[dict[str, Any]] | None = None,
-    limiter_ceiling_db: float = -2.55,
-    limiter_gain_db: float = 12.0,
+    limiter_ceiling_db: float = -1.5,
+    limiter_gain_db: float = 6.0,
     fx_room_vol: float = 0.32,
     min_pattern_lufs: float = -32.0,
     auto_gain_stage: bool = True,

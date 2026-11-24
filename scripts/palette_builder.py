@@ -810,10 +810,10 @@ def propose_palettes(
                 theme_bonus = 0.08 if cand.get("theme") == pref_theme else 0.0
                 # For Palette B (synthetic) prefer native gl.* on melodic roles if allowed
                 if pref_theme == "synthetic" and cand["source_type"] == "gridline_native" and role in MELODIC_ROLES:
-                    theme_bonus += 0.07
+                    theme_bonus += 0.03  # subtle only: real samples sound more natural than gl.* synths
                 # For Palette A (organic) prefer real samples if available
                 if pref_theme == "organic" and cand["source_type"] in ("sample", "project_sample"):
-                    theme_bonus += 0.05
+                    theme_bonus += 0.09
 
                 trial_items = chosen + [cand]
                 trial_score, _ = _score_palette(trial_items, ev, mood_vec)

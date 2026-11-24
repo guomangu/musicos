@@ -327,6 +327,94 @@ def _effective_profile_offsets(
     return prof, anchor_role, shifted
 
 
+
+
+def nominal_role_offset_db(profile: str, role: str, has_drums: bool = True, roles_present: list[str] | None = None) -> float:
+    """Target offset (dB) of `role` vs the profile anchor, without any measurement."""
+    prof, anchor_role, offsets = _effective_profile_offsets(profile, has_drums, roles_present or [role])
+    return float(offsets.get(role, (0.0, 0.0, 0.0))[1]) - float(offsets.get(anchor_role, (0.0, 0.0, 0.0))[1])
+
+
+def apply_nominal_balance(channels: list, meta: dict[str, Any]) -> list:
+    """Balance channel faders by role using nominal offsets (no measurement needed).
+
+    Each channel volume is shifted by `offset(role) - offset(anchor)` (clamped to +/-6 dB)
+    so that a build without soundcheck metrics still has calibrated, even track volumes.
+    """
+    profile = str(meta.get("mix_profile", "trap_rap"))
+    has_drums = bool(meta.get("has_drums", True))
+    roles_present = [
+        normalize_role_for_gain_staging(f"{getattr(ch, 'name', '')} {getattr(ch, 'role', '') or ''} {getattr(ch, 'track_key', '')}")
+        for ch in channels
+    ]
+    out = []
+    for ch in channels:
+        role = normalize_role_for_gain_staging(f"{ch.name} {ch.role or ''} {ch.track_key}")
+        delta = nominal_role_offset_db(profile, role, has_drums, roles_present)
+        delta = max(-6.0, min(6.0, delta))
+        if abs(delta) < 0.05:
+            out.append(ch)
+            continue
+        v = float(ch.volume)
+        new_v = round(clamp(db_to_auto(delta, ref_fader=v) * v, 0.10, 1.15), 4)
+        ch.volume = new_v
+        out.append(ch)
+    return out
+
+
+def balance_tracks_in_session(
+    mcp: Any,
+    tracks: list[dict[str, Any]],
+    profile: str = "trap_rap",
+    has_drums: bool = True,
+    anchor_target_lufs: float = ANCHOR_PREMASTER_ACTIVE_LUFS,
+    max_trim_db: float = 6.0,
+) -> dict[str, Any]:
+    """Even out track volumes WITHOUT rendering any .wav: solo each channel in the live
+    Gridline session, probe `analyze_loudness` on its pattern, and trim the channel fader
+    toward the role target (anchor + role offset). Bounded to +/- max_trim_db per track.
+
+    `tracks`: list of {"name", "channel", "pattern", "role", "volume"}.
+    Returns a report {"tracks": [...], "balanced": bool} and applies `edit_channel` volumes.
+    """
+    prof, anchor_role, offsets = _effective_profile_offsets(profile, has_drums, [t.get("role", "lead") for t in tracks])
+    report: dict[str, Any] = {"profile": prof, "anchor_role": anchor_role, "tracks": []}
+    all_channels = [int(c.get("channel", i)) for i, c in enumerate(mcp.call("list_channels", {}).get("channels", []), start=1)]
+    for t in tracks:
+        ch = int(t["channel"])
+        role = normalize_role_for_gain_staging(str(t.get("role") or t.get("name", "")))
+        target_lufs = round(anchor_target_lufs + float(offsets.get(role, (0.0, 0.0, 0.0))[1]), 2)
+        muted = mcp.solo_channel(ch, all_channels)
+        try:
+            ld = mcp.analyze_loudness(scope="pattern", pattern=int(t.get("pattern", 1)))
+        finally:
+            mcp.unsolo(muted, keep_solo=ch)
+        lufs = ld.get("lufs")
+        silent = bool(ld.get("silent"))
+        entry: dict[str, Any] = {"name": t.get("name"), "channel": ch, "role": role, "target_lufs": target_lufs, "measured_lufs": lufs, "silent": silent}
+        if lufs is None or silent:
+            entry["status"] = "SKIP_SILENT"
+        else:
+            delta = float(target_lufs - float(lufs))
+            delta = max(-max_trim_db, min(max_trim_db, delta))
+            cur_v = float(t.get("volume", 0.8))
+            if abs(delta) < 0.05:
+                entry["status"] = "OK"
+                entry.update({"delta_db": round(delta, 2), "volume_before": cur_v, "volume_after": cur_v})
+                report["tracks"].append(entry)
+                continue
+            new_v = round(clamp(db_to_auto(delta, ref_fader=cur_v) * cur_v, 0.10, 1.15), 4)
+            if abs(new_v - cur_v) > 1e-4:
+                mcp.call("edit_channel", {"channel": ch, "volume": new_v})
+                entry["status"] = "TRIMMED"
+            else:
+                entry["status"] = "OK"
+            entry.update({"delta_db": round(delta, 2), "volume_before": cur_v, "volume_after": new_v})
+        report["tracks"].append(entry)
+    report["balanced"] = all(e.get("status") in ("OK", "TRIMMED") for e in report["tracks"])
+    return report
+
+
 def compute_gain_staging_plan(
     track_measurements: dict[str, dict[str, Any]],
     mix_profile: str,

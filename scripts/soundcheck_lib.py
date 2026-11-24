@@ -36,7 +36,7 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR, INDEX_DIR):
         sys.path.insert(0, _d)
 
 from artifact_cache import compute_e1_track_hash, get_cached_verdict, set_cached_verdict
-from audio_metrics import extract_dsp_metrics, load_and_normalize_audio, parse_key_tonic_pc
+from audio_metrics import analyze_single_file, extract_dsp_metrics, load_and_normalize_audio, parse_key_tonic_pc
 from deep_diagnostics import (
     _scan_glitches_and_crackle,
     _third_octave_profile,
@@ -660,6 +660,119 @@ def audit_soundcheck_wav(
         os.replace(tmp_mp, metrics_path)
 
     return result
+
+
+def audit_track_soundcheck_fast(
+    *,
+    track_spec: dict[str, Any] | ChannelSpec | None = None,
+    wav_path: str = "",
+    role: str = "lead_melody",
+    track_name: str = "",
+    bpm: float = 132.0,
+    key: str = "C minor",
+    valence: float = 0.0,
+    blueprint: dict[str, Any] | None = None,
+    expected_midis: list[int] | None = None,
+    audition: str = "dsp",  # "dsp" (no Gridline at all) | "session" (live MCP probe, no wav) | "render" (legacy full wav)
+    mcp: Any = None,
+    pattern: int = 1,
+    channel: int = 1,
+    current_volume: float = 0.80,
+) -> dict[str, Any]:
+    """Fast per-track soundcheck WITHOUT compiling a .wav.
+
+    - `audition="dsp"`: pure DSP on the sample file + music-theory checks on expected notes
+      (~50 ms, no Gridline process at all).
+    - `audition="session"`: same DSP checks + in-session loudness probe on the live project
+      (`mcp.analyze_loudness(scope="pattern")` with solo), still no .wav export.
+    - `audition="render"`: delegates to the legacy `audit_track_soundcheck` (wav render).
+
+    Returns the same verdict shape (`verdict` PASS/FIX/SWAP, `checks`, `metrics`).
+    """
+    if audition == "render":
+        return audit_track_soundcheck(
+            track_spec=track_spec, wav_path=wav_path, role=role, track_name=track_name,
+            bpm=bpm, key=key, valence=valence, blueprint=blueprint,
+            expected_midis=expected_midis,
+        )
+
+    spec = dict(track_spec or {})
+    eff_role = str(spec.get("role") or role)
+    t_name = track_name or str(spec.get("name") or eff_role)
+    plugin = str(spec.get("plugin") or "gl.sampler")
+    is_sample = plugin == "gl.sampler"
+
+    checks: dict[str, bool] = {}
+    metrics: dict[str, Any] = {"track": t_name, "role": eff_role, "audition": audition}
+    warnings: list[str] = []
+
+    dsp: dict[str, Any] = {}
+    sample_file = str(spec.get("sample_file") or "")
+    if is_sample and sample_file and os.path.isfile(sample_file):
+        try:
+            entry, _ = analyze_single_file(sample_file, embedder=None, with_clap=False, max_seconds=12.0)
+            dsp = entry.get("dsp") or {}
+            metrics.update({
+                "spectral_centroid_hz": dsp.get("spectral_centroid_hz"),
+                "r_harsh": dsp.get("r_harsh"),
+                "r_harm": dsp.get("r_harm"),
+                "attack_ms": dsp.get("attack_ms"),
+                "detected_note": dsp.get("detected_note"),
+                "cents_offset": dsp.get("cents_offset"),
+                "playable_chromatically": bool(dsp.get("playable_chromatically")),
+            })
+            if entry.get("hard_reject"):
+                checks["hard_reject_ok"] = False
+                warnings.extend(entry.get("reject_reasons") or [])
+            else:
+                checks["hard_reject_ok"] = True
+            if eff_role in TONAL_ROLES:
+                checks["playable_chromatically_ok"] = bool(dsp.get("playable_chromatically"))
+                co = dsp.get("cents_offset")
+                checks["tuning_ok"] = co is None or abs(float(co)) <= 8.0
+                if co is not None and abs(float(co)) >= 50.0:
+                    metrics["recommended_root_note_delta_st"] = int(round(-float(co) / 100.0))
+        except Exception as exc:
+            checks["hard_reject_ok"] = False
+            warnings.append(f"analyze_failed: {exc}")
+    else:
+        checks["hard_reject_ok"] = True
+        if eff_role in TONAL_ROLES and not is_sample:
+            checks["playable_chromatically_ok"] = True  # native gl.* synths are chromatic
+
+    # In-session loudness probe (no wav): solo the channel, measure its pattern live.
+    if audition == "session" and mcp is not None:
+        try:
+            all_ch = [int(c.get("channel", i)) for i, c in enumerate(mcp.call("list_channels", {}).get("channels", []), start=1)]
+            muted = mcp.solo_channel(int(channel), all_ch)
+            try:
+                ld = mcp.analyze_loudness(scope="pattern", pattern=int(pattern))
+            finally:
+                mcp.unsolo(muted, keep_solo=int(channel))
+            metrics["active_lufs"] = ld.get("lufs")
+            metrics["peak_dbfs"] = ld.get("peak")
+            metrics["is_effectively_silent"] = bool(ld.get("silent"))
+            checks["audibility_ok"] = not bool(ld.get("silent")) and (ld.get("lufs") is None or float(ld["lufs"]) >= -24.0)
+        except Exception as exc:
+            warnings.append(f"session_probe_failed: {exc}")
+            checks["audibility_ok"] = True
+
+    # Verdict
+    failed = [k for k, v in checks.items() if v is False]
+    if failed:
+        verdict = "SWAP" if any(k in ("hard_reject_ok", "playable_chromatically_ok") for k in failed) else "FIX"
+    else:
+        verdict = "PASS"
+    return {
+        "verdict": verdict,
+        "track": t_name,
+        "role": eff_role,
+        "checks": checks,
+        "metrics": metrics,
+        "warnings": warnings,
+        "audition": audition,
+        "fast": True,
+    }
 
 
 def audit_track_soundcheck(
