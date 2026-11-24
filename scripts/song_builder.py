@@ -1596,7 +1596,8 @@ def compile_arrangement_plan(
     # v3.1 HARM-03 — couplage timbre <-> voicing avant le ScoreIR (allège les accords denses
     # sur timbre riche/inharmonique : drop-2/shell, confinement {1,5,8}, LIL).
     hc_plan = plan.get("harmonic_core") or {"key": meta["tonic"], "mode": meta["mode"]}
-    _grid0 = harmonic_grid_from_core(hc_plan, bpm=bpm, beats_per_bar=bpb, total_bars=int(meta["total_bars"]))
+    # v3.2 NarrativeHarmony : progressions par section (harmonic_core.section_progressions)
+    _grid0 = harmonic_grid_from_core(hc_plan, bpm=bpm, beats_per_bar=bpb, total_bars=int(meta["total_bars"]), section_spans=sections_tuples)
     voicing_report = _adapt_voicings_to_timbre(tracks, eff_channels, _grid0, valence, abs_proj)
 
     # v3.1 IR-02 — ScoreIR : l'inertie de fréquence reste structurelle (fusion de sub),
@@ -1608,7 +1609,16 @@ def compile_arrangement_plan(
         if any(k in rl for k in ("bass", "808", "sub")):
             tracks[r_key] = enforce_frequency_inertia(r_notes, bpm=bpm)
     _voices_by_role = {str(ch.track_key).lower(): int(getattr(ch, "voices", 4) or 4) for ch in eff_channels}
-    score_ir = build_score_ir(hc_plan, meta, tracks, channels=eff_channels, voices_by_role=_voices_by_role)
+    score_ir = build_score_ir(hc_plan, meta, tracks, channels=eff_channels, voices_by_role=_voices_by_role, section_spans=sections_tuples)
+    # v3.2 NarrativeHarmony : opérateurs motiviques déterministes (phrasé 8 mesures Q/R,
+    # syncope au refrain, call-and-response, apex unique) + suspensions 4->3/9->8/b6->5.
+    narrative_report: dict[str, Any] = {}
+    if plan.get("phrasing_8bar") or (isinstance(hc_plan, dict) and hc_plan.get("section_progressions")):
+        try:
+            from narrative_harmony import apply_narrative_harmony
+            narrative_report = apply_narrative_harmony(score_ir, plan, section_spans=sections_tuples)
+        except ImportError:
+            narrative_report = {"error": "narrative_harmony indisponible"}
     swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
     groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb))
     tracks, score_ir_report = compile_score_ir_to_notes(score_ir)
@@ -1891,6 +1901,7 @@ def compile_arrangement_plan(
         "groove_counts": groove_counts,
         "score_ir_report": score_ir_report,
         "voicing_adaptation": voicing_report,
+        "narrative_harmony": narrative_report,
     }
 
     # Export master_sketch.mid and verify MIDI gate

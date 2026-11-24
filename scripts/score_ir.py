@@ -68,7 +68,7 @@ LOW_INTERVAL_LIMIT: dict[int, int] = {1: 60, 2: 60, 3: 52, 4: 52, 5: 48, 6: 48, 
 
 NOTE_ROLES = (
     "bass_root", "bass_passing", "chord_tone", "melody_chord",
-    "melody_passing", "appoggiatura", "anticipation",
+    "melody_passing", "appoggiatura", "anticipation", "suspension",
 )
 
 CLAMP_ROLE_SUBSTRINGS = ("chord", "pad", "bass", "counter", "808", "sub")
@@ -141,13 +141,51 @@ def parse_roman_degree(symbol: str, tonic_pc: int) -> dict[str, Any] | None:
     return {"root_pc": root, "chord_pcs": pcs, "quality": quality, "symbol": str(symbol)}
 
 
+def _section_progression_for(section_spans: list[Any] | None, section_progressions: dict[str, Any], bar: int) -> tuple[list[str], int] | None:
+    """v3.2 NarrativeHarmony : (progression déclarée pour la section couvrant `bar`, start_bar)."""
+    if not section_spans or not section_progressions:
+        return None
+    for span in section_spans:
+        if isinstance(span, (tuple, list)) and len(span) >= 3:
+            name, sb, nb = str(span[0]), int(span[1]), int(span[2])
+        elif isinstance(span, dict):
+            name, sb, nb = str(span.get("name", "")), int(span.get("start_bar", 0)), int(span.get("bars", 4))
+        else:
+            continue
+        if sb <= bar < sb + nb:
+            key = _SECTION_PROG_KEY.get(name.lower().replace("-", "_").replace(" ", "_"))
+            if key is None:
+                for k in _SECTION_PROG_KEY:
+                    if k in name.lower().replace("-", "_").replace(" ", "_"):
+                        key = k
+                        break
+            if key and isinstance(section_progressions.get(key), list) and section_progressions[key]:
+                return [str(x) for x in section_progressions[key]], sb
+            return None
+    return None
+
+
+_SECTION_PROG_KEY = {
+    "intro": "intro", "verse": "verse", "couplet": "verse", "pre_chorus": "pre_chorus",
+    "pre_refrain": "pre_chorus", "chorus": "chorus", "refrain": "chorus", "drop": "chorus",
+    "climax": "chorus", "hook": "chorus", "bridge": "bridge", "pont": "bridge",
+    "outro": "outro", "break": "verse", "breakdown": "verse",
+}
+
+
 def harmonic_grid_from_core(
     harmonic_core: dict[str, Any] | None,
     bpm: float,
     beats_per_bar: int = 4,
     total_bars: int = 8,
+    section_spans: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Construit la grille harmonique immuable (contrat §4.1) depuis `harmonic_core`."""
+    """Construit la grille harmonique immuable (contrat §4.1) depuis `harmonic_core`.
+
+    v3.2 : si `harmonic_core.section_progressions` déclare des variantes par section et que
+    `section_spans` (name, start_bar, bars, kind) est fourni, chaque segment utilise la
+    progression de SA section (NarrativeHarmony — fin de la boucle 4 mesures unique).
+    """
     hc = dict(harmonic_core or {})
     key_str = str(hc.get("key") or "C")
     tonic_pc = parse_key_tonic_pc(key_str)
@@ -156,10 +194,11 @@ def harmonic_grid_from_core(
     mode = resolve_mode(hc, key_str)
     scale = SCALES[mode]
     scale_pcs = sorted({(tonic_pc + iv) % 12 for iv in scale})
-    prog = hc.get("degree_progression") or hc.get("chords") or []
+    prog = hc.get("degree_progression") or hc.get("chord_progression") or hc.get("chords") or []
     if not isinstance(prog, list) or not prog:
         prog = ["i", "VI", "III", "VII"] if mode in ("minor", "aeolian", "phrygian", "dorian", "locrian", "harmonic_minor") else ["I", "IV", "V", "I"]
     prog = [str(p) for p in prog]
+    section_progressions = hc.get("section_progressions") if isinstance(hc.get("section_progressions"), dict) else {}
     bars_per_chord = max(1, int(hc.get("progression_bars") or 1))
     bpb = max(1, int(beats_per_bar))
     total_beats = max(1, int(total_bars)) * bpb
@@ -169,7 +208,14 @@ def harmonic_grid_from_core(
     idx = 0
     pos = 0.0
     while pos < total_beats - 1e-6:
-        sym = prog[idx % len(prog)]
+        bar = int(pos // bpb)
+        sec = _section_progression_for(section_spans, section_progressions, bar)
+        if sec is not None:
+            sec_prog, sec_start_bar = sec
+            local_idx = (bar - sec_start_bar) // bars_per_chord
+            sym = sec_prog[local_idx % len(sec_prog)]
+        else:
+            sym = prog[idx % len(prog)]
         parsed = parse_roman_degree(sym, tonic_pc) or parse_roman_degree("i", tonic_pc)
         root_pc = parsed["root_pc"]
         chord_pcs = parsed["chord_pcs"]
@@ -392,6 +438,7 @@ def build_score_ir(
     tracks: dict[str, list[dict[str, Any]]],
     channels: list[Any] | None = None,
     voices_by_role: dict[str, int] | None = None,
+    section_spans: list[Any] | None = None,
 ) -> ScoreIR:
     """Construit un ScoreIR depuis les pistes plates + la grille harmonique du plan."""
     bpm = float(meta.get("bpm", 120.0))
@@ -401,7 +448,7 @@ def build_score_ir(
     hc = dict(harmonic_core or {})
     key_str = str(hc.get("key") or meta.get("tonic") or meta.get("key") or "C")
     mode = resolve_mode(hc, str(meta.get("key") or key_str))
-    grid = harmonic_grid_from_core(hc, bpm=bpm, beats_per_bar=bpb, total_bars=total_bars)
+    grid = harmonic_grid_from_core(hc, bpm=bpm, beats_per_bar=bpb, total_bars=total_bars, section_spans=section_spans)
 
     ch_by_key = {str(ch.track_key): ch for ch in (channels or [])}
     voices = dict(voices_by_role or {})
@@ -720,6 +767,25 @@ def _low_interval_violations(tir: TrackIR) -> list[dict[str, Any]]:
     return out
 
 
+def _suspension_resolves(tir: TrackIR, note: NoteEventIR, seg: dict[str, Any]) -> bool:
+    """v3.2 : une suspension (4->3, 9->8, b6->5) est valide si elle est résolue par mouvement
+    conjoint descendant de 1-2 st dans les 0.5 a 1.0 beats suivants sur la même piste."""
+    root = int(seg.get("root_pc", 0)) % 12
+    pc = int(note.pitch) % 12
+    sus_iv = {(pc - root) % 12}
+    if not (sus_iv & {5, 2, 8}):  # 4, 9, b6 au-dessus de la racine
+        return False
+    step = 2 if (pc - root) % 12 == 2 else 1  # 9->8 = 2 st, 4->3 et b6->5 = 1 st
+    t0 = float(note.grid_beat)
+    for other in tir.notes:
+        if other is note:
+            continue
+        dt = float(other.grid_beat) - t0
+        if 0.5 - 1e-6 <= dt <= 1.0 + 1e-6 and int(other.pitch) == int(note.pitch) - step:
+            return True
+    return False
+
+
 def evaluate_score_ir(score_ir: ScoreIR, thresholds: dict[str, Any] | None = None) -> dict[str, Any]:
     """Audit musicalité directement sur le ScoreIR : rôles explicites, `chord_idx` de la grille.
 
@@ -738,6 +804,8 @@ def evaluate_score_ir(score_ir: ScoreIR, thresholds: dict[str, Any] | None = Non
             pc = int(note.pitch) % 12
             scale_pcs = set(seg.get("scale_pcs", []))
             chord_pcs = set(seg.get("chord_pcs", []))
+            if note.note_role == "suspension" and _suspension_resolves(tir, note, seg):
+                continue  # v3.2 : suspension 4->3 / 9->8 / b6->5 résolue dans 0.5-1.0 beat = chaleur licite
             if scale_pcs and pc not in scale_pcs and tir.role in ("lead", "counter", "chords", "bass"):
                 sev = "error" if note.note_role in ("melody_chord", "chord_tone", "bass_root") and note.lock_harmony else "warning"
                 entry = {"track": tkey, "beat": round(note.grid_beat, 4), "pitch": int(note.pitch), "pc": pc, "chord_idx": cidx, "role": note.note_role}

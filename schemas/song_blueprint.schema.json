@@ -240,6 +240,17 @@
             "free_ambient"
           ],
           "default": "A-A'-A''-B"
+        },
+        "section_progressions": {
+          "type": "object",
+          "description": "v3.2 NarrativeHarmony : variantes de progression par section (intro/verse/pre_chorus/chorus/bridge/outro), ex. {\"chorus\": [\"iv\",\"V\",\"i\",\"VI\"], \"bridge\": [\"bII\",\"V7\",\"i\",\"VI\"]}. Rétro-compatible (optionnel).",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
         }
       }
     },
