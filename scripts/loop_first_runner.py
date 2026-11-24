@@ -35,6 +35,7 @@ PIPELINE_STAGES = (
     "E0_PALETTE",
     "E1_SOUNDCHECK",
     "E2_VERTICAL",
+    "AWAITING_E2_CHECKPOINT",
     "E3_HORIZONTAL",
     "E4_FINAL_GATE",
     "DONE",
@@ -70,6 +71,7 @@ class LoopFirstStateMachine:
         max_attempts: int = 2,
         track_stage_map: dict[str, str] | None = None,
         has_drums: bool | None = None,
+        e2_checkpoint: bool | None = None,
     ) -> None:
         self.project_dir = os.path.abspath(os.path.expanduser(project_dir))
         self.state_path = os.path.join(self.project_dir, "pipeline_state.json")
@@ -85,6 +87,11 @@ class LoopFirstStateMachine:
             self.state.setdefault("artifact_hashes", {})
             self.state.setdefault("contract_path", auto_contract)
             self.state.setdefault("multiscale_scores", {})
+            self.state.setdefault("e2_checkpoint_enabled", False)
+            self.state.setdefault("e2_checkpoint_approved", False)
+            self.state.setdefault("e2_checkpoint_wav", None)
+            if e2_checkpoint is not None:
+                self.state["e2_checkpoint_enabled"] = bool(e2_checkpoint)
             if detect_user_samples_locked(self.project_dir):
                 self.state["user_samples_locked"] = True
         else:
@@ -99,6 +106,9 @@ class LoopFirstStateMachine:
                 "selected_palette_id": None,
                 "contract_path": auto_contract,
                 "core_loop_locked": False,
+                "e2_checkpoint_enabled": bool(e2_checkpoint) if e2_checkpoint is not None else False,
+                "e2_checkpoint_approved": False,
+                "e2_checkpoint_wav": None,
                 "max_attempts": self.max_attempts,
                 "track_stage_map": dict(track_stage_map or {}),
                 "soundcheck_results": {},
@@ -203,6 +213,17 @@ class LoopFirstStateMachine:
 
             if next_v is None:
                 self.state["core_loop_locked"] = True
+                if self.state.get("e2_checkpoint_enabled") and not self.state.get("e2_checkpoint_approved"):
+                    self.state["stage"] = "AWAITING_E2_CHECKPOINT"
+                    self.state["substage"] = "HUMAN_LISTEN_15S"
+                    self.state["next_mandatory_step"] = {
+                        "tool": "await_human_checkpoint",
+                        "stage": "AWAITING_E2_CHECKPOINT",
+                        "target_track": self.state.get("e2_checkpoint_wav"),
+                        "allowed_actions": ["RESUME_FROM_CHECKPOINT", "ADJUST_CORE_LOOP"],
+                        "forbidden_tracks": [],
+                    }
+                    return
                 self.state["stage"] = "E3_HORIZONTAL"
                 self.state["substage"] = "SEAMS"
                 self._recompute_next_step()
@@ -224,6 +245,23 @@ class LoopFirstStateMachine:
                 "target_layer_tracks": layer_tracks,
                 "allowed_actions": allowed,
                 "forbidden_tracks": forbidden,
+            }
+            return
+
+        if st == "AWAITING_E2_CHECKPOINT":
+            if self.state.get("e2_checkpoint_approved"):
+                self.state["core_loop_locked"] = True
+                self.state["stage"] = "E3_HORIZONTAL"
+                self.state["substage"] = "SEAMS"
+                self._recompute_next_step()
+                return
+            self.state["substage"] = "HUMAN_LISTEN_15S"
+            self.state["next_mandatory_step"] = {
+                "tool": "await_human_checkpoint",
+                "stage": "AWAITING_E2_CHECKPOINT",
+                "target_track": self.state.get("e2_checkpoint_wav"),
+                "allowed_actions": ["RESUME_FROM_CHECKPOINT", "ADJUST_CORE_LOOP"],
+                "forbidden_tracks": [],
             }
             return
 
@@ -374,6 +412,37 @@ class LoopFirstStateMachine:
         self.save()
         return self.state
 
+    def trigger_e2_checkpoint(self, wav_path: str = "", summary_lines: list[str] | None = None) -> dict[str, Any]:
+        """Mark core loop as locked at end of E2 and pause in AWAITING_E2_CHECKPOINT."""
+        self.state["e2_checkpoint_enabled"] = True
+        self.state["e2_checkpoint_approved"] = False
+        self.state["core_loop_locked"] = True
+        if wav_path:
+            self.state["e2_checkpoint_wav"] = wav_path
+        if summary_lines is not None:
+            self.state["e2_checkpoint_summary"] = list(summary_lines)[:5]
+        vr = self.state.setdefault("vertical_results", {})
+        for vst in VERTICAL_STAGES:
+            if vst not in vr:
+                vr[vst] = {"status": "PASS", "attempts": 1}
+        self.state["stage"] = "AWAITING_E2_CHECKPOINT"
+        self._recompute_next_step()
+        self.save()
+        return self.state
+
+    def resume_from_checkpoint(self, adjustment_notes: str = "") -> dict[str, Any]:
+        """Approve the E2 15s human checkpoint and advance directly to E3_HORIZONTAL preserving SHA-256 cache."""
+        self.state["e2_checkpoint_approved"] = True
+        self.state["core_loop_locked"] = True
+        if adjustment_notes:
+            self.state["e2_checkpoint_notes"] = adjustment_notes
+        if self.state.get("stage") in ("E0_PALETTE", "E1_SOUNDCHECK", "E2_VERTICAL", "AWAITING_E2_CHECKPOINT"):
+            self.state["stage"] = "E3_HORIZONTAL"
+            self.state["substage"] = "SEAMS"
+        self._recompute_next_step()
+        self.save()
+        return self.state
+
     def record_multiscale_scores(self, stage: str, pyramid_output: dict[str, Any]) -> dict[str, Any]:
         ms = self.state.setdefault("multiscale_scores", {})
         ms[str(stage)] = {
@@ -425,7 +494,9 @@ class LoopFirstStateMachine:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Loop-First deterministic state machine runner (`pipeline_state.json`).")
     ap.add_argument("project_dir", help="Project directory containing pipeline_state.json")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    ap.add_argument("--checkpoint-e2", action="store_true", help="Enable pause at end of E2 in AWAITING_E2_CHECKPOINT")
+    ap.add_argument("--resume-from-checkpoint", action="store_true", help="Approve E2 checkpoint and advance to E3_HORIZONTAL")
+    sub = ap.add_subparsers(dest="cmd", required=False)
 
     sub.add_parser("status", help="Print current pipeline_state.json")
 
@@ -451,9 +522,14 @@ def main() -> None:
     p_chk = sub.add_parser("validate-target", help="Check if editing a track is allowed by isolation guardrail")
     p_chk.add_argument("--track", required=True)
 
+    p_res = sub.add_parser("resume-checkpoint", help="Approve E2 checkpoint and move to E3_HORIZONTAL")
+    p_res.add_argument("--notes", default="")
+
     args = ap.parse_args()
-    sm = LoopFirstStateMachine(args.project_dir)
-    if args.cmd == "status":
+    sm = LoopFirstStateMachine(args.project_dir, e2_checkpoint=True if args.checkpoint_e2 else None)
+    if args.resume_from_checkpoint:
+        out = sm.resume_from_checkpoint()
+    elif args.cmd in (None, "status"):
         out = sm.state
     elif args.cmd == "select-palette":
         out = sm.select_palette(args.palette_id, tracks=args.tracks)
@@ -465,6 +541,8 @@ def main() -> None:
         out = sm.record_horizontal(args.seam, args.verdict, blocker=args.blocker)
     elif args.cmd == "validate-target":
         out = sm.validate_edit_target(args.track, raise_on_forbidden=False)
+    elif args.cmd == "resume-checkpoint":
+        out = sm.resume_from_checkpoint(adjustment_notes=args.notes)
     else:
         out = sm.state
     print(json.dumps(out, indent=2, ensure_ascii=False))

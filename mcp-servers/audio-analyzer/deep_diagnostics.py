@@ -25,6 +25,25 @@ IEC_THIRD_OCTAVE_HZ = [
     2500.0, 3150.0, 4000.0, 5000.0, 6300.0, 8000.0, 10000.0, 12500.0, 16000.0,
 ]
 
+BARK_EDGES_24: list[tuple[float, float]] = [
+    (20.0, 100.0), (100.0, 200.0), (200.0, 300.0), (300.0, 400.0),
+    (400.0, 510.0), (510.0, 630.0), (630.0, 770.0), (770.0, 920.0),
+    (920.0, 1080.0), (1080.0, 1270.0), (1270.0, 1480.0), (1480.0, 1720.0),
+    (1720.0, 2000.0), (2000.0, 2320.0), (2320.0, 2700.0), (2700.0, 3150.0),
+    (3150.0, 3700.0), (3700.0, 4400.0), (4400.0, 5300.0), (5300.0, 6400.0),
+    (6400.0, 7700.0), (7700.0, 9500.0), (9500.0, 12000.0), (12000.0, 20000.0),
+]
+
+LRA_PROFILE_THRESHOLDS: dict[str, tuple[float, float]] = {
+    "edm_club": (2.5, 7.5),
+    "trap_rap": (2.5, 7.5),
+    "pop_rnb": (3.5, 9.0),
+    "rock_metal": (3.5, 9.0),
+    "lofi_chill": (3.5, 9.0),
+    "jazz_acoustic": (5.0, 14.0),
+    "classical_ambient": (5.0, 14.0),
+}
+
 _CLAP_CACHE: dict[str, Any] = {}
 _AESTHETICS_CACHE: Any = None
 
@@ -1760,12 +1779,14 @@ def analyze_transient_stacking(
 
 
 def _find_role_stems_in_dir(stems_dir: str) -> dict[str, Any]:
-    """Classify stem WAV files inside `stems_dir` into kick, bass, and non-percussive track maps."""
+    """Classify stem WAV files inside `stems_dir` into kick, bass, lead, harmony, and non-percussive track maps."""
     kick_wav: str | None = None
     bass_wav: str | None = None
     bus_bass_wav: str | None = None
     non_perc: dict[str, str] = {}
     all_tracks: dict[str, str] = {}
+    lead_list: list[str] = []
+    harmony_list: list[str] = []
     for w in sorted(Path(stems_dir).glob("*.wav")):
         stem = w.stem
         label = stem.split(" - ", 1)[1] if " - " in stem else stem
@@ -1785,11 +1806,375 @@ def _find_role_stems_in_dir(stems_dir: str) -> dict[str, Any]:
             non_perc[label] = str(w)
         elif not any(k in low for k in ("snare", "clap", "hat", "hh", "perc", "drum", "rim", "crash", "cymbal", "shaker", "tom")):
             non_perc[label] = str(w)
+            if any(k in low for k in ("lead", "melody", "topline", "vox", "vocal", "solo")):
+                lead_list.append(str(w))
+            elif any(k in low for k in ("chord", "pad", "harmony", "string", "rhodes", "arp", "counter", "keys", "piano", "guitar", "organ")):
+                harmony_list.append(str(w))
     return {
         "kick": kick_wav,
         "bass": bass_wav or bus_bass_wav,
         "non_perc": non_perc,
         "all_tracks": all_tracks,
+        "lead_list": lead_list,
+        "harmony_list": harmony_list,
+    }
+
+
+def analyze_dynamic_bark_masking(
+    lead_stem: Any,
+    harmony_stem: Any,
+    sr: int = 44100,
+) -> dict[str, Any]:
+    """
+    Phase 7 P3.1: Dynamic Zwicker Bark-band masking between `Lead` and `Harmony/Chords`.
+    Projects STFT (`n_fft=2048, hop_length=512`) onto 24 critical Bark bands, evaluates
+    SMR(t, b*) = L_Lead(t, b*) - L_Harmony(t, b*) on active Lead frames (> -35 dBFS),
+    and returns `APPLY_DYNAMIC_MIRROR_EQ(freq_hz)` if SMR < +1.5 dB on > 25% of active frames.
+    """
+    y_l, sr_l = _load_mono_audio_input(lead_stem, default_sr=sr)
+    y_h, sr_h = _load_mono_audio_input(harmony_stem, default_sr=sr)
+    if sr_h != sr_l:
+        g = math.gcd(int(sr_l), int(sr_h))
+        y_h = signal.resample_poly(y_h, int(sr_l) // g, int(sr_h) // g)
+    n_min = min(len(y_l), len(y_h))
+    if n_min < 2048:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "active_frames": 0,
+            "masked_frames": 0,
+            "masked_ratio": 0.0,
+            "mean_smr_db": None,
+            "masked_band_idx": None,
+            "f_mask_hz": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+    y_l = y_l[:n_min].astype(np.float32, copy=False)
+    y_h = y_h[:n_min].astype(np.float32, copy=False)
+
+    # On long stems (> 18s), evaluate 8 evenly spaced 1.5s windows (12s, >1,000 frames) for < 85ms CPU
+    max_full = int(18.0 * sr_l)
+    if n_min > max_full:
+        chunk_len = int(1.5 * sr_l)
+        starts = np.linspace(0, n_min - chunk_len, 8, dtype=int)
+        y_l = np.concatenate([y_l[s : s + chunk_len] for s in starts])
+        y_h = np.concatenate([y_h[s : s + chunk_len] for s in starts])
+
+    n_fft = 2048
+    hop = 512
+    freqs, _t, z_l = signal.stft(y_l, fs=sr_l, window="hann", nperseg=n_fft, noverlap=n_fft - hop, boundary=None, padded=False)
+    _, _, z_h = signal.stft(y_h, fs=sr_l, window="hann", nperseg=n_fft, noverlap=n_fft - hop, boundary=None, padded=False)
+
+    p_l = (z_l.real * z_l.real + z_l.imag * z_l.imag)
+    p_h = (z_h.real * z_h.real + z_h.imag * z_h.imag)
+    n_frames = p_l.shape[1]
+    if n_frames == 0:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "active_frames": 0,
+            "masked_frames": 0,
+            "masked_ratio": 0.0,
+            "mean_smr_db": None,
+            "masked_band_idx": None,
+            "f_mask_hz": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    # Fast vectorized frame RMS matching STFT frame alignment
+    cs = np.concatenate([[0.0], np.cumsum(y_l.astype(np.float64) ** 2)])
+    starts = np.arange(n_frames) * hop
+    ends = np.minimum(len(y_l), starts + n_fft)
+    frame_rms = np.sqrt(np.maximum(0.0, (cs[ends] - cs[starts]) / np.maximum(1, ends - starts)))
+    frame_dbfs = 20.0 * np.log10(frame_rms + 1e-12)
+    active = frame_dbfs > -35.0
+    n_active = int(np.sum(active))
+    if n_active < 3:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "active_frames": n_active,
+            "masked_frames": 0,
+            "masked_ratio": 0.0,
+            "mean_smr_db": None,
+            "masked_band_idx": None,
+            "f_mask_hz": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    # Build (24, n_freqs) Bark projection matrix
+    w_bark = np.zeros((24, len(freqs)), dtype=np.float32)
+    nyq = 0.5 * float(sr_l)
+    for b_idx, (flo, fhi) in enumerate(BARK_EDGES_24):
+        hi = min(fhi, nyq)
+        if hi <= flo:
+            continue
+        mask_f = (freqs >= flo) & (freqs < hi)
+        if np.any(mask_f):
+            w_bark[b_idx, mask_f] = 1.0
+
+    e_l_bark = (w_bark @ p_l[:, active]).astype(np.float64)
+    e_h_bark = (w_bark @ p_h[:, active]).astype(np.float64)
+    l_lead = 10.0 * np.log10(e_l_bark + 1e-12)
+    l_harm = 10.0 * np.log10(e_h_bark + 1e-12)
+
+    b_star = np.argmax(l_lead, axis=0)
+    col_idx = np.arange(n_active)
+    smr = l_lead[b_star, col_idx] - l_harm[b_star, col_idx]
+    masked = smr < 1.5
+    n_masked = int(np.sum(masked))
+    masked_ratio = round(float(n_masked) / float(n_active), 4)
+    mean_smr = round(float(np.mean(smr)), 2)
+
+    b_mask: int | None = None
+    f_mask: float | None = None
+    if n_masked > 0:
+        b_mask = int(np.bincount(b_star[masked], minlength=24).argmax())
+        flo, fhi = BARK_EDGES_24[b_mask]
+        f_mask = round(math.sqrt(max(20.0, flo) * max(20.0, fhi)), 1)
+
+    triggered = (masked_ratio > 0.25) and (f_mask is not None)
+    return {
+        "status": "OK",
+        "verdict": "FIX" if triggered else "PASS",
+        "active_frames": n_active,
+        "masked_frames": n_masked,
+        "masked_ratio": masked_ratio,
+        "mean_smr_db": mean_smr,
+        "masked_band_idx": b_mask,
+        "f_mask_hz": f_mask,
+        "next_action": (
+            {
+                "code": "APPLY_DYNAMIC_MIRROR_EQ",
+                "params": {"freq_hz": f_mask, "gain_db": -3.5, "q": 1.8},
+            }
+            if triggered
+            else {"code": "KEEP", "params": {}}
+        ),
+    }
+
+
+def compute_ebu_r128_stats(data: Any, sr: int = 44100) -> dict[str, float]:
+    """
+    Phase 7 P3.2: Single-pass vectorized ITU-R BS.1770-4 / EBU R128 `integrated_lufs`
+    and Tech 3342 `lra_lu` (`0.01 s` energy chunks -> `400 ms / 100 ms` gated LUFS +
+    `3.0 s / 90 ms` gated LRA). Matches `pyloudnorm.Meter` within `< 0.05 LU` in one C SOS pass.
+    """
+    import pyloudnorm as pyln
+
+    arr = np.asarray(data)
+    if arr.ndim == 1:
+        arr = arr[:, None]
+    n_samples, n_ch = arr.shape
+    if n_samples < 64:
+        return {"integrated_lufs": -70.0, "lra_lu": 0.0}
+
+    meter = pyln.Meter(sr)
+    sos = np.vstack([
+        np.concatenate([f.b / f.a[0], f.a / f.a[0]])
+        for _, f in meter._filters.items()
+    ])
+    dtype_filt = np.float32 if sr <= 60000 else np.float64
+    sos_f = sos.astype(dtype_filt, copy=False)
+
+    sub_n = max(1, int(round(0.01 * sr)))
+    rem = (-n_samples) % sub_n
+    m_sub = (n_samples + rem) // sub_n
+    sub_e = np.zeros(m_sub, dtype=np.float64)
+    gains = (1.0, 1.0, 1.0, 1.41, 1.41)
+
+    for ch in range(min(n_ch, len(gains))):
+        ch_buf = np.ascontiguousarray(arr[:, ch], dtype=dtype_filt)
+        if rem:
+            ch_buf = np.concatenate([ch_buf, np.zeros(rem, dtype=dtype_filt)])
+        flt = signal.sosfilt(sos_f, ch_buf)
+        mat = flt.reshape(m_sub, sub_n)
+        sub_e += gains[ch] * np.einsum("ij,ij->i", mat, mat, dtype=np.float64)
+
+    # 1) Integrated LUFS: 400 ms blocks (40 x 10 ms), 75% overlap (100 ms step = 10 x 10 ms)
+    sub_lufs = sub_e if m_sub >= 45 else np.concatenate([sub_e, np.zeros(45 - m_sub, dtype=np.float64)])
+    cs_l = np.concatenate([[0.0], np.cumsum(sub_lufs)])
+    st_l = np.arange(0, len(sub_lufs) - 40 + 1, 10)
+    integrated_lufs = float("-inf")
+    if len(st_l) > 0:
+        z_l = np.maximum(0.0, (cs_l[st_l + 40] - cs_l[st_l]) / float(40 * sub_n))
+        with np.errstate(divide="ignore"):
+            l_blk = -0.691 + 10.0 * np.log10(np.maximum(z_l, 1e-18))
+        abs_mask = l_blk >= -70.0
+        if np.any(abs_mask):
+            z_abs = z_l[abs_mask]
+            gamma_r = -0.691 + 10.0 * math.log10(max(float(np.mean(z_abs)), 1e-18)) - 10.0
+            rel_mask = l_blk >= gamma_r
+            z_rel = z_l[rel_mask] if np.any(rel_mask) else z_abs
+            integrated_lufs = round(float(-0.691 + 10.0 * math.log10(max(float(np.mean(z_rel)), 1e-18))), 3)
+
+    # 2) Loudness Range (EBU Tech 3342): 3.0 s blocks (300 x 10 ms), 90 ms step (9 x 10 ms) + 1.5 s tail
+    lra_lu = 0.0
+    if n_samples >= int(0.1 * sr):
+        tail_sub = max(150, 305 - m_sub)
+        sub_all = np.concatenate([sub_e, np.zeros(tail_sub, dtype=np.float64)])
+        cs_r = np.concatenate([[0.0], np.cumsum(sub_all)])
+        st_r = np.arange(0, len(sub_all) - 300 + 1, 9)
+        if len(st_r) > 0:
+            z_r = np.maximum(0.0, (cs_r[st_r + 300] - cs_r[st_r]) / float(300 * sub_n))
+            with np.errstate(divide="ignore"):
+                stl = -0.691 + 10.0 * np.log10(np.maximum(z_r, 1e-18))
+            stl_abs = stl[stl >= -70.0]
+            if len(stl_abs) > 0:
+                stl_int = 10.0 * float(np.log10(np.mean(np.power(10.0, stl_abs / 10.0))))
+                stl_rel = stl_abs[stl_abs >= stl_int - 20.0]
+                if len(stl_rel) >= 2:
+                    lra_lu = round(max(0.0, float(np.percentile(stl_rel, 95) - np.percentile(stl_rel, 10))), 2)
+
+    return {"integrated_lufs": integrated_lufs, "lra_lu": lra_lu}
+
+
+def compute_lra_ebu(data: Any, sr: int = 44100) -> float:
+    """
+    Phase 7 P3.2: Fast vectorized EBU R128 / Tech 3342 Loudness Range (`LRA` in LU).
+    """
+    return float(compute_ebu_r128_stats(data, sr=sr)["lra_lu"])
+
+
+def analyze_bass_harmonic_translation(
+    bass_stem: Any,
+    sr: int = 44100,
+) -> dict[str, Any]:
+    """
+    Phase 7 P3.3: Small-speaker harmonic translation audit for deep bass (`f0 < 65 Hz`).
+    Measures `R_trans = 10 * log10(E[1.7 f0 .. 3.4 f0] / E[0.8 f0 .. 1.25 f0])`.
+    Triggers `BOOST_BASS_HARMONICS(f0_hz)` if `f0 < 65 Hz` and `R_trans < -14.0 dB`.
+    """
+    mono, eff_sr = _load_mono_audio_input(bass_stem, default_sr=sr)
+    if len(mono) < max(2048, int(0.1 * eff_sr)):
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "f0_hz": None,
+            "r_trans_db": None,
+            "requires_translation_boost": False,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    mono32 = np.asarray(mono, dtype=np.float32)
+    pk = float(np.max(np.abs(mono32)))
+    if pk < 1e-4:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "f0_hz": None,
+            "r_trans_db": None,
+            "requires_translation_boost": False,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    # Extract contiguous active chunks (up to ~4.8s across the track for < 25ms CPU on 2-min audio)
+    win = max(512, int(0.05 * eff_sr))
+    n_f = len(mono32) // win
+    if n_f >= 2:
+        frames = mono32[: n_f * win].reshape(n_f, win)
+        f_rms = np.sqrt(np.einsum("ij,ij->i", frames, frames, dtype=np.float64) / float(win))
+        act_idx = np.flatnonzero(f_rms >= max(1e-4, 0.12 * float(np.max(f_rms))))
+        if len(act_idx) > 0:
+            anchors = act_idx[np.linspace(0, len(act_idx) - 1, min(6, len(act_idx)), dtype=int)]
+            chunk_n = int(0.8 * eff_sr)
+            active_sig = np.concatenate([mono32[int(a) * win : min(len(mono32), int(a) * win + chunk_n)] for a in anchors])
+        else:
+            active_sig = mono32[: min(len(mono32), int(4.8 * eff_sr))]
+    else:
+        active_sig = mono32
+
+    if len(active_sig) < 2048:
+        active_sig = np.pad(active_sig, (0, 2048 - len(active_sig)))
+
+    # Fast FFT-accelerated YIN CMNDF on ~11 kHz decimated windows (octave-safe f0 in ~15ms, 0 Numba overhead)
+    f0_hz: float | None = None
+    try:
+        dec = max(1, int(round(eff_sr / 11025.0)))
+        if len(active_sig) // dec < 512:
+            dec = 1
+        sr_d = float(eff_sr) / float(dec)
+        sig_d = (
+            active_sig[: (len(active_sig) // dec) * dec].reshape(-1, dec).mean(axis=1).astype(np.float64)
+            if dec > 1
+            else active_sig.astype(np.float64)
+        )
+        w_len = min(1024, max(256, len(sig_d) // 2))
+        tau_min = max(4, int(sr_d / 200.0))
+        tau_max = min(w_len // 2, int(sr_d / 26.0))
+        if tau_max > tau_min + 2:
+            n_win = min(6, max(1, len(sig_d) // w_len))
+            starts = np.linspace(0, max(0, len(sig_d) - w_len), n_win, dtype=int)
+            w_eff = w_len - tau_max
+            nfft = 2 * w_len
+            taus = np.arange(1, tau_max + 1, dtype=np.float64)
+            f0_est: list[float] = []
+            for st in starts:
+                x = sig_d[st : st + w_len]
+                if float(np.max(np.abs(x))) < 1e-4:
+                    continue
+                cs = np.concatenate([[0.0], np.cumsum(x * x)])
+                X1 = np.fft.rfft(x[:w_eff], n=nfft)
+                X2 = np.fft.rfft(x, n=nfft)
+                cross = np.fft.irfft(np.conj(X1) * X2)[: tau_max + 1]
+                d_tau = np.maximum(0.0, cs[w_eff] + (cs[taus.astype(int) + w_eff] - cs[taus.astype(int)]) - 2.0 * cross[1:])
+                cmndf = d_tau * taus / np.maximum(np.cumsum(d_tau), 1e-12)
+                sub = cmndf[tau_min - 1 :]
+                below = np.flatnonzero(sub < 0.15)
+                if len(below) > 0:
+                    idx = int(below[0]) + (tau_min - 1)
+                    while idx + 1 < len(cmndf) and cmndf[idx + 1] < cmndf[idx]:
+                        idx += 1
+                else:
+                    idx = int(np.argmin(sub)) + (tau_min - 1)
+                tau_val = float(taus[idx])
+                if 0 < idx < len(cmndf) - 1:
+                    denom = 2.0 * (2.0 * cmndf[idx] - cmndf[idx - 1] - cmndf[idx + 1])
+                    if abs(denom) > 1e-12:
+                        tau_val += (cmndf[idx - 1] - cmndf[idx + 1]) / denom
+                cand_f0 = sr_d / max(1.0, tau_val)
+                if 26.0 <= cand_f0 <= 200.0:
+                    f0_est.append(cand_f0)
+            if f0_est:
+                f0_hz = float(np.median(f0_est))
+    except Exception:
+        f0_hz = None
+
+    nperseg = min(16384, max(1024, len(active_sig)))
+    freqs, psd = signal.welch(active_sig.astype(np.float64), fs=eff_sr, nperseg=nperseg, scaling="spectrum")
+    if f0_hz is None:
+        low_mask = (freqs >= 25.0) & (freqs <= 200.0)
+        if np.any(low_mask):
+            f0_hz = float(freqs[low_mask][int(np.argmax(psd[low_mask]))])
+        else:
+            f0_hz = 80.0
+
+    f0_round = round(float(f0_hz), 2)
+    m_f0 = (freqs >= 0.8 * f0_hz) & (freqs <= 1.25 * f0_hz)
+    m_harm = (freqs >= 1.7 * f0_hz) & (freqs <= 3.4 * f0_hz)
+    e_f0 = float(np.sum(psd[m_f0])) if np.any(m_f0) else 0.0
+    e_harm = float(np.sum(psd[m_harm])) if np.any(m_harm) else 0.0
+    r_trans_db = round(float(10.0 * math.log10((e_harm + 1e-15) / (e_f0 + 1e-15))), 2)
+
+    needs_boost = (f0_hz < 65.0) and (r_trans_db < -14.0)
+    return {
+        "status": "OK",
+        "verdict": "FIX" if needs_boost else "PASS",
+        "f0_hz": f0_round,
+        "r_trans_db": r_trans_db,
+        "requires_translation_boost": bool(needs_boost),
+        "next_action": (
+            {
+                "code": "BOOST_BASS_HARMONICS",
+                "params": {
+                    "f0_hz": f0_round,
+                    "r_trans_db": r_trans_db,
+                    "boost_freq_hz": float(round(2.5 * f0_hz)),
+                },
+            }
+            if needs_boost
+            else {"code": "KEEP", "params": {}}
+        ),
     }
 
 
@@ -1936,22 +2321,30 @@ def analyze_vertical_stage(
         if has_drums and k_src and b_src:
             kb_phase = analyze_kick_bass_transient_phase(k_src, b_src, sr=sr, min_corr=min_kb_corr)
 
+        # Phase 7 P3.3: Small-speaker harmonic translation for deep bass (f0 < 65 Hz)
+        bass_trans: dict[str, Any] | None = None
+        if b_src:
+            bass_trans = analyze_bass_harmonic_translation(b_src, sr=sr)
+
         corr_thresh = 0.70 if has_drums else 0.40
         corr_ok = (low_end_corr >= corr_thresh) or (low_total < 5.0 and not has_drums)
         overlap_ok = True if overlap is None else (overlap <= 0.30)
         infra_ok = (infra_ratio <= 0.42) or (low_total < 8.0)
         phase_ok = True if (kb_phase is None or kb_phase.get("status") == "SKIP") else (kb_phase.get("verdict") == "PASS")
+        trans_ok = True if (bass_trans is None or bass_trans.get("status") == "SKIP") else (bass_trans.get("verdict") == "PASS")
 
         checks.update({
             "low_end_corr_ok": corr_ok,
             "transient_overlap_ok": overlap_ok,
             "infra_sub_ok": infra_ok,
             "kick_bass_transient_phase_ok": phase_ok,
+            "bass_translation_ok": trans_ok,
         })
         metrics.update({
             "low_end_corr": low_end_corr,
             "kick_bass_transient_overlap": overlap,
             "kick_bass_transient_phase": kb_phase,
+            "bass_harmonic_translation": bass_trans,
             "energy_50_100hz_pct": low_50_100,
             "infra_sub_ratio_lt45hz": infra_ratio,
         })
@@ -1977,6 +2370,13 @@ def analyze_vertical_stage(
             diag.append(f"Infra-sub excessif < 45 Hz ({infra_ratio*100:.0f}% du grave) : monter Root note +12 st ou HPF 32 Hz.")
             if next_action["code"] == "ADVANCE_NEXT_STAGE":
                 next_action = {"code": "RAISE_SUB_OCTAVE_OR_HPF", "params": {"root_note_delta_st": 12, "hpf_hz": 32}}
+        if not trans_ok and bass_trans is not None:
+            score -= 0.25
+            diag.append(
+                f"Basse sub f0={bass_trans['f0_hz']} Hz pauvre en harmoniques (R_trans={bass_trans['r_trans_db']} dB < -14 dB) : saturation douce + boost 2.5*f0."
+            )
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = bass_trans["next_action"]
         if not diag:
             diag.append(f"Palier V1_LOW_END propre : phase grave {low_end_corr} (>= {corr_thresh}), bas du spectre maîtrisé.")
             next_action = {"code": "ADVANCE_TO_V2_GROOVE", "params": {"next_stage": "V2_GROOVE"}}
@@ -2197,6 +2597,16 @@ def analyze_vertical_stage(
             )
         pocket_v4_ok = True if (pocket_v4 is None or pocket_v4.get("status") == "SKIP") else (pocket_v4.get("verdict") == "PASS")
 
+        # Phase 7 P3.1: Dynamic Zwicker Bark-band masking between Lead and Harmony
+        bark_mask_res: dict[str, Any] | None = None
+        if stems_map.get("lead") and stems_map.get("harmony"):
+            bark_mask_res = analyze_dynamic_bark_masking(stems_map["lead"], stems_map["harmony"], sr=sr)
+        elif dir_stems.get("lead_list") and dir_stems.get("harmony_list"):
+            l_arr, l_sr = _load_and_sum_stems([Path(p) for p in dir_stems["lead_list"]], target_sr=sr)
+            h_arr, h_sr = _load_and_sum_stems([Path(p) for p in dir_stems["harmony_list"]], target_sr=l_sr)
+            bark_mask_res = analyze_dynamic_bark_masking((l_arr, l_sr), (h_arr, h_sr), sr=l_sr)
+        bark_mask_ok = True if (bark_mask_res is None or bark_mask_res.get("status") == "SKIP") else (bark_mask_res.get("verdict") == "PASS")
+
         lead_ok = True if lead_vs_harm is None else (lead_vs_harm >= 2.0)
         slope_ok = (limits["pink_min"] <= pink_slope <= limits["pink_max"])
         mid_1_3k_pct = _band_pct(1000.0, 3000.0)
@@ -2208,6 +2618,7 @@ def analyze_vertical_stage(
             "no_mid_congestion_1_3k": masking_1_3k_ok,
             "transient_stacking_ok": stack_v4_ok,
             "audio_pocket_alignment_ok": pocket_v4_ok,
+            "dynamic_bark_masking_ok": bark_mask_ok,
         })
         metrics.update({
             "lead_vs_harmony_db": lead_vs_harm,
@@ -2218,12 +2629,20 @@ def analyze_vertical_stage(
             "band_1_3khz_pct": mid_1_3k_pct,
             "transient_stacking": stack_v4,
             "audio_pocket_alignment": pocket_v4,
+            "dynamic_bark_masking": bark_mask_res,
         })
 
         if not lead_ok:
             score -= 0.40
             diag.append(f"Lead masqué par l'harmonie ({lead_vs_harm:+.2f} dB < +2.0 dB) : EQ miroir -3 dB @ 1.8 kHz sur Chords ou +2 dB Lead.")
             next_action = {"code": "CARVE_LEAD_POCKET", "params": {"chords_eq_hz": 1800.0, "chords_eq_db": -3.0, "lead_gain_db": 2.0}}
+        if not bark_mask_ok and bark_mask_res is not None:
+            score -= 0.30
+            diag.append(
+                f"Masquage Bark dynamique Lead/Harmonie ({bark_mask_res['masked_ratio']*100:.0f}% trames < +1.5 dB @ {bark_mask_res['f_mask_hz']} Hz)."
+            )
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = bark_mask_res["next_action"]
         if not slope_ok:
             score -= 0.25
             direction = "trop sombre/boomy" if pink_slope < limits["pink_min"] else "trop brillant/agressif"

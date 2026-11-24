@@ -167,3 +167,15 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
   * Préférer `audio-analyzer:audit_multiscale_hv(project_dir, stage, contract_path)` ou le CLI one-shot `.venv/bin/python scripts/run_autonomous_pipeline.py --project <dir> --stage E1|E2|E3|E4|ALL --auto-fix --max-autofix-passes 2 --json-compact`.
   * Sortie strictement bornée par `scripts/multiscale_pyramid.py` (`<= 1 500` caractères, `<= 400` tokens, Top 3 déviations, blocage en cascade $S1/S2 \Rightarrow S4=S5=\text{null}$), détails complets écrits dans `renders/diagnostics/`.
   * Cache SHA-256 incrémental (`scripts/artifact_cache.py` dans `pipeline_state.json`) sautant instantanément pistes É1, paliers É2 (`V1..V4`) et coutures É3 inchangés ; dispatcher local `scripts/multiscale_autofix.py` exécuté avant toute escalade LLM.
+
+---
+
+## Phase 7 — Psychoacoustique (`P3`) & Mémoire Épisodique de Goût (`P4`)
+
+* **3 Audits Psychoacoustiques `P3` (`deep_diagnostics.py`, `render_and_audit.py`)** :
+  * **Masquage dynamique Bark (`analyze_dynamic_bark_masking`)** : mesure `SMR(t, b*)` sur les trames actives du `Lead` (> `-35 dBFS`) ; si `SMR < +1.5 dB` sur `> 25 %` des trames actives, déclenche `APPLY_DYNAMIC_MIRROR_EQ(freq_hz)` (`-3.5 dB`, `Q=1.8` sur `Chords/Pad` ou `BUS Music`).
+  * **Plage Dynamique `LRA` (`compute_ebu_r128_stats` / `compute_lra_ebu`)** : contrôle EBU R128/Tech 3342 mono-passe (`edm/trap >= 2.5 LU`, `pop/rock/lofi >= 3.5 LU`, `jazz/classical >= 5.0 LU`) ; sous le seuil, `RELAX_BUS_COMPRESSION` relève `Threshold` `BUS Music` de `+2.5 dB` et ajuste `Gain` limiteur (`-1.5 dB`).
+  * **Traduction Sub-Basse petits haut-parleurs (`analyze_bass_harmonic_translation`)** : sur basse `f0 < 65 Hz`, vérifie `R_trans = 10 log10(E[1.7 f0..3.4 f0] / E[0.8 f0..1.25 f0]) >= -14.0 dB` ; sinon `BOOST_BASS_HARMONICS(f0_hz)` active `gl.dist` Soft + boost `gl.eq +2.5 dB @ 2.5 f0`.
+* **Mémoire de Goût (`scripts/taste_memory.py` → `memory/user_taste_profile.json`)** :
+  * `record_validated_taste()` mémorise automatiquement tout morceau `PASS` (hors dossiers temporaires, ou explicitement via `--approve-taste` poids `2.0`, max `50` entrées dédupliquées par `project_id`).
+  * Si `reference_tracks` est vide au départ en É0, `target_fingerprint.py` interroge `query_taste_prior()` pondéré par distance euclidienne sur `(V, T, E, D)` **avant** le repli générique et inscrit `"source": "user_taste_memory"` dans `multi_scale_contract.json`.

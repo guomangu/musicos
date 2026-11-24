@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI-Studio Declarative Arrangement Plan (Phase 7 P1)",
+  "description": "Séparation des données musicales (motifs, sections, modificateurs paramétriques, transitions) et de la compilation Gridline.",
+  "type": "object",
+  "required": ["meta", "motifs", "sections"],
+  "$defs": {
+    "noteEvent": {
+      "type": "object",
+      "required": ["start", "pitch", "velocity"],
+      "anyOf": [
+        { "required": ["length"] },
+        { "required": ["duration"] }
+      ],
+      "properties": {
+        "start": { "type": "number", "minimum": 0.0 },
+        "length": { "type": "number", "exclusiveMinimum": 0.0 },
+        "duration": { "type": "number", "exclusiveMinimum": 0.0 },
+        "pitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+        "velocity": { "type": "integer", "minimum": 1, "maximum": 127 }
+      }
+    },
+    "noteList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/noteEvent" }
+    },
+    "motifObject": {
+      "type": "object",
+      "required": ["notes"],
+      "properties": {
+        "role": { "type": "string" },
+        "bars": { "type": "integer", "minimum": 1 },
+        "loop": { "type": "boolean" },
+        "notes": { "$ref": "#/$defs/noteList" }
+      }
+    },
+    "roleModifier": {
+      "type": "object",
+      "properties": {
+        "octave_shift": { "type": "integer", "minimum": -36, "maximum": 36 },
+        "density_scale": { "type": "number", "minimum": 0.25, "maximum": 1.5 },
+        "cutoff_hz": { "type": ["number", "null"], "minimum": 20.0, "maximum": 20000.0 },
+        "gain_db": { "type": "number", "minimum": -6.0, "maximum": 4.0 },
+        "velocity_scale": { "type": "number", "minimum": 0.5, "maximum": 1.25 },
+        "motif": { "type": "string" }
+      }
+    },
+    "filterSweep": {
+      "type": "object",
+      "required": ["role", "start_hz", "end_hz", "bars"],
+      "properties": {
+        "role": { "type": "string" },
+        "start_hz": { "type": "number", "minimum": 20.0, "maximum": 20000.0 },
+        "end_hz": { "type": "number", "minimum": 20.0, "maximum": 20000.0 },
+        "bars": { "type": "number", "exclusiveMinimum": 0.0 },
+        "curve": { "type": "string", "enum": ["exp", "linear"] }
+      }
+    }
+  },
+  "properties": {
+    "version": { "type": ["integer", "string"] },
+    "meta": {
+      "type": "object",
+      "required": ["bpm", "time_signature", "key", "mode", "mix_profile", "has_drums"],
+      "properties": {
+        "title": { "type": "string" },
+        "genre": { "type": "string" },
+        "bpm": { "type": "number", "minimum": 40.0, "maximum": 300.0 },
+        "time_signature": {
+          "type": "object",
+          "required": ["numerator", "denominator"],
+          "properties": {
+            "numerator": { "type": "integer", "minimum": 1, "maximum": 16 },
+            "denominator": { "type": "integer", "enum": [2, 4, 8, 16] }
+          }
+        },
+        "key": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "minLength": 1 },
+        "mix_profile": {
+          "type": "string",
+          "enum": [
+            "trap_rap",
+            "pop_rnb",
+            "edm_club",
+            "rock_metal",
+            "lofi_chill",
+            "jazz_acoustic",
+            "classical_ambient"
+          ]
+        },
+        "has_drums": { "type": "boolean" },
+        "valence": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+        "tension": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "energy": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "depth": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "phrase_plan": { "type": "string" }
+      }
+    },
+    "harmonic_core": {
+      "type": "object"
+    },
+    "channels": {
+      "type": ["object", "array"]
+    },
+    "motifs": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "anyOf": [
+          { "$ref": "#/$defs/noteList" },
+          { "$ref": "#/$defs/motifObject" },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                { "$ref": "#/$defs/noteList" },
+                { "$ref": "#/$defs/motifObject" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "start_bar", "bars", "active_roles"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": ["intro", "verse", "pre_chorus", "chorus", "bridge", "drop", "climax", "outro"]
+          },
+          "start_bar": { "type": "integer", "minimum": 0 },
+          "bars": { "type": "integer", "minimum": 1 },
+          "active_roles": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "role_modifiers": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/roleModifier" }
+          },
+          "transitions": {
+            "type": "object",
+            "properties": {
+              "beat4_dropout_bars": {
+                "type": "array",
+                "items": { "type": "integer" }
+              },
+              "filter_sweep": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "$ref": "#/$defs/filterSweep" }
+                ]
+              },
+              "outro_fade_bars": { "type": "integer", "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

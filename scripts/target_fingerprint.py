@@ -36,6 +36,7 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR):
 from bootstrap_golden_refs import DEFAULT_PROFILES_PATH, compute_bark24_distribution
 from deep_diagnostics import compute_pink_slope_db_per_oct
 from groove_lib import HAAS_POCKET_MS_PROFILES
+from taste_memory import query_taste_prior
 
 CONTRACT_SCHEMA_PATH = os.path.join(ROOT_DIR, "schemas", "multi_scale_contract.schema.json")
 
@@ -410,6 +411,7 @@ def extract_target_fingerprint(
     profiles_path: str = DEFAULT_PROFILES_PATH,
     subgenre_tag: str = "",
     has_drums: bool | None = None,
+    taste_memory_path: str | None = None,
 ) -> dict[str, Any]:
     """
     Extract multi-scale target fingerprint from 0..3 reference audio tracks (or fallback
@@ -490,25 +492,61 @@ def extract_target_fingerprint(
         sharp_max = float(p_def["dark_sharp_max"] if is_dark else p_def["sharp_max"])
         ref_paths_resolved = [r["path"] for r in ref_analyses]
     else:
-        source_mode = "profile_fallback"
+        taste_prior = query_taste_prior(eff_profile, ev_norm, top_k=3, taste_path=taste_memory_path)
         base_bark, base_slope, base_slope_std = _load_fallback_spectral_profile(eff_profile, profiles_path)
-        bark24_target = _modulate_bark_with_emotion(base_bark, ev_norm)
-        slope_shift = -0.25 * abs(valence) if valence < -0.2 else (0.15 * valence if valence > 0.3 else 0.0)
-        eff_slope = base_slope + slope_shift
-        tol = max(0.85, base_slope_std * 1.8)
-        pink_slope_range = [round(eff_slope - tol, 2), round(eff_slope + tol, 2)]
-        stereo_width = dict(p_def["stereo_width"])
-        crest_lo, crest_hi = p_def["crest_range"]
-        if energy > 0.75:
-            crest_lo = max(4.5, crest_lo - 1.0)
-        crest_range = [round(crest_lo, 2), round(crest_hi, 2)]
-        target_lufs = float(p_def["target_lufs"])
-        target_onset_density = round(float(p_def["onset_density"]) * (0.75 + 0.5 * energy) * (1.0 if eff_has_drums else 0.45), 3)
-        breathing_ratio = round(0.12 + 0.25 * (1.0 - energy), 3)
-        low_mids_max = float(p_def["low_mids_max"])
-        air_min = float(p_def["dark_air_min"] if is_dark else p_def["air_min"])
-        sharp_max = float(p_def["dark_sharp_max"] if is_dark else p_def["sharp_max"])
-        ref_paths_resolved = []
+        if taste_prior is not None:
+            source_mode = "user_taste_memory"
+            b_prior = taste_prior.get("bark24_mean")
+            if isinstance(b_prior, list) and len(b_prior) == 24:
+                b_arr = np.maximum(0.0, np.asarray(b_prior, dtype=np.float64))
+                b_sum = float(np.sum(b_arr))
+                bark24_target = [round(float(x / b_sum), 6) for x in b_arr] if b_sum > 1e-12 else _modulate_bark_with_emotion(base_bark, ev_norm)
+            else:
+                bark24_target = _modulate_bark_with_emotion(base_bark, ev_norm)
+
+            tol = max(0.85, base_slope_std * 1.8)
+            eff_slope = float(taste_prior.get("pink_slope_db_per_oct", base_slope))
+            pink_slope_range = [round(eff_slope - tol, 2), round(eff_slope + tol, 2)]
+
+            sw_prior = taste_prior.get("stereo_width_by_band") or {}
+            stereo_width = {band: round(float(sw_prior.get(band, p_def["stereo_width"][band])), 4) for band in ("sub", "low_mid", "high_mid", "air")}
+
+            if taste_prior.get("crest_factor_db") is not None:
+                c_mid = float(taste_prior["crest_factor_db"])
+                crest_range = [round(max(3.5, c_mid - 2.0), 2), round(c_mid + 2.0, 2)]
+            else:
+                crest_lo, crest_hi = p_def["crest_range"]
+                if energy > 0.75:
+                    crest_lo = max(4.5, crest_lo - 1.0)
+                crest_range = [round(crest_lo, 2), round(crest_hi, 2)]
+
+            target_lufs = round(_clamp(float(taste_prior.get("integrated_lufs", p_def["target_lufs"])), -26.0, -5.0), 2)
+            fallback_onset = round(float(p_def["onset_density"]) * (0.75 + 0.5 * energy) * (1.0 if eff_has_drums else 0.45), 3)
+            target_onset_density = round(float(taste_prior.get("onset_density_per_sec", fallback_onset)), 3)
+            breathing_ratio = round(float(taste_prior.get("breathing_ratio", 0.12 + 0.25 * (1.0 - energy))), 3)
+            low_mids_max = float(p_def["low_mids_max"])
+            air_min = float(p_def["dark_air_min"] if is_dark else p_def["air_min"])
+            sharp_max = float(p_def["dark_sharp_max"] if is_dark else p_def["sharp_max"])
+            ref_paths_resolved = []
+        else:
+            source_mode = "profile_fallback"
+            bark24_target = _modulate_bark_with_emotion(base_bark, ev_norm)
+            slope_shift = -0.25 * abs(valence) if valence < -0.2 else (0.15 * valence if valence > 0.3 else 0.0)
+            eff_slope = base_slope + slope_shift
+            tol = max(0.85, base_slope_std * 1.8)
+            pink_slope_range = [round(eff_slope - tol, 2), round(eff_slope + tol, 2)]
+            stereo_width = dict(p_def["stereo_width"])
+            crest_lo, crest_hi = p_def["crest_range"]
+            if energy > 0.75:
+                crest_lo = max(4.5, crest_lo - 1.0)
+            crest_range = [round(crest_lo, 2), round(crest_hi, 2)]
+            target_lufs = float(p_def["target_lufs"])
+            target_onset_density = round(float(p_def["onset_density"]) * (0.75 + 0.5 * energy) * (1.0 if eff_has_drums else 0.45), 3)
+            breathing_ratio = round(0.12 + 0.25 * (1.0 - energy), 3)
+            low_mids_max = float(p_def["low_mids_max"])
+            air_min = float(p_def["dark_air_min"] if is_dark else p_def["air_min"])
+            sharp_max = float(p_def["dark_sharp_max"] if is_dark else p_def["sharp_max"])
+            ref_paths_resolved = []
 
     haas_profile = dict(HAAS_POCKET_MS_PROFILES.get(eff_profile, HAAS_POCKET_MS_PROFILES["trap_rap"]))
     if "kick" not in haas_profile:
@@ -519,6 +557,7 @@ def extract_target_fingerprint(
 
     profile_payload: dict[str, Any] = {
         "version": 1,
+        "source": source_mode,
         "source_mode": source_mode,
         "mix_profile": eff_profile,
         "subgenre_tag": eff_subgenre,
@@ -537,6 +576,7 @@ def extract_target_fingerprint(
 
     contract_payload: dict[str, Any] = {
         "version": "1.0",
+        "source": source_mode,
         "mix_profile": eff_profile,
         "has_drums": eff_has_drums,
         "emotion_vector": ev_norm,
@@ -619,6 +659,7 @@ def main() -> None:
     ap.add_argument("--energy", type=float, default=None)
     ap.add_argument("--depth", type=float, default=None)
     ap.add_argument("--no-drums", action="store_true")
+    ap.add_argument("--taste-memory", default="", help="Optional user_taste_profile.json override")
     ap.add_argument("--json-compact", action="store_true")
     args = ap.parse_args()
 
@@ -640,6 +681,7 @@ def main() -> None:
         project_dir=args.project,
         subgenre_tag=args.subgenre,
         has_drums=False if args.no_drums else None,
+        taste_memory_path=args.taste_memory or None,
     )
     if args.json_compact:
         c = res["multi_scale_contract"]

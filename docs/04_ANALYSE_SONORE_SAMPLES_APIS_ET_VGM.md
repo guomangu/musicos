@@ -22,7 +22,7 @@ Suivre cet ordre exact :
    - **`audio-index:propose_palettes` / `scripts/palette_builder.py`** : combine score rôle, pénalité de chevauchement **Bark24** (surpondérée sur `Kick/Bass` `40–120 Hz` et `Chords/Lead` `800–3500 Hz`), relais d'attaques et adéquation humeur pour proposer **3 palettes distinctes** (`palette_A` Organique/Feutrée, `palette_B` Sombre/Synthétique, `palette_C` Hybride/Percussive). Respecte strictement le verrou `project_samples_dir` en Scénario B.
    - `search_samples`, `select_best_samples` et `scripts/select_sample.py` (`--role`, `--target-key`, `--mono-only`, `--top 8`) retournent `timbre_card` en pur NumPy (`< 25 ms`, 0 PyTorch) avec repli DSP + `"warning": "clap_index_missing_fallback_dsp"` si aucun vecteur CLAP n'est présent.
    - *Maintenance CLI* : `OMP_NUM_THREADS=1 .venv/bin/python scripts/index_samples.py --no-clap --workers 6` (ou `--enrich-clap --batch-size 64` / `--populate-cards`).
-3. **Synthèse native `gl.*`** : 18 synthés dans `gl_dsl.SYNTH_REGISTRY` (`search_synth_presets`, zéro téléchargement).
+3. **Synthèse native `gl.*`** : 13 synthés dans `gl_dsl.SYNTH_REGISTRY` (`search_synth_presets`, zéro téléchargement).
 4. **Récupération CC0 en ligne (si absent en local)** : `audio-index:fetch_samples_online(..., monophonic_only=True)` ou `scripts/fetch_samples_api.py --mono-only --no-clap` (clés `.env` : `FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`).
 
 ---
@@ -88,4 +88,4 @@ Lorsqu'un utilisateur demande une piste chantée avec paroles :
    * `vocaloid:synthesize_vocal_preview(ustx_path=".../vocals.ustx", output_wav=".../samples/vocals.wav")` (ou ouvrir dans OpenUTAU via `open_in_openutau` pour rendu DiffSinger final).
 5. **Intégrer & Mixer dans Gridline** :
    * Charger `samples/vocals.wav` dans un `gl.sampler` dédié (piste mixeur dédiée → `BUS Music` ou direct `Master 0`), placer sur la playlist via Lua `function apply() project.playlist.addAudioClip(ch, track, 0, 0) end`.
-   * **Mix voix** : `HPF 100–120 Hz`, compression `3:1` (`GR 3–5 dB`), creuser **`-2.5 à -4 dB` à `1.2–2.8 kHz`** sur `BUS Music` (EQ miroir) et couper tout instrument Lead concurrent pendant le chant (Règle des 3 Couches).
+   * **Mix voix & Synchro Arrangement (`P6`)** : `HPF 100–120 Hz`, compression `3:1` (`GR 3–5 dB`), creuser **`1.85 kHz`** (`0 -> -3.5 dB`, `40/120 ms`) automatiquement sur `BUS Music` via `scripts/vocal_arrangement_sync.py` (ou code `SYNC_VOCAL_ARRANGEMENT`) et limiter les contre-chants aux fenêtres respiratoires `>= 0.5 beat` (`mute_counter_during_vocals`).

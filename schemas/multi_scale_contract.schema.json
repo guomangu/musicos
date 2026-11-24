@@ -36,6 +36,7 @@
   },
   "properties": {
     "version": { "type": ["string", "integer"] },
+    "source": { "type": "string" },
     "mix_profile": {
       "type": "string",
       "enum": [

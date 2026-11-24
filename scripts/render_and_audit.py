@@ -14,6 +14,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 import numpy as np
@@ -30,11 +31,28 @@ for _p in (SCRIPTS_DIR, ANALYZER_DIR):
 from audio_analyzer_server import _analyze_file
 from bootstrap_golden_refs import DEFAULT_PROFILES_PATH, compute_bark24_distribution, compute_spectral_match
 from catalog_coherence import build_master_fingerprint
-from deep_diagnostics import run_deep_audit
+from deep_diagnostics import (
+    LRA_PROFILE_THRESHOLDS,
+    _find_role_stems_in_dir,
+    _load_and_sum_stems,
+    analyze_bass_harmonic_translation,
+    analyze_dynamic_bark_masking,
+    compute_lra_ebu,
+    run_deep_audit,
+)
 from gl_dsl import clamp, eq_band, eq_params, limiter_master, to_mixer_params
 from macro_structure_audit import analyze_macro_structure
 from studio_lib import GridlineMCP
 from target_fingerprint import load_multi_scale_contract
+from taste_memory import record_validated_taste
+
+
+def _should_record_taste(proj_dir: str, taste_memory_path: str = "", approve_taste: bool = False) -> bool:
+    if taste_memory_path or approve_taste:
+        return True
+    tmp_root = os.path.abspath(tempfile.gettempdir())
+    abs_p = os.path.abspath(proj_dir)
+    return not (abs_p == tmp_root or abs_p.startswith(tmp_root + os.sep))
 
 
 def parse_sections(spec: str) -> list[tuple[str, int, int]]:
@@ -177,6 +195,9 @@ def render_and_evaluate(
     run_macro_audit: bool = True,
     stems_dir: str = "",
     export_fingerprint: bool = True,
+    approve_taste: bool = False,
+    taste_memory_path: str = "",
+    record_taste: bool = True,
 ) -> dict[str, Any]:
     """Renders `.gridline` (optionally scoped by bar range) and computes full Quality Gate report."""
     gate_cfg = GENRE_GATES[profile]
@@ -329,11 +350,39 @@ def render_and_evaluate(
         if arc_db < gate_cfg["arc_min"]:
             gate_failures.append(f"dynamic_arc={arc_db}dB < {gate_cfg['arc_min']}dB")
 
+    # Phase 7 P3 — LRA (EBU R128), Bass Harmonic Translation & Dynamic Bark Masking
+    lra_lu = compute_lra_ebu(data, sr)
+    lra_min, lra_max = LRA_PROFILE_THRESHOLDS.get(profile, (3.5, 9.0))
+    deep["psychoacoustics"]["lra_lu"] = lra_lu
+    deep["psychoacoustics"]["lra_range"] = [lra_min, lra_max]
+    if not range_bars and float(base["duration_seconds"]) >= 12.0 and lra_lu < lra_min:
+        gate_failures.append(f"lra={lra_lu}LU < {lra_min}LU")
+
+    eff_stems_dir = stems_dir.strip() or (
+        os.path.join(proj_dir, "renders", "stems") if os.path.isdir(os.path.join(proj_dir, "renders", "stems")) else ""
+    )
+    bass_trans_res: dict[str, Any] | None = None
+    bark_mask_res: dict[str, Any] | None = None
+    if eff_stems_dir and os.path.isdir(eff_stems_dir):
+        st_roles = _find_role_stems_in_dir(eff_stems_dir)
+        if st_roles.get("bass"):
+            bass_trans_res = analyze_bass_harmonic_translation(st_roles["bass"], sr=sr)
+            if bass_trans_res.get("verdict") == "FIX":
+                gate_failures.append(
+                    f"bass_translation_r_trans={bass_trans_res['r_trans_db']}dB < -14.0dB (f0={bass_trans_res['f0_hz']}Hz)"
+                )
+        if st_roles.get("lead_list") and st_roles.get("harmony_list"):
+            from pathlib import Path as _Path
+            l_arr, l_sr = _load_and_sum_stems([_Path(p) for p in st_roles["lead_list"]], target_sr=sr)
+            h_arr, h_sr = _load_and_sum_stems([_Path(p) for p in st_roles["harmony_list"]], target_sr=l_sr)
+            bark_mask_res = analyze_dynamic_bark_masking((l_arr, l_sr), (h_arr, h_sr), sr=l_sr)
+            if bark_mask_res.get("verdict") == "FIX":
+                gate_failures.append(
+                    f"bark_masking_lead_harmony={bark_mask_res['masked_ratio']} > 0.25 @ {bark_mask_res['f_mask_hz']}Hz"
+                )
+
     macro_res: dict[str, Any] | None = None
     if run_macro_audit and not range_bars:
-        eff_stems_dir = stems_dir.strip() or (
-            os.path.join(proj_dir, "renders", "stems") if os.path.isdir(os.path.join(proj_dir, "renders", "stems")) else ""
-        )
         try:
             macro_res = analyze_macro_structure(
                 abs_out,
@@ -358,6 +407,7 @@ def render_and_evaluate(
 
     gate_passed = len(gate_failures) == 0
     fp_path = ""
+    taste_res: dict[str, Any] | None = None
     if export_fingerprint and gate_passed and not range_bars:
         rms_all = float(np.sqrt(np.mean(mono ** 2))) + 1e-12
         pk_all = float(np.max(np.abs(mono))) + 1e-12
@@ -382,6 +432,15 @@ def render_and_evaluate(
         fp_path = os.path.join(renders_dir, "master_fingerprint.json")
         with open(fp_path, "w", encoding="utf-8") as fh:
             json.dump(fp_obj, fh, indent=2, ensure_ascii=False)
+        if record_taste and _should_record_taste(proj_dir, taste_memory_path, approve_taste):
+            taste_res = record_validated_taste(
+                project_dir=proj_dir,
+                blueprint_path=blueprint_used or "",
+                fingerprint_path=fp_path,
+                approved_by_user=bool(approve_taste),
+                taste_path=taste_memory_path or None,
+                extra_metrics={"lra_lu": lra_lu},
+            )
 
     return {
         "profile": profile,
@@ -397,11 +456,13 @@ def render_and_evaluate(
             "target_lufs": eff_target_lufs,
             "pink_slope_range": pink_slope_range,
             "arc_min": gate_cfg["arc_min"],
+            "lra_range": [lra_min, lra_max],
         },
         "target_lufs": eff_target_lufs,
         "out_wav": abs_out,
         "duration_s": base["duration_seconds"],
         "integrated_lufs": base["integrated_lufs"],
+        "lra_lu": lra_lu,
         "true_peak_dbtp": base["true_peak_dbtp"],
         "clipped_samples": base["clipped_samples"],
         "max_sample_jump": max_jump,
@@ -410,6 +471,12 @@ def render_and_evaluate(
         "spectral_match": spectral_match,
         "recommendations": base["recommendations"],
         "psychoacoustics": deep["psychoacoustics"],
+        "p3_diagnostics": {
+            "lra_lu": lra_lu,
+            "lra_range": [lra_min, lra_max],
+            "bass_harmonic_translation": bass_trans_res,
+            "dynamic_bark_masking": bark_mask_res,
+        },
         "micro_glitches": deep["glitches_and_artifacts"]["micro_glitch_or_crackle_events"],
         "resonances_third_oct": deep["third_octave_resonances"],
         "low_mid_corr": lm_corr,
@@ -417,6 +484,7 @@ def render_and_evaluate(
         "section_lufs": sec_lufs,
         "macro_structure": macro_res,
         "master_fingerprint_path": fp_path or None,
+        "taste_memory": taste_res,
         "quality_gate": {
             "passed": gate_passed,
             "failures": gate_failures,
@@ -693,6 +761,33 @@ def _apply_autofix_mutations(
                 }
             )
 
+        # Phase 7 P3 Rules: Dynamic Mirror EQ, LRA Bus Compression Relax, Bass Harmonic Translation
+        p3 = summary.get("p3_diagnostics") or {}
+        bark_m = p3.get("dynamic_bark_masking") or {}
+        if (bark_m.get("verdict") == "FIX" and bark_m.get("f_mask_hz")) or any(
+            f.startswith("bark_masking_lead_harmony=") for f in failures
+        ):
+            f_hz = float(bark_m.get("f_mask_hz") or 1850.0)
+            m_res = _apply_mirror_eq_mcp(mcp, tracks, f_hz, gain_db=-3.5, q=1.8)
+            if m_res.get("applied"):
+                mutations.append(m_res)
+                tracks = mcp.call("get_mixer", {}).get("tracks", [])
+
+        if any(f.startswith("lra=") for f in failures):
+            r_res = _relax_bus_compression_mcp(mcp, tracks)
+            if r_res.get("applied"):
+                mutations.append(r_res)
+                tracks = mcp.call("get_mixer", {}).get("tracks", [])
+
+        b_tr = p3.get("bass_harmonic_translation") or {}
+        if (b_tr.get("verdict") == "FIX" and b_tr.get("f0_hz")) or any(
+            f.startswith("bass_translation_r_trans=") for f in failures
+        ):
+            f0_v = float(b_tr.get("f0_hz") or 50.0)
+            b_res = _boost_bass_harmonics_mcp(mcp, tracks, f0_v)
+            if b_res.get("applied"):
+                mutations.append(b_res)
+
         if param_changes:
             mcp.set_params(param_changes)
         if mutations:
@@ -701,6 +796,247 @@ def _apply_autofix_mutations(
         mcp.close()
 
     return mutations
+
+
+def _apply_mirror_eq_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+    freq_hz: float,
+    *,
+    gain_db: float = -3.5,
+    q: float = 1.8,
+    prefer_bus_music: bool = False,
+) -> dict[str, Any]:
+    targets = _find_mixer_targets(tracks)
+    bm_track = targets["bus_music"]
+    bm_idx = int(bm_track["mixer"]) if bm_track else 19
+
+    # Target Chords/Pad/Harmony inserts so Lead stays untouched; fall back to BUS Music if none exist
+    chords_tracks = [
+        t for t in tracks
+        if int(t["mixer"]) not in (0, 17, 18, 19, 20)
+        and any(k in (t.get("name") or "").lower() for k in ("chord", "pad", "harmony"))
+    ]
+    target_mixers = (
+        [int(t["mixer"]) for t in chords_tracks]
+        if (chords_tracks and not prefer_bus_music)
+        else [bm_idx]
+    )
+
+    by_idx = {int(t["mixer"]): t for t in tracks if "mixer" in t}
+    p_changes: list[tuple[str, Any]] = []
+    used_slots: list[dict[str, int]] = []
+    for mx_i in target_mixers:
+        tr = by_idx.get(mx_i)
+        eq_slots = _slots_for_plugin(tr, "gl.eq")
+        if not eq_slots:
+            mcp.call("add_plugin", {"mixer": mx_i, "plugin": "gl.eq"})
+            refreshed = mcp.call("get_mixer", {}).get("tracks", [])
+            by_idx = {int(t["mixer"]): t for t in refreshed if "mixer" in t}
+            eq_slots = _slots_for_plugin(by_idx.get(mx_i), "gl.eq")
+        if not eq_slots:
+            continue
+        # On BUS Music, slot 2 is the primary EQ (slot 1 is gl.dist in setup_standard_buses); on inserts use last gl.eq
+        slot_i = eq_slots[1] if (mx_i == bm_idx and len(eq_slots) >= 2) else eq_slots[-1]
+        cur_eq = _param_lookup(mcp, mx_i, slot_i)
+        band_idx = 4
+        for cand_b in (4, 5, 3, 2, 6):
+            # Band is free if not already active peak/hpf/lpf (or reuse band 4 if already at similar freq)
+            bt = int(round(cur_eq.get(f"Band {cand_b} type", 0)))
+            if bt == 0 or (cand_b == 4 and abs(cur_eq.get("Band 4 freq", 0.0) - freq_hz) < 120.0):
+                band_idx = cand_b
+                break
+        p_changes.extend(eq_params(mx_i, [eq_band(band_idx, "peak", float(freq_hz), float(gain_db), q=float(q))], slot=slot_i, quality=0))
+        used_slots.append({"mixer": mx_i, "slot": slot_i, "band": band_idx})
+
+    if p_changes:
+        mcp.set_params(p_changes)
+    return {
+        "applied": bool(used_slots),
+        "code": "APPLY_DYNAMIC_MIRROR_EQ",
+        "rule": "dynamic_bark_mirror_eq",
+        "freq_hz": round(float(freq_hz), 1),
+        "gain_db": float(gain_db),
+        "q": float(q),
+        "targets": used_slots,
+    }
+
+
+def _relax_bus_compression_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    targets = _find_mixer_targets(tracks)
+    bm_track = targets["bus_music"]
+    master_track = targets["master"]
+    if bm_track is None:
+        return {"applied": False, "code": "RELAX_BUS_COMPRESSION", "reason": "BUS Music not found"}
+
+    bm_idx = int(bm_track["mixer"])
+    comp_slots = _slots_for_plugin(bm_track, "gl.comp")
+    if not comp_slots:
+        mcp.call("add_plugin", {"mixer": bm_idx, "plugin": "gl.comp"})
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        targets = _find_mixer_targets(tracks)
+        bm_track = targets["bus_music"]
+        comp_slots = _slots_for_plugin(bm_track, "gl.comp")
+
+    if not comp_slots:
+        return {"applied": False, "code": "RELAX_BUS_COMPRESSION", "reason": "gl.comp missing"}
+
+    # Prefer glue compressor (Detector input == 0) over sidechain ducking slot
+    glue_slot = comp_slots[0]
+    glue_pars: dict[str, float] = {}
+    for sl in comp_slots:
+        pars = _param_lookup(mcp, bm_idx, sl)
+        if int(round(pars.get("Detector input", 0))) == 0:
+            glue_slot = sl
+            glue_pars = pars
+            break
+    if not glue_pars:
+        glue_pars = _param_lookup(mcp, bm_idx, glue_slot)
+
+    cur_thresh = float(glue_pars.get("Threshold", -13.5))
+    new_thresh = round(clamp(cur_thresh + 2.5, -40.0, 0.0), 2)
+    p_changes: list[tuple[str, Any]] = [(f"mixer/{bm_idx}/slot/{glue_slot}/Threshold", new_thresh)]
+
+    old_gain: float | None = None
+    new_gain: float | None = None
+    if master_track is not None:
+        lim_slots = _slots_for_plugin(master_track, "gl.limiter")
+        if lim_slots:
+            lim_slot = lim_slots[-1]
+            cur_lim = _param_lookup(mcp, 0, lim_slot)
+            old_gain = float(cur_lim.get("Gain", 0.0))
+            new_gain = round(clamp(old_gain - 1.5, -36.0, 24.0), 2)
+            p_changes.append((f"mixer/0/slot/{lim_slot}/Gain", new_gain))
+
+    mcp.set_params(p_changes)
+    return {
+        "applied": True,
+        "code": "RELAX_BUS_COMPRESSION",
+        "rule": "relax_bus_compression",
+        "bus_music": bm_idx,
+        "comp_slot": glue_slot,
+        "old_threshold_db": cur_thresh,
+        "new_threshold_db": new_thresh,
+        "old_master_gain_db": old_gain,
+        "new_master_gain_db": new_gain,
+    }
+
+
+def _boost_bass_harmonics_mcp(
+    mcp: GridlineMCP,
+    tracks: list[dict[str, Any]],
+    f0_hz: float,
+) -> dict[str, Any]:
+    targets = _find_mixer_targets(tracks)
+    bb_track = targets["bus_bass"]
+    if bb_track is None:
+        bb_track = next(
+            (
+                t for t in tracks
+                if int(t["mixer"]) != 0 and any(k in (t.get("name") or "").lower() for k in ("808", "bass", "sub"))
+            ),
+            None,
+        )
+    if bb_track is None:
+        return {"applied": False, "code": "BOOST_BASS_HARMONICS", "reason": "BUS Bass / bass insert not found"}
+
+    bb_idx = int(bb_track["mixer"])
+    dist_slots = _slots_for_plugin(bb_track, "gl.dist")
+    if not dist_slots:
+        mcp.call("add_plugin", {"mixer": bb_idx, "plugin": "gl.dist"})
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        bb_track = next((t for t in tracks if int(t["mixer"]) == bb_idx), bb_track)
+        dist_slots = _slots_for_plugin(bb_track, "gl.dist")
+
+    dist_slot = dist_slots[-1]
+    cur_dist = _param_lookup(mcp, bb_idx, dist_slot)
+    cur_mix = float(cur_dist.get("Mix", 0.0))
+    eff_mix = 0.24 if (dist_slots and 0.10 <= cur_mix <= 0.20) else 0.14
+
+    # Ensure an EQ slot sits AFTER gl.dist so boost applies cleanly to the saturated signal
+    eq_slots = [s for s in _slots_for_plugin(bb_track, "gl.eq") if s > dist_slot]
+    if not eq_slots:
+        mcp.call("add_plugin", {"mixer": bb_idx, "plugin": "gl.eq"})
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        bb_track = next((t for t in tracks if int(t["mixer"]) == bb_idx), bb_track)
+        eq_slots = [s for s in _slots_for_plugin(bb_track, "gl.eq") if s > dist_slot] or _slots_for_plugin(bb_track, "gl.eq")
+    eq_slot = eq_slots[-1]
+
+    boost_freq = float(round(clamp(2.5 * float(f0_hz), 70.0, 220.0)))
+    p_changes: list[tuple[str, Any]] = []
+    p_changes.extend(
+        to_mixer_params(
+            bb_idx,
+            dist_slot,
+            {
+                "Mode": 0,
+                "Mix": eff_mix,
+                "Tone": 1200.0,
+                "Remove DC": 1,
+                "Drive": 36.0,
+                "Color": 0.7,
+                "Output": 6.0,
+                "Oversampling": 2,
+            },
+        )
+    )
+    p_changes.extend(eq_params(bb_idx, [eq_band(2, "peak", boost_freq, 2.5, q=1.5)], slot=eq_slot, quality=0))
+    mcp.set_params(p_changes)
+    return {
+        "applied": True,
+        "code": "BOOST_BASS_HARMONICS",
+        "rule": "boost_bass_harmonics",
+        "mixer": bb_idx,
+        "dist_slot": dist_slot,
+        "eq_slot": eq_slot,
+        "mix": eff_mix,
+        "f0_hz": round(float(f0_hz), 2),
+        "boost_freq_hz": boost_freq,
+        "gain_db": 2.5,
+        "q": 1.5,
+    }
+
+
+def apply_dynamic_mirror_eq(project_path: str, freq_hz: float, *, gain_db: float = -3.5, q: float = 1.8) -> dict[str, Any]:
+    abs_proj = os.path.abspath(project_path)
+    mcp = GridlineMCP(abs_proj, os.path.dirname(abs_proj))
+    try:
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        res = _apply_mirror_eq_mcp(mcp, tracks, freq_hz, gain_db=gain_db, q=q)
+        if res.get("applied"):
+            mcp.call("save_project", {})
+        return res
+    finally:
+        mcp.close()
+
+
+def relax_bus_compression(project_path: str) -> dict[str, Any]:
+    abs_proj = os.path.abspath(project_path)
+    mcp = GridlineMCP(abs_proj, os.path.dirname(abs_proj))
+    try:
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        res = _relax_bus_compression_mcp(mcp, tracks)
+        if res.get("applied"):
+            mcp.call("save_project", {})
+        return res
+    finally:
+        mcp.close()
+
+
+def boost_bass_harmonics(project_path: str, f0_hz: float) -> dict[str, Any]:
+    abs_proj = os.path.abspath(project_path)
+    mcp = GridlineMCP(abs_proj, os.path.dirname(abs_proj))
+    try:
+        tracks = mcp.call("get_mixer", {}).get("tracks", [])
+        res = _boost_bass_harmonics_mcp(mcp, tracks, f0_hz)
+        if res.get("applied"):
+            mcp.call("save_project", {})
+        return res
+    finally:
+        mcp.close()
 
 
 def main() -> None:
@@ -722,6 +1058,8 @@ def main() -> None:
     ap.add_argument("--auto-fix", action="store_true", help="Enable closed-loop deterministic mix auto-fix via GridlineMCP + gl_dsl")
     ap.add_argument("--max-passes", type=int, default=2, help="Maximum deterministic auto-fix passes (default 2)")
     ap.add_argument("--contract", default="", help="Optional path to multi_scale_contract.json (auto-detected next to project)")
+    ap.add_argument("--approve-taste", action="store_true", help="Mark validated mix as user-approved in episodic taste memory (weight 2.0)")
+    ap.add_argument("--taste-memory", default="", help="Optional path override for user_taste_profile.json")
     args = ap.parse_args()
 
     has_drums_override: bool | None = False if args.no_drums else None
@@ -741,6 +1079,9 @@ def main() -> None:
         render_mp3=args.mp3 and not args.auto_fix,
         use_neural=not args.no_neural,
         contract_path=args.contract,
+        approve_taste=args.approve_taste,
+        taste_memory_path=args.taste_memory,
+        record_taste=not args.auto_fix,
     )
 
     if args.auto_fix:
@@ -787,6 +1128,9 @@ def main() -> None:
                 render_mp3=args.mp3 and (pass_idx == max_p),
                 use_neural=not args.no_neural,
                 contract_path=args.contract,
+                approve_taste=args.approve_taste,
+                taste_memory_path=args.taste_memory,
+                record_taste=False,
             )
             history_passes.append(
                 {
@@ -834,6 +1178,21 @@ def main() -> None:
             "history_path": history_path,
             "mutations": [m for p in history_passes for m in p.get("mutations_applied", [])],
         }
+        proj_dir = os.path.dirname(os.path.abspath(os.path.expanduser(args.project)))
+        if (
+            summary["quality_gate"]["passed"]
+            and not args.range
+            and summary.get("master_fingerprint_path")
+            and _should_record_taste(proj_dir, args.taste_memory, args.approve_taste)
+        ):
+            summary["taste_memory"] = record_validated_taste(
+                project_dir=proj_dir,
+                blueprint_path=args.blueprint or "",
+                fingerprint_path=str(summary["master_fingerprint_path"]),
+                approved_by_user=bool(args.approve_taste),
+                taste_path=args.taste_memory or None,
+                extra_metrics={"lra_lu": summary.get("lra_lu")},
+            )
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 

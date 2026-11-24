@@ -12,7 +12,9 @@ Eliminates ~80% of boilerplate in per-song `build_song.py`:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import math
 import os
 import shutil
 import sys
@@ -53,6 +55,7 @@ from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     ms_to_beats,
 )
 from musicality_metrics import optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
+from phrasing_engine import apply_instrumental_prosody  # noqa: F401 (re-exported for song scripts)
 from studio_lib import (
     TEMPLATE_EMPTY_MIXER,
     GridlineMCP,
@@ -68,6 +71,7 @@ from transitions_lib import (  # noqa: F401 (re-exported for song scripts)
 )
 
 SCHEMA_PATH = os.path.join(ROOT, "schemas", "song_blueprint.schema.json")
+ARRANGEMENT_PLAN_SCHEMA_PATH = os.path.join(ROOT, "schemas", "arrangement_plan.schema.json")
 
 SCALES: dict[str, list[int]] = {
     "ionian": [0, 2, 4, 5, 7, 9, 11],
@@ -786,3 +790,626 @@ def run_song_cli(
         fx_room_vol=fx_room_vol,
     )
     print(f"Built {out_gridline} ({meta['total_bars']} bars @ {meta['bpm']} BPM, {meta['key']})")
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 P1 — Declarative Arrangement Plan Compiler (`arrangement_plan.json`)
+# ---------------------------------------------------------------------------
+
+def load_arrangement_plan(
+    plan_path: str | dict[str, Any],
+    validate: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load and validate `<project>/arrangement_plan.json` against `schemas/arrangement_plan.schema.json`."""
+    if isinstance(plan_path, dict):
+        plan = copy.deepcopy(plan_path)
+    else:
+        with open(os.path.abspath(os.path.expanduser(plan_path)), encoding="utf-8") as fh:
+            plan = json.load(fh)
+    if validate and os.path.isfile(ARRANGEMENT_PLAN_SCHEMA_PATH):
+        with open(ARRANGEMENT_PLAN_SCHEMA_PATH, encoding="utf-8") as sfh:
+            schema = json.load(sfh)
+        jsonschema.validate(plan, schema)
+
+    pmeta = plan["meta"]
+    ts = pmeta["time_signature"]
+    profile = str(pmeta.get("mix_profile", "trap_rap"))
+    total_bars = sum(int(s["bars"]) for s in plan["sections"])
+    meta = {
+        "bpm": float(pmeta["bpm"]),
+        "beats_per_bar": int(ts["numerator"]),
+        "denominator": int(ts["denominator"]),
+        "key": f"{pmeta['key']} {pmeta.get('mode', '')}".strip(),
+        "tonic": str(pmeta["key"]),
+        "mode": str(pmeta.get("mode", "minor")),
+        "mix_profile": profile,
+        "has_drums": bool(pmeta.get("has_drums", profile != "classical_ambient")),
+        "phrase_plan": str(pmeta.get("phrase_plan", "A-A'-A''-B")),
+        "valence": float(pmeta.get("valence", 0.0)),
+        "tension": float(pmeta.get("tension", 0.4)),
+        "energy": float(pmeta.get("energy", 0.7)),
+        "depth": float(pmeta.get("depth", 0.5)),
+        "total_bars": total_bars,
+    }
+    return plan, meta
+
+
+def _extract_motif_entry(
+    motifs: dict[str, Any],
+    role: str,
+    motif_name: str | None = None,
+) -> tuple[list[dict[str, Any]], int | None, bool | None]:
+    raw: Any = None
+    if motif_name:
+        if motif_name in motifs:
+            raw = motifs[motif_name]
+        elif isinstance(motifs.get(role), dict) and motif_name in motifs[role]:
+            raw = motifs[role][motif_name]
+    if raw is None:
+        raw = motifs.get(role)
+    if raw is None:
+        # Search for motif objects declaring `"role": role`
+        for v in motifs.values():
+            if isinstance(v, dict) and str(v.get("role") or "").lower() == role.lower():
+                raw = v
+                break
+    if raw is None:
+        return [], None, None
+
+    if isinstance(raw, list):
+        return [copy.copy(n) for n in raw], None, None
+    if isinstance(raw, dict):
+        if "notes" in raw and isinstance(raw["notes"], list):
+            bars = int(raw["bars"]) if raw.get("bars") is not None else None
+            loop_flag = bool(raw["loop"]) if "loop" in raw else None
+            return [copy.copy(n) for n in raw["notes"]], bars, loop_flag
+        # Sub-motif dictionary: pick "default" or first entry
+        sub = raw.get("default") if "default" in raw else next(iter(raw.values()), None)
+        if isinstance(sub, list):
+            return [copy.copy(n) for n in sub], None, None
+        if isinstance(sub, dict) and "notes" in sub:
+            bars = int(sub["bars"]) if sub.get("bars") is not None else None
+            loop_flag = bool(sub["loop"]) if "loop" in sub else None
+            return [copy.copy(n) for n in sub["notes"]], bars, loop_flag
+    return [], None, None
+
+
+def _tile_and_modify_section_notes(
+    base_notes: list[dict[str, Any]],
+    *,
+    role: str,
+    mod: dict[str, Any],
+    sec_bars: int,
+    bpb: float,
+    motif_bars: int | None,
+    loop_flag: bool | None,
+) -> list[dict[str, Any]]:
+    if not base_notes:
+        return []
+    sec_beats = float(sec_bars) * bpb
+    norm_notes: list[dict[str, Any]] = []
+    for n in base_notes:
+        ev = {
+            "start": float(n["start"]),
+            "length": float(n.get("length", n.get("duration", 0.25))),
+            "pitch": int(n["pitch"]),
+            "velocity": int(n["velocity"]),
+        }
+        norm_notes.append(ev)
+
+    max_end = max(ev["start"] + ev["length"] for ev in norm_notes)
+    eff_cycle = motif_bars
+    if eff_cycle is None and loop_flag is not False:
+        raw_bars = max(1, int(math.ceil((max_end - 1e-4) / max(1.0, bpb))))
+        for cand in (1, 2, 4, 8, 16, 32):
+            if raw_bars <= cand:
+                eff_cycle = cand
+                break
+        if eff_cycle is None:
+            eff_cycle = raw_bars
+
+    tiled: list[dict[str, Any]] = []
+    should_tile = (
+        eff_cycle is not None
+        and eff_cycle < sec_bars
+        and role.lower() != "fx"
+        and (
+            loop_flag is True
+            or sec_bars >= 2 * eff_cycle
+            or role.lower() in ("kick", "snare", "clap", "hihat", "perc", "bass", "808", "chords", "pad")
+        )
+    )
+    if should_tile and eff_cycle:
+        cycle_beats = float(eff_cycle) * bpb
+        n_reps = int(math.ceil(sec_beats / cycle_beats))
+        for rep in range(n_reps):
+            off = rep * cycle_beats
+            for ev in norm_notes:
+                st = ev["start"] + off
+                if st >= sec_beats - 1e-4:
+                    continue
+                ln = min(ev["length"], max(0.05, sec_beats - st))
+                tiled.append({**ev, "start": round(st, 5), "length": round(ln, 5)})
+    else:
+        for ev in norm_notes:
+            if ev["start"] >= sec_beats - 1e-4:
+                continue
+            ln = min(ev["length"], max(0.05, sec_beats - ev["start"]))
+            tiled.append({**ev, "start": round(ev["start"], 5), "length": round(ln, 5)})
+
+    if not tiled:
+        return []
+
+    oct_shift = int(mod.get("octave_shift", 0) or 0)
+    vel_scale = float(mod.get("velocity_scale", 1.0) or 1.0)
+    dens_scale = float(mod.get("density_scale", 1.0) or 1.0)
+
+    for ev in tiled:
+        if oct_shift != 0:
+            ev["pitch"] = int(max(24, min(108, ev["pitch"] + oct_shift)))
+        if abs(vel_scale - 1.0) > 1e-4:
+            ev["velocity"] = int(max(20, min(127, round(ev["velocity"] * vel_scale))))
+
+    if dens_scale < 0.999 and len(tiled) > 1:
+        keep_n = max(1, int(round(len(tiled) * max(0.25, dens_scale))))
+        scored = sorted(
+            enumerate(tiled),
+            key=lambda it: (
+                1 if abs(it[1]["start"] - round(it[1]["start"])) < 0.08 else 0,
+                it[1]["velocity"],
+                -it[1]["start"],
+            ),
+            reverse=True,
+        )
+        keep_idx = {idx for idx, _ in scored[:keep_n]}
+        tiled = [ev for idx, ev in enumerate(tiled) if idx in keep_idx]
+    elif dens_scale > 1.001 and len(tiled) >= 1:
+        add_n = max(1, int(round(len(tiled) * min(0.5, dens_scale - 1.0))))
+        ranked = sorted(range(len(tiled)), key=lambda i: (tiled[i]["velocity"], -tiled[i]["start"]), reverse=True)
+        extra_notes: list[dict[str, Any]] = []
+        for idx in ranked[:add_n]:
+            base_ev = tiled[idx]
+            step = min(0.25, max(0.125, base_ev["length"] * 0.5))
+            new_st = base_ev["start"] + step
+            if new_st < sec_beats - 0.08:
+                extra_notes.append({
+                    "start": round(new_st, 5),
+                    "length": round(min(step, sec_beats - new_st), 5),
+                    "pitch": base_ev["pitch"],
+                    "velocity": int(max(24, min(127, round(base_ev["velocity"] * 0.82)))),
+                })
+        tiled.extend(extra_notes)
+
+    tiled.sort(key=lambda ev: (ev["start"], ev["pitch"]))
+    return tiled
+
+
+def _default_channels_for_plan(
+    plan: dict[str, Any],
+    roles_ordered: list[str],
+    proj_dir: str,
+    valence: float,
+) -> list[ChannelSpec]:
+    explicit = plan.get("channels")
+    if isinstance(explicit, list) and explicit:
+        out: list[ChannelSpec] = []
+        for i, item in enumerate(explicit, start=1):
+            if isinstance(item, ChannelSpec):
+                out.append(item)
+            elif isinstance(item, dict):
+                kw = dict(item)
+                kw.setdefault("mixer", i)
+                out.append(ChannelSpec(**kw))
+        return out
+
+    bp_tracks: dict[str, dict[str, Any]] = {}
+    bp_path = os.path.join(proj_dir, "song_blueprint.json")
+    if os.path.isfile(bp_path):
+        try:
+            with open(bp_path, encoding="utf-8") as fh:
+                bp_obj = json.load(fh)
+            for tr in bp_obj.get("tracks") or []:
+                rk = str(tr.get("role") or tr.get("name") or "").lower()
+                if rk:
+                    bp_tracks[rk] = tr
+        except Exception:
+            pass
+
+    ch_dict_cfg = explicit if isinstance(explicit, dict) else {}
+    channels: list[ChannelSpec] = []
+    for idx, role in enumerate(roles_ordered, start=1):
+        rl = role.lower()
+        ov = dict(ch_dict_cfg.get(role) or ch_dict_cfg.get(rl) or {})
+        bp_tr = bp_tracks.get(rl) or {}
+
+        if "kick" in rl:
+            spec = ChannelSpec("Kick", role, idx, "drums", plugin="gl.kick", volume=0.76, sidechain_buses=[(18, 0.8), (19, 0.45)])
+        elif "snare" in rl:
+            spec = ChannelSpec("Snare", role, idx, "drums", plugin="gl.snare", volume=0.68, fx_send=0.08)
+        elif "clap" in rl:
+            spec = ChannelSpec("Clap", role, idx, "drums", plugin="gl.clap", volume=0.64, fx_send=0.10)
+        elif "hat" in rl or "perc" in rl:
+            spec = ChannelSpec("HiHat", role, idx, "drums", plugin="gl.hat", volume=0.52, pan=0.22)
+        elif any(k in rl for k in ("bass", "808", "sub")):
+            spec = ChannelSpec("Bass", role, idx, "bass", plugin="gl.warmsynth", role="bass", valence=valence, volume=0.62)
+        elif any(k in rl for k in ("pad", "string")):
+            spec = ChannelSpec("Pad", role, idx, "music", plugin="gl.warmsynth", role="pad", valence=valence, volume=0.46, fx_send=0.18)
+        elif any(k in rl for k in ("chord", "keys")):
+            spec = ChannelSpec("Chords", role, idx, "music", plugin="gl.keys", role="chords", valence=valence, volume=0.50, fx_send=0.14)
+        elif "counter" in rl:
+            spec = ChannelSpec("Counter Harmony", role, idx, "music", plugin="gl.fm", role="bell", valence=valence, volume=0.52, pan=-0.25, fx_send=0.18)
+        elif "fx" in rl:
+            spec = ChannelSpec("FX", role, idx, "music", plugin="gl.fm", role="bell", valence=valence, volume=0.44, pan=0.35, fx_send=0.25, single_shot_clips=True)
+        else:
+            spec = ChannelSpec(role.capitalize(), role, idx, "music", plugin="gl.pluck", role="lead", valence=valence, volume=0.74, fx_send=0.16)
+
+        if bp_tr:
+            if bp_tr.get("source_type") == "sample" and bp_tr.get("sample_path"):
+                spec.plugin = "gl.sampler"
+                spec.sample_file = str(bp_tr["sample_path"])
+            elif bp_tr.get("plugin") and str(bp_tr["plugin"]).startswith("gl."):
+                spec.plugin = str(bp_tr["plugin"])
+            if bp_tr.get("pan") is not None:
+                spec.pan = float(bp_tr["pan"])
+        for k, v in ov.items():
+            if hasattr(spec, k):
+                setattr(spec, k, v)
+        channels.append(spec)
+    return channels
+
+
+def compile_arrangement_plan(
+    plan_path: str | dict[str, Any],
+    proj_dir: str,
+    out_gridline: str,
+    core_only: bool = False,
+    *,
+    channels: list[ChannelSpec] | None = None,
+    apply_prosody: bool = True,
+    apply_vocal_sync: bool = True,
+    verify_gate: bool = True,
+    auto_fix_midi: bool = True,
+    core_bars: int = 8,
+    samples_subdir: str = "samples",
+    limiter_ceiling_db: float = -2.55,
+    limiter_gain_db: float = 12.0,
+    fx_room_vol: float = 0.30,
+) -> dict[str, Any]:
+    """
+    Phase 7 P1 compiler: validate `arrangement_plan.json`, expand motifs & `role_modifiers`,
+    apply `groove_lib`, `phrasing_engine` (P2), `transitions_lib` and `vocal_arrangement_sync` (P6),
+    export `master_sketch.mid`, and compile `.gridline` (or `core_loop.gridline` if `core_only=True`).
+    """
+    abs_proj = os.path.abspath(os.path.expanduser(proj_dir))
+    os.makedirs(abs_proj, exist_ok=True)
+    plan, meta = load_arrangement_plan(plan_path, validate=True)
+
+    bpm = float(meta["bpm"])
+    bpb = int(meta["beats_per_bar"])
+    denom = int(meta["denominator"])
+    valence = float(meta["valence"])
+    motifs = plan["motifs"]
+
+    roles_ordered: list[str] = []
+    for sec in plan["sections"]:
+        for r in sec.get("active_roles") or []:
+            if r not in roles_ordered:
+                roles_ordered.append(r)
+    for r in motifs.keys():
+        if r not in roles_ordered and isinstance(motifs[r], list):
+            roles_ordered.append(r)
+
+    eff_channels = list(channels) if channels is not None else _default_channels_for_plan(plan, roles_ordered, abs_proj, valence)
+    role_to_ch = {ch.track_key: ch for ch in eff_channels}
+
+    tracks: dict[str, list[dict[str, Any]]] = {ch.track_key: [] for ch in eff_channels}
+    sections_tuples: list[tuple[str, int, int, str]] = []
+    markers: list[dict[str, Any]] = []
+    autos: list[dict[str, Any]] = []
+    auto_track_cursor = max(len(eff_channels) + 1, 9)
+
+    role_cutoffs: dict[str, list[tuple[float, float, float]]] = {}
+    role_gains: dict[str, list[tuple[float, float, float]]] = {}
+
+    for sec in plan["sections"]:
+        sec_name = str(sec["name"])
+        sec_kind = str(sec["kind"])
+        s_bar = int(sec["start_bar"])  # 0-indexed
+        n_bars = int(sec["bars"])
+        sections_tuples.append((sec_name, s_bar, n_bars, sec_kind))
+        markers.append({"name": sec_name, "position": float(s_bar * bpb)})
+
+        sec_start_beat = float(s_bar * bpb)
+        sec_end_beat = float((s_bar + n_bars) * bpb)
+        mods = sec.get("role_modifiers") or {}
+
+        for role in sec.get("active_roles") or []:
+            mod = dict(mods.get(role) or {})
+            base_notes, m_bars, loop_flag = _extract_motif_entry(motifs, role, mod.get("motif"))
+            sec_notes = _tile_and_modify_section_notes(
+                base_notes,
+                role=role,
+                mod=mod,
+                sec_bars=n_bars,
+                bpb=float(bpb),
+                motif_bars=m_bars,
+                loop_flag=loop_flag,
+            )
+            for ev in sec_notes:
+                ev["start"] = round(float(ev["start"]) + sec_start_beat, 5)
+            tracks.setdefault(role, []).extend(sec_notes)
+
+            if mod.get("cutoff_hz") is not None:
+                role_cutoffs.setdefault(role, []).append((sec_start_beat, sec_end_beat, float(mod["cutoff_hz"])))
+            if mod.get("gain_db") is not None:
+                role_gains.setdefault(role, []).append((sec_start_beat, sec_end_beat, float(mod["gain_db"])))
+
+    # Expressive groove humanization
+    for r_key, r_notes in list(tracks.items()):
+        rl = r_key.lower()
+        if any(k in rl for k in ("bass", "808", "sub")):
+            tracks[r_key] = enforce_frequency_inertia(r_notes, bpm=bpm)
+        elif any(k in rl for k in ("chord", "pad", "keys")):
+            tracks[r_key] = apply_micro_strum(r_notes, strum_ms=15.0, bpm=bpm)
+        elif any(k in rl for k in ("hat", "perc")):
+            tracks[r_key] = apply_anti_machine_gun(r_notes, beats_per_bar=float(bpb))
+    tracks = apply_haas_pocket(tracks, bpm=bpm, profile=meta["mix_profile"])
+
+    # Phase 7 P2 — Instrumental prosody (phrase velocity arc, LPF breathing, cadential ornaments, section pocket)
+    if apply_prosody:
+        try:
+            from phrasing_engine import apply_instrumental_prosody
+
+            hc = plan.get("harmonic_core") or {"key": meta["tonic"], "mode": meta["mode"]}
+            ev_vec = {
+                "valence": meta["valence"],
+                "tension": meta["tension"],
+                "energy": meta["energy"],
+                "depth": meta["depth"],
+            }
+            ch_mixer_map = {ch.track_key: ch.mixer for ch in eff_channels}
+            tracks, prosody_autos = apply_instrumental_prosody(
+                tracks,
+                sections_tuples,
+                hc,
+                ev_vec,
+                bpm=bpm,
+                time_signature=(bpb, denom),
+                track_idx_start=auto_track_cursor,
+                channel_mixer_map=ch_mixer_map,
+            )
+            for pa in prosody_autos:
+                autos.append(pa)
+                auto_track_cursor = max(auto_track_cursor, int(pa.get("track", auto_track_cursor)) + 1)
+        except ImportError:
+            pass
+
+    # Insert EQ params for kick / chords / section cutoffs (+ vocal formant ducking Band 5 if vocal present)
+    insert_eq_params: list[tuple[str, Any]] = []
+    insert_eq_mixers: list[int] = []
+
+    # Phase 7 P6 — Vocal-arrangement sync if vocals asset exists in project
+    if apply_vocal_sync:
+        ustx_cands = [os.path.join(abs_proj, fn) for fn in sorted(os.listdir(abs_proj)) if fn.endswith(".ustx")] if os.path.isdir(abs_proj) else []
+        vox_wav = os.path.join(abs_proj, samples_subdir, "vocals.wav")
+        if ustx_cands or os.path.isfile(vox_wav):
+            try:
+                from vocal_arrangement_sync import (
+                    build_formant_ducking_automation,
+                    extract_vocal_phrases,
+                    formant_ducking_eq_params,
+                    mute_counter_during_vocals,
+                )
+
+                phrases = extract_vocal_phrases(
+                    ustx_path=ustx_cands[0] if ustx_cands else "",
+                    audio_path=vox_wav if os.path.isfile(vox_wav) else "",
+                    bpm=bpm,
+                )
+                if phrases:
+                    tracks = mute_counter_during_vocals(tracks, phrases)
+                    insert_eq_params.extend(formant_ducking_eq_params(mixer_idx=19, slot_idx=2, band_idx=5, freq_hz=1850.0, q=1.4))
+                    f_auto = build_formant_ducking_automation(
+                        phrases,
+                        bpm=bpm,
+                        track_idx=min(31, auto_track_cursor),
+                    )
+                    autos.append(f_auto)
+                    auto_track_cursor = min(31, auto_track_cursor + 1)
+            except ImportError:
+                pass
+
+    for ch in eff_channels:
+        rl = ch.track_key.lower()
+        if "kick" in rl:
+            insert_eq_params.extend(eq_kick_clean(ch.mixer))
+            insert_eq_mixers.append(ch.mixer)
+        elif any(k in rl for k in ("chord", "pad")):
+            insert_eq_params.extend(eq_music_pocket(ch.mixer))
+            insert_eq_mixers.append(ch.mixer)
+
+    # Role modifiers: cutoff_hz & gain_db automations
+    for role, spans in role_cutoffs.items():
+        ch = role_to_ch.get(role)
+        if ch is None:
+            continue
+        if ch.mixer not in insert_eq_mixers:
+            insert_eq_mixers.append(ch.mixer)
+            insert_eq_params.extend(eq_params(ch.mixer, [_dsl_eq_band(7, "lpf", spans[0][2])], slot=1, quality=0))
+        t_lane = min(31, auto_track_cursor)
+        auto_track_cursor = min(31, auto_track_cursor + 1)
+        for s_b, e_b, cut_hz in spans:
+            filter_sweep(
+                autos,
+                mixer_idx=ch.mixer,
+                slot_idx=1,
+                start_beat=s_b,
+                end_beat=e_b,
+                start_hz=cut_hz,
+                end_hz=cut_hz,
+                curve="linear",
+                track_idx=t_lane,
+                steps=2,
+                name=f"{ch.name} LPF",
+            )
+
+    for role, spans in role_gains.items():
+        ch = role_to_ch.get(role)
+        if ch is None:
+            continue
+        t_lane = min(31, auto_track_cursor)
+        auto_track_cursor = min(31, auto_track_cursor + 1)
+        pts: list[dict[str, Any]] = []
+        tot_beats = float(meta["total_bars"] * bpb)
+        for s_b, e_b, gdb in spans:
+            val = db_to_auto(gdb)
+            pts.append({"position": round(s_b, 4), "value": val, "shape": "hold"})
+            pts.append({"position": round(max(s_b + 0.1, e_b - 0.05), 4), "value": val, "shape": "hold"})
+        if pts:
+            autos.append({
+                "name": f"{ch.name} Gain",
+                "mixer": int(ch.mixer),
+                "param": "volume",
+                "track": t_lane,
+                "start": 0.0,
+                "length": round(tot_beats, 4),
+                "points": sorted(pts, key=lambda p: p["position"]),
+            })
+
+    # Macro section_gain_arc + section transitions (beat4_dropout, filter_sweep, outro_fade)
+    if len(sections_tuples) >= 2:
+        arc_plan = [(nm, sb + 1, sb + nb, knd) for nm, sb, nb, knd in sections_tuples]
+        section_gain_arc(autos, bus_mixer_idx=19, sections_plan=arc_plan, beats_per_bar=float(bpb), track_idx=min(31, auto_track_cursor))
+        auto_track_cursor = min(31, auto_track_cursor + 1)
+
+    for sec in plan["sections"]:
+        tr_cfg = sec.get("transitions") or {}
+        s_bar = int(sec["start_bar"])
+        n_bars = int(sec["bars"])
+        for rel_b in tr_cfg.get("beat4_dropout_bars") or []:
+            rb = int(rel_b)
+            if rb < 0:
+                rb = n_bars + rb
+            if 0 <= rb < n_bars:
+                beat4_dropout(
+                    tracks,
+                    autos,
+                    bar_idx=s_bar + rb,
+                    beats_per_bar=bpb,
+                    fx_room_mixer=20,
+                    track_idx=min(31, auto_track_cursor),
+                )
+                auto_track_cursor = min(31, auto_track_cursor + 1)
+
+        fsw = tr_cfg.get("filter_sweep")
+        if isinstance(fsw, dict):
+            sw_role = str(fsw.get("role") or "chords")
+            ch = role_to_ch.get(sw_role)
+            target_mx = ch.mixer if ch is not None else 19
+            target_slot = 1 if ch is not None else 2
+            if ch is not None and ch.mixer not in insert_eq_mixers:
+                insert_eq_mixers.append(ch.mixer)
+                insert_eq_params.extend(eq_params(ch.mixer, [_dsl_eq_band(7, "lpf", float(fsw["start_hz"]))], slot=1, quality=0))
+            sw_s = float(s_bar * bpb)
+            sw_e = min(float((s_bar + n_bars) * bpb), sw_s + float(fsw["bars"]) * float(bpb))
+            filter_sweep(
+                autos,
+                mixer_idx=target_mx,
+                slot_idx=target_slot,
+                start_beat=sw_s,
+                end_beat=sw_e,
+                start_hz=float(fsw["start_hz"]),
+                end_hz=float(fsw["end_hz"]),
+                curve=str(fsw.get("curve") or "exp"),  # type: ignore[arg-type]
+                track_idx=min(31, auto_track_cursor),
+            )
+            auto_track_cursor = min(31, auto_track_cursor + 1)
+
+        fade_bars = int(tr_cfg.get("outro_fade_bars") or 0)
+        if fade_bars > 0:
+            f_end = float((s_bar + n_bars) * bpb)
+            f_start = max(float(s_bar * bpb), f_end - float(fade_bars * bpb))
+            outro_fade(autos, master_or_bus_idx=0, start_beat=f_start, end_beat=f_end, track_idx=min(31, auto_track_cursor))
+            auto_track_cursor = min(31, auto_track_cursor + 1)
+
+    # Export master_sketch.mid and verify MIDI gate
+    bass_keys = [r for r in roles_ordered if any(k in r.lower() for k in ("bass", "808", "sub"))]
+    chords_key = next((r for r in roles_ordered if any(k in r.lower() for k in ("chord", "pad"))), "chords")
+    lead_key = next((r for r in roles_ordered if any(k in r.lower() for k in ("lead", "melody"))), "lead")
+    sketch_path = os.path.join(abs_proj, "master_sketch.mid")
+    export_master_sketch(
+        tracks,
+        sketch_path,
+        bpm,
+        bass_keys=bass_keys,
+        chords_key=chords_key,
+        lead_key=lead_key,
+        numerator=bpb,
+        denominator=denom,
+    )
+
+    gate_res: dict[str, Any] | None = None
+    if verify_gate and any(tracks.get(k) for k in [*bass_keys, chords_key, lead_key]):
+        max_pitch = 72 if valence < -0.3 else 76
+        gate_res = verify_midi_gate(
+            sketch_path,
+            expected_key=meta["key"],
+            max_pitch=max_pitch,
+            valence=valence,
+            tension=float(meta["tension"]),
+            time_signature=(bpb, denom),
+            phrase_plan=meta["phrase_plan"],
+            auto_fix=auto_fix_midi,
+        )
+
+    abs_out = os.path.abspath(os.path.expanduser(out_gridline))
+    if core_only:
+        core_info = build_core_loop_project(
+            proj_path=abs_out,
+            export_dir=os.path.join(abs_proj, "exports"),
+            samples_dir=os.path.join(abs_proj, samples_subdir),
+            meta=meta,
+            sections=sections_tuples,
+            channels=eff_channels,
+            tracks=tracks,
+            max_bars=max(4, min(8, int(core_bars))),
+            insert_eq_params=insert_eq_params or None,
+            insert_eq_mixers=insert_eq_mixers or None,
+            limiter_ceiling_db=limiter_ceiling_db,
+            limiter_gain_db=limiter_gain_db,
+            fx_room_vol=fx_room_vol,
+            min_pattern_lufs=-38.0,
+        )
+        return {
+            "gridline_path": abs_out,
+            "core_only": True,
+            "core_info": core_info,
+            "meta": meta,
+            "sections": sections_tuples,
+            "midi_gate": gate_res,
+        }
+
+    build_gridline_project(
+        proj_path=abs_out,
+        export_dir=os.path.join(abs_proj, "exports"),
+        samples_dir=os.path.join(abs_proj, samples_subdir),
+        meta=meta,
+        sections=sections_tuples,
+        channels=eff_channels,
+        tracks=tracks,
+        markers=markers,
+        insert_eq_params=insert_eq_params or None,
+        insert_eq_mixers=insert_eq_mixers or None,
+        automations=autos,
+        limiter_ceiling_db=limiter_ceiling_db,
+        limiter_gain_db=limiter_gain_db,
+        fx_room_vol=fx_room_vol,
+        min_pattern_lufs=-38.0,
+    )
+    return {
+        "gridline_path": abs_out,
+        "core_only": False,
+        "meta": meta,
+        "sections": sections_tuples,
+        "midi_gate": gate_res,
+    }

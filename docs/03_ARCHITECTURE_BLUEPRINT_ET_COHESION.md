@@ -160,3 +160,17 @@ if __name__ == "__main__":
    - **Arc Dramatique 5D** `(LUFS, Centroïde, Densité d'onsets, Largeur M/S, Flux cognitifs)` : valide l'évolution de genres sans batterie (`has_drums=false` / `classical_ambient`).
    - **Plafond Cognitif sur stems (`> -28 dBFS` RMS/mesure)** : vérifie le respect des quotas d'arrangement par section (`PRUNE_TRACK_IN_SECTION` si dépassement sur `> 2` mesures consécutives).
 4. **Catalogue & EP (`scripts/catalog_coherence.py`)** : sur chaque `É4 PASS`, `render_and_audit.py` exporte `<projet>/renders/master_fingerprint.json` ($\approx 1\text{ Ko}$), audité ensuite en lot par mode `ep|album|dj_set` (homogénéité LUFS `<= 1.5 dB`, pente rose `<= 1.2 dB/oct`, diversité BPM/clé/progression, ordre optimal Camelot).
+
+---
+
+## Phase 7 — Plan Déclaratif, Prosodie (`P2`), Synchro Vocale (`P6`) & Checkpoint É2 (`P5`)
+
+1. **Plan d'Arrangement Déclaratif (`schemas/arrangement_plan.schema.json` + `compile_arrangement_plan`)** :
+   - L'agent génère `arrangement_plan.json` (sections, `active_roles`, `role_modifiers`, `transitions`, `motifs`), validé puis compilé de manière déterministe par `song_builder.compile_arrangement_plan()`.
+   - Permet à `multiscale_autofix.py` (`PRUNE_TRACK_IN_SECTION`, `REINFORCE_SECTION_TRANSITION`, `MUTATE_BLOCK_DENSITY_OR_LPF`) de muter localement le plan JSON et de recompiler sans régénération LLM.
+2. **Prosodie Instrumentale (`scripts/phrasing_engine.py`)** :
+   - `apply_instrumental_prosody()` façonne chaque cycle de 4 mesures (arc de vélocités crescendo→décroissance + courbe d'automation LPF coordonnée), ajoute les notes de passage basse en mesure `4/8` et appoggiatures cadentielles sur le `Lead` (sécurisées par `detect_minor_2nd_clashes`), et décale le micro-pocket de section (`+3.5 ms` couplets / `-2.0 ms` refrains).
+3. **Synchronisation Vocale (`scripts/vocal_arrangement_sync.py`)** :
+   - En présence d'un fichier `.ustx` ou `samples/vocals.wav`, `extract_vocal_phrases()` isole les phrases chantées, `mute_counter_during_vocals()` restreint les contre-chants aux fenêtres respiratoires `>= 0.5 beat`, et `build_formant_ducking_automation()` automatise un creux `1.85 kHz` (`Band 5 gain` `0 -> -3.5 dB`) sur `BUS Music`.
+4. **Checkpoint Humain 15 s (`--checkpoint-e2` / `--resume-from-checkpoint`)** :
+   - Exporte `renders/e2_checkpoint_15s.wav` normalisé à `-14 LUFS`, met `pipeline_state.json` en `AWAITING_E2_CHECKPOINT` avec fiche 5 lignes (`<= 300` tokens), puis reprend en `É3/É4` sans recalculer `É1/É2` via le cache SHA-256.

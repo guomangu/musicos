@@ -255,6 +255,14 @@ def db_to_auto(db: float, ref_fader: float = 1.0) -> float:
     return mixer_gain_to_auto(fader)
 
 
+def eq_gain_to_auto(gain_db: float) -> float:
+    """
+    Convert a `gl.eq` Band gain in dB (`[-18.0, +18.0]`) into normalized `[0.0, 1.0]`
+    for Gridline `add_automation` (`0.0 dB` -> `0.5`).
+    """
+    return round(clamp((float(gain_db) + 18.0) / 36.0, 0.0, 1.0), 5)
+
+
 # ---------------------------------------------------------------------------
 # Typed Registry of Safe Native Gridline Synths (`synth_voice`)
 # ---------------------------------------------------------------------------
