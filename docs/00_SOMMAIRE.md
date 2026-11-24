@@ -105,6 +105,7 @@ Lire **just-in-time** uniquement la facette correspondant à l'étape courante :
 
 | # | Script | Fonctions clés | Rôle |
 | :--- | :--- | :--- | :--- |
+| **v3.x** | `scripts/full_coverage_validator.py` | `validate_full_score_ir`, `build_probe_plan`, `run_full_coverage_check` | v3.2 pré-vol symbolique 100 % du morceau (clones 8 mesures, charge cognitive 1-8/mesure, arc d'énergie, outro) + sonde stems 12 mesures (8 noyau + 1 silence + 4 hors-noyau). |
 | **v3.x** | `scripts/asset_hygiene.py` | `asset_hygiene` | Hygiène banques : whitelist extensions audio, magic bytes, parasites OS (`__MACOSX`, `.DS_Store`, `.wav.zpa`, `.fst`), fichiers < 1 Ko. Pas de détection de licence (responsabilité utilisateur). |
 | **v3.x** | `scripts/autofix_transaction.py` | `autofix_transaction` | Autofix transactionnel 3 paliers : rollback immédiat si invariant Palier 1 régresse, blacklist anti-oscillation, journal `renders/autofix_history.json`. |
 | **v3.x** | `scripts/blueprint_safety.py` | `blueprint_safety` | Audit musical projet-wide du blueprint : verrou octave exact `root_note == midi_root`, plafonds `S_max`, key-fit/BPM boucles, confinement cloches {1,5,8} ; bloque le rendu en `severity=error`. |

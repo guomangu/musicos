@@ -48,7 +48,8 @@ CANONICAL_MIDI_PIPELINE = [
 ]
 
 
-def compile_song(project_dir: str, core_only: bool = False, out_gridline: str = "") -> dict:
+def compile_song(project_dir: str, core_only: bool = False, out_gridline: str = "",
+                 probe: bool = False, validate_full: bool = True) -> dict:
     """Compile `<project_dir>` déclarativement. Retourne un rapport JSON compact."""
     proj = os.path.abspath(os.path.expanduser(project_dir))
     bp_path = os.path.join(proj, "song_blueprint.json")
@@ -66,11 +67,32 @@ def compile_song(project_dir: str, core_only: bool = False, out_gridline: str = 
 
     plan_path = os.path.join(proj, "arrangement_plan.json")
     if os.path.isfile(plan_path):
-        from song_builder import compile_arrangement_plan
+        from song_builder import compile_arrangement_plan, load_arrangement_plan
+        if probe:
+            # v3.2 #3 — sonde composite 12 mesures (8 noyau + 1 silence + 4 hors-noyau)
+            # en UN seul .gridline, pour auditer 100 % des pistes en stems dès le Tour 2.
+            from full_coverage_validator import build_probe_plan
+            plan_obj, _meta = load_arrangement_plan(plan_path, validate=False)
+            probe_plan = build_probe_plan(plan_obj)
+            out = out_gridline or os.path.join(proj, "core_probe.gridline")
+            info = compile_arrangement_plan(probe_plan, proj, out, core_only=False, verify_gate=False, auto_fix_midi=True)
+            report.update({"ok": True, "stage": "compile_probe", "out": out,
+                           "probe": probe_plan.get("probe"),
+                           "info_keys": sorted(info.keys()) if isinstance(info, dict) else str(info)})
+            return report
         out = out_gridline or os.path.join(proj, "core_loop.gridline" if core_only else "projet.gridline")
         info = compile_arrangement_plan(plan_path, proj, out, core_only=core_only, verify_gate=True, auto_fix_midi=True)
         report.update({"ok": True, "stage": "compile_arrangement_plan", "out": out,
                        "core_only": core_only, "info_keys": sorted(info.keys()) if isinstance(info, dict) else str(info)})
+        # v3.2 #3 — pré-vol symbolique 100 % du morceau sur le ScoreIR compilé (0 rendu audio)
+        if validate_full:
+            try:
+                from full_coverage_validator import run_full_coverage_check
+                fc = run_full_coverage_check(proj)
+                report["full_coverage"] = {k: fc.get(k) for k in ("passed", "n_issues", "issues", "metrics", "probe_plan")
+                                           if k in fc} if fc.get("ok", True) else fc
+            except Exception as exc:
+                report["full_coverage"] = {"error": str(exc)[:160]}
         return report
 
     build_song = os.path.join(proj, "build_song.py")
@@ -91,9 +113,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="v3.0 compilateur déclaratif (blueprint + arrangement_plan -> .gridline)")
     ap.add_argument("project_dir")
     ap.add_argument("--core-only", action="store_true", help="Compile seulement la boucle noyau 8 mesures (core_loop.gridline)")
+    ap.add_argument("--probe", action="store_true", help="v3.2 : compile la sonde composite 12 mesures (core_probe.gridline : 8 noyau + 1 silence + 4 hors-noyau)")
+    ap.add_argument("--no-validate-full", action="store_true", help="Désactive le pré-vol symbolique 100 % (full_coverage) après compilation")
     ap.add_argument("--out", default="", help="Chemin .gridline de sortie (défaut: <proj>/projet.gridline)")
     args = ap.parse_args()
-    report = compile_song(args.project_dir, core_only=args.core_only, out_gridline=args.out)
+    report = compile_song(args.project_dir, core_only=args.core_only, out_gridline=args.out,
+                          probe=args.probe, validate_full=not args.no_validate_full)
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     sys.exit(0 if report.get("ok") else 2)
 

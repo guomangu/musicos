@@ -891,11 +891,25 @@ def studio_build_and_validate_core(project_dir: str, palette_id: str = "") -> st
                     stems_eval = evaluate_stem_matrix(stems, sr, profile=str(bp.get("mix_profile") or "trap_rap"))
             except Exception as exc:
                 stems_eval = {"error": str(exc)[:120]}
+        # v3.2 #3 — pré-vol symbolique 100 % du morceau (déjà calculé par compile_song) +
+        # sonde stems composite 12 mesures si gridline dispo (1 seul rendu, budget préservé).
+        full_cov = rep.get("full_coverage") if isinstance(rep, dict) else None
+        probe_out = None
+        if _sh.which("gridline"):
+            try:
+                from compile_song import compile_song as _cs
+                prep = _cs(project_dir, probe=True)
+                probe_out = prep.get("out") if prep.get("ok") else None
+            except Exception:
+                probe_out = None
         return _compact_json({
             "ok": True,
             "tour": 2,
             "stage": rep.get("stage"),
             "out": rep.get("out"),
+            "full_coverage": ({"passed": full_cov.get("passed"), "n_issues": full_cov.get("n_issues"),
+                               "issues": (full_cov.get("issues") or [])[:3]} if isinstance(full_cov, dict) and full_cov.get("passed") is not None else full_cov),
+            "probe_gridline": probe_out,
             "musical_safety_ok": True,
             "stems_eval": ({"ok": stems_eval.get("ok"), "n_stems": stems_eval.get("n_stems"),
                             "gridline_renders_used": stems_eval.get("gridline_renders_used"),
