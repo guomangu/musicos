@@ -48,7 +48,7 @@ from studio_lib import GridlineMCP
 from target_fingerprint import load_multi_scale_contract
 from taste_memory import record_validated_taste
 from blueprint_safety import summarize_musical_safety
-from mix_config import notch_caps, profile_settings, tuning_invariants
+from mix_config import get_invariant, limiter_invariants, notch_caps, profile_settings, tuning_invariants
 
 
 def _should_record_taste(proj_dir: str, taste_memory_path: str = "", approve_taste: bool = False) -> bool:
@@ -322,6 +322,13 @@ def render_and_evaluate(
     low_end_max = float(gate_cfg.get("low_end_max", 42.0)) if not no_drums_ambient else 55.0
     low_end_share = sub_bass_pct
     gate_failures: list[str] = []
+    # v3.1 SSOT-01: gate thresholds come from config/mix_profiles.json (single source)
+    _lim_inv = limiter_invariants()
+    _tp_limit = _lim_inv["ceiling_dbtp"] + float(get_invariant("true_peak_margin_db", 0.2))
+    _lufs_tol = float(get_invariant("lufs_tolerance_db", 1.2))
+    _le_corr_min = float(get_invariant("low_end_corr_min", 0.50))
+    _lm_corr_min = float(get_invariant("low_mid_corr_min", 0.55))
+    _bal_max = float(get_invariant("stereo_balance_max_db", 1.2))
     # Project-wide musical safety audit of the blueprint (root_note presence/correctness,
     # non-playable samples in melodic roles, key-fit): error-severity issues block the gate
     # so a dissonant/"etrange" track can never ship in a render silently.
@@ -344,27 +351,27 @@ def render_and_evaluate(
             gate_failures.append(f"musical_safety[{_iss.get('code')}] track={_iss.get('track')} role={_iss.get('role')}")
     if base["clipped_samples"] > 0:
         gate_failures.append(f"clipped_samples={base['clipped_samples']} > 0")
-    if base["true_peak_dbtp"] > -1.0:
-        gate_failures.append(f"true_peak_dbtp={base['true_peak_dbtp']} > -1.0")
-    if abs(base["integrated_lufs"] - eff_target_lufs) > 1.2:
-        gate_failures.append(f"lufs={base['integrated_lufs']} vs target={eff_target_lufs}")
+    if base["true_peak_dbtp"] > _tp_limit:
+        gate_failures.append(f"true_peak_dbtp={base['true_peak_dbtp']} > {_tp_limit} (ceiling+margin from config)")
+    if abs(base["integrated_lufs"] - eff_target_lufs) > _lufs_tol:
+        gate_failures.append(f"lufs={base['integrated_lufs']} vs target={eff_target_lufs} (tol {_lufs_tol})")
 
     low_end_corr = float(base["stereo"]["correlation_low_end_150hz"])
     if no_drums_ambient:
-        if sub_bass_pct >= 5.0 and low_end_corr < 0.20:
-            gate_failures.append(f"low_end_corr={low_end_corr} < 0.20")
+        if sub_bass_pct >= 5.0 and low_end_corr < _le_corr_min * 0.4:
+            gate_failures.append(f"low_end_corr={low_end_corr} < {_le_corr_min * 0.4:.2f}")
     else:
-        if low_end_corr < 0.50:
-            gate_failures.append(f"low_end_corr={low_end_corr} < 0.50")
+        if low_end_corr < _le_corr_min:
+            gate_failures.append(f"low_end_corr={low_end_corr} < {_le_corr_min}")
 
     lm_corr = deep["room_and_transients"]["low_mid_200_800hz_correlation"]
-    if lm_corr < 0.55:
-        gate_failures.append(f"low_mid_corr={lm_corr} < 0.55")
+    if lm_corr < _lm_corr_min:
+        gate_failures.append(f"low_mid_corr={lm_corr} < {_lm_corr_min}")
     stereo_img = deep.get("stereo_image") or {}
     if stereo_img:
         bal_db = float(stereo_img.get("stereo_balance_db", 0.0))
-        if abs(bal_db) > 1.2:
-            gate_failures.append(f"stereo_balance={bal_db:+.2f}dB > 1.2dB")
+        if abs(bal_db) > _bal_max:
+            gate_failures.append(f"stereo_balance={bal_db:+.2f}dB > {_bal_max}dB")
         w_db = float(stereo_img.get("mid_high_side_to_mid_db", 0.0))
         w_lo, w_hi = (float(v) for v in (stereo_img.get("mid_high_width_range_db") or [-14.0, -1.5]))
         if w_db < w_lo:
@@ -821,7 +828,7 @@ def _apply_autofix_mutations(
         ]
 
         # Rules 1 & 2: Master gl.limiter
-        need_tp_fix = clipped > 0 or true_peak > -1.0
+        need_tp_fix = clipped > 0 or true_peak > _tp_limit
         need_lufs_fix = abs(lufs - target_lufs) > 1.2
         if (need_tp_fix or need_lufs_fix) and master_track is not None:
             lim_slots = _slots_for_plugin(master_track, "gl.limiter")

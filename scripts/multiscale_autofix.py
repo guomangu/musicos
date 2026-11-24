@@ -974,7 +974,12 @@ def _fix_adjust_track_fader(
     role_hint = str(params.get("target_role") or params.get("role") or "").strip()
     insert_idx = params.get("insert_idx") if params.get("insert_idx") is not None else params.get("mixer")
     raw_delta = float(params.get("delta_db", 0.0))
-    step_req = clamp(raw_delta, -4.0, 4.0)
+    try:
+        from mix_config import autofix_step_bounds
+        _step_cap = autofix_step_bounds()["max_step_db"]
+    except Exception:
+        _step_cap = 4.0
+    step_req = clamp(raw_delta, -_step_cap, _step_cap)
     if abs(step_req) < 0.05:
         return {"applied": False, "code": "ADJUST_TRACK_FADER", "reason": "delta_db too small"}
 

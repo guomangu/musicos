@@ -177,7 +177,12 @@ def analyze_vertical_stage_session(
     if st_norm == "V4_LEAD":
         checks["lead_present"] = lead is not None and lead > -32.0
         if lead is not None and harm is not None:
-            checks["lead_hierarchy_ok"] = (lead - harm) >= 3.0
+            try:
+                from mix_config import stem_hierarchy_bounds
+                _lvh_min = stem_hierarchy_bounds()["lead_vs_harmony"][0]
+            except Exception:
+                _lvh_min = 3.0
+            checks["lead_hierarchy_ok"] = (lead - harm) >= _lvh_min
     failed = [k for k, v in checks.items() if not v]
     return {
         "verdict": "PASS" if not failed else "FIX",

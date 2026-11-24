@@ -58,7 +58,6 @@ from indexer import (
 )
 from sample_prep_lib import measure_fft_tuning
 from blueprint_safety import classify_loop_nature
-from asset_hygiene import check_folder_license_safety
 
 
 def _detect_isolable_slices(path: str, max_slices: int = 2) -> list[dict[str, Any]]:
@@ -332,10 +331,7 @@ def index_project_samples(
                 )
 
             recipes = _suggest_prep_recipes(fn, abs_p, dsp, bool(entry.get("needs_fade")), best_role)
-            lic = check_folder_license_safety(os.path.dirname(abs_p))
             entries.append({
-                "license_status": lic["license_status"],
-                "license_evidence": lic["evidence"][:2],
                 "filepath": abs_p,
                 "rel_path": rel_p,
                 "filename": fn,

@@ -12,16 +12,13 @@ Module partagé importé par `mcp-servers/audio-index/indexer.py`,
     `Icon\\r`, fichiers < 1024 octets) ;
   - vérification rapide d'en-tête audio (magic bytes) avant soundfile/librosa : un fichier
     corrompu est rejeté proprement, sans stacktrace, avec un compteur `skipped_reasons` ;
-  - détecteur de restriction de licence (`check_folder_license_safety`) : un dossier (ou un
-    parent jusqu'à `soundbanks/`) contenant un texte `NOT ROYALTY FREE` / `clearance required` /
-    `non-commercial only` tague ses samples `restricted_non_royalty_free`, exclus par défaut de
-    la sélection (sauf `--allow-restricted` ou scénario B `user_samples_locked` où l'utilisateur
-    a fourni lui-même les fichiers dans `<projet>/Samples/`).
+  - PAS de détection de licences/copyrights : la responsabilité légale d'utiliser un sample
+    appartient exclusivement à l'utilisateur (même ses propres sons sont copyrightés) — le
+    projet ne tague ni n'exclut aucun fichier pour des raisons de licence.
 """
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -36,16 +33,6 @@ BAD_DIR_SEGMENTS = {"__macosx", ".git", ".venv", "sfz", "node_modules"}
 BAD_BASENAMES = {".ds_store", "thumbs.db", "desktop.ini", "icon\r", "icon", "autorun.inf"}
 
 MIN_FILE_BYTES = 1024
-
-LICENSE_RESTRICTED_RE = re.compile(
-    r"not\s+royalty[\s\-]?free|clearance\s+required|non[\s\-]?commercial\s+only"
-    r"|do\s+not\s+(?:use|share|distribute)\s+(?:commercially|in\s+commercial)",
-    re.IGNORECASE,
-)
-LICENSE_TEXT_SUFFIX = ".txt"
-LICENSE_TEXT_NAME_RE = re.compile(r"^(readme|license|licence|eula|notice|copying)", re.IGNORECASE)
-LICENSE_MAX_BYTES = 50 * 1024
-
 
 def is_decodable_audio_file(path: str | os.PathLike) -> tuple[bool, str]:
     """Filtre de chemin/extension/taille. Retourne (ok, reason) — jamais d'exception."""
@@ -108,57 +95,7 @@ def is_audio_file_safe(path: str | os.PathLike) -> tuple[bool, str]:
     return True, "ok"
 
 
-def _iter_license_dirs(folder: str, stop_at: str | None) -> list[str]:
-    """Dossier + parents jusqu'à (et inclus) le premier segment nommé `stop_at` (ex. soundbanks)."""
-    folder = os.path.abspath(os.path.expanduser(folder))
-    out: list[str] = []
-    d = folder
-    while True:
-        out.append(d)
-        if stop_at and os.path.basename(d) == stop_at:
-            break
-        parent = os.path.dirname(d)
-        if parent == d:
-            break
-        d = parent
-    return out
-
-
-def check_folder_license_safety(folder: str | os.PathLike, stop_at: str | None = "soundbanks") -> dict[str, Any]:
-    """Détecte une restriction de licence dans les fichiers texte du dossier et de ses parents.
-
-    Retourne {"license_status": "restricted_non_royalty_free" | "ok" | "unknown", "evidence": [...]}.
-    """
-    evidence: list[str] = []
-    try:
-        for d in _iter_license_dirs(str(folder), stop_at):
-            if not os.path.isdir(d):
-                continue
-            try:
-                names = sorted(os.listdir(d))
-            except OSError:
-                continue
-            for fn in names:
-                low = fn.lower()
-                if not (low.endswith(LICENSE_TEXT_SUFFIX) or LICENSE_TEXT_NAME_RE.match(fn)):
-                    continue
-                fp = os.path.join(d, fn)
-                try:
-                    if os.path.getsize(fp) > LICENSE_MAX_BYTES:
-                        continue
-                    with open(fp, encoding="utf-8", errors="ignore") as fh:
-                        text = fh.read()
-                except OSError:
-                    continue
-                if LICENSE_RESTRICTED_RE.search(text):
-                    evidence.append(f"{fp}: {LICENSE_RESTRICTED_RE.search(text).group(0)!r}")
-    except Exception:
-        pass
-    status = "restricted_non_royalty_free" if evidence else "ok"
-    return {"license_status": status, "evidence": evidence}
-
-
-def scan_audio_tree(root: str, stop_at_license: str | None = "soundbanks") -> tuple[list[tuple[str, str]], list[dict[str, str]]]:
+def scan_audio_tree(root: str) -> tuple[list[tuple[str, str]], list[dict[str, str]]]:
     """Walk `root`, retourne (fichiers audio sûrs [(abs, rel)], skipped [{path, reason}])."""
     root_abs = os.path.abspath(os.path.expanduser(root))
     found: list[tuple[str, str]] = []

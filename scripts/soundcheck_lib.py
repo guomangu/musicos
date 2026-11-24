@@ -447,7 +447,12 @@ def audit_soundcheck_wav(
         if role in TONAL_ROLES:
             tuning_err, measured_f0 = _measure_played_tuning_cents(mono, sr, expected_midis=expected_midis)
             if tuning_err is not None:
-                checks["tuning_ok"] = abs(tuning_err) <= 8.0
+                try:
+                    from mix_config import get_invariant
+                    _tmax = float(get_invariant("soundcheck_tuning_max_ct", 8.0))
+                except Exception:
+                    _tmax = 8.0
+                checks["tuning_ok"] = abs(tuning_err) <= _tmax
                 fine_tune_delta = int(-round(tuning_err))
                 if abs(tuning_err) >= 50.0:
                     # ~un demi-ton ou plus d'écart : le Fine tune (cents) ne suffit pas,
@@ -729,7 +734,12 @@ def audit_track_soundcheck_fast(
             if eff_role in TONAL_ROLES:
                 checks["playable_chromatically_ok"] = bool(dsp.get("playable_chromatically"))
                 co = dsp.get("cents_offset")
-                checks["tuning_ok"] = co is None or abs(float(co)) <= 8.0
+                try:
+                    from mix_config import get_invariant
+                    _tmax = float(get_invariant("soundcheck_tuning_max_ct", 8.0))
+                except Exception:
+                    _tmax = 8.0
+                checks["tuning_ok"] = co is None or abs(float(co)) <= _tmax
                 if co is not None and abs(float(co)) >= 50.0:
                     metrics["recommended_root_note_delta_st"] = int(round(-float(co) / 100.0))
                 mr = dsp.get("midi_root")

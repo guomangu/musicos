@@ -122,3 +122,58 @@ def resolve_limiter_params(
     ceiling = float(ceiling_db) if ceiling_db is not None else inv["ceiling_dbtp"]
     gain = float(gain_db) if gain_db is not None else inv["max_gain_db"]
     return ceiling, gain
+
+
+def get_profile_config(profile: str, valence: float = 0.0, explicit_path: str | None = None) -> dict[str, Any]:
+    """v3.1: merged config for a genre profile, dark-mode aware.
+
+    Neutral mode returns the profile values; when `valence < valence_dark_threshold`
+    the dark overrides are applied (air_min_dark_pct, sharpness_max_dark, ...).
+    """
+    ps = profile_settings(profile, explicit_path)
+    out: dict[str, Any] = dict(ps)
+    inv = load_mix_config(explicit_path).get("global_invariants", {})
+    dark_thr = float(inv.get("valence_dark_threshold", -0.2))
+    if float(valence) < dark_thr:
+        for k, dark_k in (("air_min_pct", "air_min_dark_pct"), ("sharpness_max", "sharpness_max_dark")):
+            if dark_k in ps:
+                out[k] = float(ps[dark_k])
+        out["dark_mode"] = True
+    else:
+        out["dark_mode"] = False
+    out["dark_threshold"] = dark_thr
+    return out
+
+
+def tuning_tolerance(explicit_path: str | None = None) -> dict[str, float]:
+    t = get_invariant("tuning_tolerance_ct", {}, explicit_path) or {}
+    return {
+        "foundation_stem_max": float(t.get("foundation_stem_max", 6.0)),
+        "expressive_peak_max": float(t.get("expressive_peak_max", 12.0)),
+        "master_warning": float(t.get("master_warning", 6.5)),
+    }
+
+
+def notch_budget(explicit_path: str | None = None) -> dict[str, Any]:
+    nb = get_invariant("notch_budget", {}, explicit_path) or {}
+    return {
+        "max_per_track": int(nb.get("max_per_track", 2)),
+        "max_total": int(nb.get("max_total", 3)),
+        "min_excess_db": float(nb.get("min_excess_db", 6.0)),
+        "max_width_bands": int(nb.get("max_width_bands", 2)),
+    }
+
+
+def stem_hierarchy_bounds(explicit_path: str | None = None) -> dict[str, list[float]]:
+    sh = get_invariant("stem_hierarchy_bounds_db", {}, explicit_path) or {}
+    return {
+        "lead_vs_harmony": [float(x) for x in sh.get("lead_vs_harmony", [3.0, 9.5])],
+        "bass_vs_kick": [float(x) for x in sh.get("bass_vs_kick", [-3.5, 2.0])],
+    }
+
+
+def autofix_step_bounds(explicit_path: str | None = None) -> dict[str, float]:
+    return {
+        "max_step_db": float(get_invariant("autofix_max_step_db", 4.0, explicit_path)),
+        "max_cumulative_db": float(get_invariant("autofix_max_cumulative_db", 8.0, explicit_path)),
+    }

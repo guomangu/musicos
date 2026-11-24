@@ -73,24 +73,6 @@ class TestFileFilters(unittest.TestCase):
             self.assertFalse(ok)
             self.assertEqual(why, "bad_magic_bytes")
 
-    def test_license_detector(self):
-        from asset_hygiene import check_folder_license_safety
-        with tempfile.TemporaryDirectory() as tmp:
-            bank = os.path.join(tmp, "soundbanks")
-            sub = os.path.join(bank, "OZ - Secret Bounce Vol.1", "Samples")
-            os.makedirs(sub)
-            with open(os.path.join(sub, "SAMPLES ARE NOT ROYALTY FREE.txt"), "w") as fh:
-                fh.write("These samples are NOT ROYALTY FREE. Clearance required for commercial use.")
-            r = check_folder_license_safety(sub)
-            self.assertEqual(r["license_status"], "restricted_non_royalty_free")
-            self.assertTrue(r["evidence"])
-            clean = os.path.join(bank, "MyPack")
-            os.makedirs(clean)
-            with open(os.path.join(clean, "README.txt"), "w") as fh:
-                fh.write("CC-BY 4.0, free to use.")
-            r2 = check_folder_license_safety(clean)
-            self.assertEqual(r2["license_status"], "ok")
-
 
 class TestIndexingHygiene(unittest.TestCase):
     def test_only_valid_wavs_indexed_and_roots_exact(self):
@@ -114,13 +96,6 @@ class TestIndexingHygiene(unittest.TestCase):
                 fh.write(b"\x00" * 4096)
             with open(os.path.join(samples, "Icon\r"), "wb") as fh:
                 fh.write(b"")
-            # restricted pack
-            pack = os.path.join(samples, "SecretPack")
-            os.makedirs(pack)
-            _write_wav(os.path.join(pack, "secret.wav"), 220.0)
-            with open(os.path.join(pack, "SAMPLES ARE NOT ROYALTY FREE.txt"), "w") as fh:
-                fh.write("NOT ROYALTY FREE — clearance required")
-
             catalog = index_project_samples(tmp, with_clap=False, write_catalog=True)
             by_name = {os.path.basename(e["filepath"]): e for e in catalog["samples"]}
             # seuls les 2 WAV valides de Samples/ racine sont indexés (le pack restreint est tagué)
@@ -131,33 +106,9 @@ class TestIndexingHygiene(unittest.TestCase):
             self.assertNotIn("NM - Deep 808.wav.zpa", by_name)
             self.assertNotIn("pad.fst", by_name)
             self.assertGreaterEqual(catalog.get("skipped_count", 0), 4)
-            # pack restreint: indexé mais tagué (l'utilisateur a fourni Samples/ -> autorisé, taggé)
-            self.assertEqual(by_name["secret.wav"]["license_status"], "restricted_non_royalty_free")
-            # aucun crash, erreurs vides
+            # aucun tag de licence (responsabilité utilisateur), aucun crash
+            self.assertNotIn("license_status", by_name["sub_c2.wav"])
             self.assertEqual(catalog.get("error_count", 1), 0)
-
-    def test_palette_excludes_restricted_by_default(self):
-        from palette_builder import _load_project_candidates
-        with tempfile.TemporaryDirectory() as tmp:
-            cat = {"samples": [
-                {"filepath": os.path.join(tmp, "Samples", "ok.wav"), "filename": "ok.wav", "source_origin": "user_original",
-                 "license_status": "ok", "hard_reject": False, "playable_chromatically": True,
-                 "compatible_roles": ["kick"], "role_scores": {"kick": 0.9}, "comfort_score": 0.9,
-                 "midi_root": 36, "recommended_gl_fine_tune_ct": 0, "bark_24": None, "centroid_hz": 200.0, "attack_ms": 5.0},
-                {"filepath": os.path.join(tmp, "samples", "derived", "nr.wav"), "filename": "nr.wav", "source_origin": "derived",
-                 "license_status": "restricted_non_royalty_free", "hard_reject": False, "playable_chromatically": True,
-                 "compatible_roles": ["kick"], "role_scores": {"kick": 0.99}, "comfort_score": 0.99,
-                 "midi_root": 36, "recommended_gl_fine_tune_ct": 0, "bark_24": None, "centroid_hz": 200.0, "attack_ms": 5.0},
-            ]}
-            with open(os.path.join(tmp, "samples_catalog.json"), "w", encoding="utf-8") as fh:
-                json.dump(cat, fh)
-            pool = _load_project_candidates(tmp, ["kick"], target_key="C minor")
-            names = [os.path.basename(c["filepath"]) for c in pool["kick"]]
-            self.assertIn("ok.wav", names)          # user_original autorisé même si tagué ok
-            self.assertNotIn("nr.wav", names)       # derived + restricted -> exclu par défaut
-            pool2 = _load_project_candidates(tmp, ["kick"], target_key="C minor", allow_restricted=True)
-            names2 = [os.path.basename(c["filepath"]) for c in pool2["kick"]]
-            self.assertIn("nr.wav", names2)
 
 
 if __name__ == "__main__":

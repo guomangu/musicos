@@ -398,7 +398,7 @@ def balance_tracks_in_session(
     profile: str = "trap_rap",
     has_drums: bool = True,
     anchor_target_lufs: float = ANCHOR_PREMASTER_ACTIVE_LUFS,
-    max_trim_db: float = 6.0,
+    max_trim_db: float | None = None,
 ) -> dict[str, Any]:
     """Even out track volumes WITHOUT rendering any .wav: solo each channel in the live
     Gridline session, probe `analyze_loudness` on its pattern, and trim the channel fader
@@ -432,6 +432,9 @@ def balance_tracks_in_session(
             entry["status"] = "SKIP_SILENT"
         else:
             delta = float(target_lufs - float(lufs))
+            if max_trim_db is None:
+                from mix_config import get_invariant
+                max_trim_db = float(get_invariant("max_trim_db", 6.0))
             delta = max(-max_trim_db, min(max_trim_db, delta))
             cur_v = float(t.get("volume", 0.8))
             if abs(delta) < 0.05:
@@ -548,7 +551,7 @@ def solve_analytic_gain_trims(
     measured_lufs: dict[str, float],
     target_offsets_db: dict[str, float],
     anchor_lufs: float = -16.0,
-    max_trim_db: float = 6.0,
+    max_trim_db: float | None = None,
     presence_floors_db: dict[str, float] | None = None,
     low_end_share_pct: float | None = None,
     low_end_max_pct: float = 42.0,
@@ -561,6 +564,9 @@ def solve_analytic_gain_trims(
 
     Returns {"trims_db": {role: delta}, "target_lufs": {role: abs}, "low_end_share_after_pct"}.
     """
+    if max_trim_db is None:
+        from mix_config import get_invariant
+        max_trim_db = float(get_invariant("max_trim_db", 6.0))
     floors = presence_floors_db or {}
     trims: dict[str, float] = {}
     targets: dict[str, float] = {}
