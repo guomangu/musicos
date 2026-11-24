@@ -43,7 +43,7 @@ CANONICAL_MIDI_PIPELINE = [
     "3.phrasing_engine",
     "4.transitions_lib(anticipation_couplée)",
     "5.verify_midi_gate(contour_preserving+modal)",
-    "6.groove_lib(swing->strum->AMG->haas->inertia)",
+    "6.groove_lib->ScoreIR(expression-only)+clamp_frontiere_harmonique(guard 20ms)",
     "7.sanitize_note_overlaps(guard 10ms)",
 ]
 

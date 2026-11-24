@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI-Studio ScoreIR (v3.1, chantier IR-02)",
+  "description": "Representation intermediaire symbolique d'un morceau : structure nominale (grid_beat, duration_beats, pitch, chord_idx, note_role, lock_harmony) separee de l'expression non destructive (timing_offset_beats, velocity_delta, gate_scale). Generee par scripts/compile_song.py / song_builder, serialisable en <proj>/score_ir.json.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bpm",
+    "time_signature",
+    "key",
+    "mode",
+    "harmonic_grid",
+    "tracks"
+  ],
+  "$defs": {
+    "expression": {
+      "type": "object",
+      "properties": {
+        "timing_offset_beats": { "type": "number", "default": 0.0 },
+        "velocity_delta": { "type": "integer", "default": 0 },
+        "gate_scale": { "type": "number", "default": 1.0, "minimum": 0.0 }
+      },
+      "additionalProperties": true
+    },
+    "noteEvent": {
+      "type": "object",
+      "required": [
+        "grid_beat",
+        "duration_beats",
+        "pitch",
+        "chord_idx",
+        "note_role"
+      ],
+      "properties": {
+        "grid_beat": { "type": "number", "minimum": 0.0 },
+        "duration_beats": { "type": "number", "exclusiveMinimum": 0.0 },
+        "pitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+        "velocity": { "type": "integer", "minimum": 1, "maximum": 127, "default": 80 },
+        "chord_idx": { "type": "integer", "minimum": 0 },
+        "note_role": {
+          "type": "string",
+          "enum": [
+            "bass_root",
+            "bass_passing",
+            "chord_tone",
+            "melody_chord",
+            "melody_passing",
+            "appoggiatura",
+            "anticipation"
+          ]
+        },
+        "lock_harmony": { "type": "boolean", "default": false },
+        "allow_bleed": { "type": "boolean", "default": false },
+        "expression": { "$ref": "#/$defs/expression" }
+      }
+    },
+    "harmonicSegment": {
+      "type": "object",
+      "required": [
+        "chord_idx",
+        "start_beat",
+        "end_beat",
+        "symbol",
+        "root_pc",
+        "bass_pc",
+        "chord_pcs",
+        "scale_pcs"
+      ],
+      "properties": {
+        "chord_idx": { "type": "integer", "minimum": 0 },
+        "start_beat": { "type": "number", "minimum": 0.0 },
+        "end_beat": { "type": "number" },
+        "symbol": { "type": "string" },
+        "root_pc": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "bass_pc": { "type": "integer", "minimum": 0, "maximum": 11 },
+        "chord_pcs": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 11 },
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "scale_pcs": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 11 },
+          "uniqueItems": true
+        },
+        "modal_tension_pcs": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 11 },
+          "default": []
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": ["role", "monophonic", "notes"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["bass", "chords", "lead", "counter", "drums", "fx", "vocals", "pad"]
+        },
+        "monophonic": { "type": "boolean", "default": false },
+        "timbre_class": { "type": "string", "default": "" },
+        "inharmonicity": { "type": "number", "minimum": 0.0, "default": 0.0 },
+        "notes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/noteEvent" }
+        }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "string", "const": "3.1" },
+    "bpm": { "type": "number", "exclusiveMinimum": 0.0 },
+    "time_signature": {
+      "type": "object",
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 1 },
+        "denominator": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "key": { "type": "string" },
+    "mode": { "type": "string" },
+    "valence": { "type": "number", "default": 0.0 },
+    "harmonic_grid": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/harmonicSegment" }
+    },
+    "tracks": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/track" }
+    }
+  }
+}

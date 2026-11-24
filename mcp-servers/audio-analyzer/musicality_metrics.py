@@ -1437,3 +1437,62 @@ def chord_melody_tension_alignment(
         return {"ok": bool(tension), "apex_pitch": apex.pitch, "apex_time_s": round(float(apex.start), 3),
                 "chord": sym or None}
     return {"ok": True, "apex_pitch": apex.pitch, "apex_time_s": round(float(apex.start), 3), "chord": None}
+
+
+# ---------------------------------------------------------------------------
+# v3.1 IR-02 — entrée directe sur ScoreIR (court-circuite `_infer_roles`) :
+# les rôles, la grille d'accords et les `chord_idx` viennent du compilateur.
+# ---------------------------------------------------------------------------
+
+def _scripts_dir() -> str:
+    import os as _os
+    d = _os.path.dirname(_os.path.abspath(__file__))
+    for _ in range(4):
+        cand = _os.path.join(d, "scripts")
+        if _os.path.isdir(cand):
+            return cand
+        d = _os.path.dirname(d)
+    return _os.path.join(d, "scripts")
+
+
+def evaluate_score_ir(score_ir: Any, thresholds: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """v3.1 IR-02 : évalue un `ScoreIR` directement (rôles explicites, grille harmonique
+    immuable, `chord_idx` par note — y compris les anticipations). Ne passe jamais par
+    `_infer_roles()`."""
+    import sys as _sys
+    sd = _scripts_dir()
+    if sd not in _sys.path:
+        _sys.path.insert(0, sd)
+    from score_ir import evaluate_score_ir as _eval_ir
+    return _eval_ir(score_ir, thresholds)
+
+
+def infer_score_ir_from_midi(midi_path: str, expected_key: str = "", bpm: Optional[float] = None) -> Any:
+    """v3.1 IR-02 (compat ascendante) : construit un ScoreIR inféré depuis un MIDI externe
+    (rôles via `_infer_roles`, grille à segment unique depuis la tonalité attendue/détectée)."""
+    import sys as _sys
+    sd = _scripts_dir()
+    if sd not in _sys.path:
+        _sys.path.insert(0, sd)
+    import pretty_midi as _pm
+    from score_ir import build_score_ir
+    pm = _pm.PrettyMIDI(midi_path)
+    tempo = float(bpm) if bpm else float(pm.get_tempo_changes()[1][0]) if len(pm.get_tempo_changes()[1]) else 120.0
+    b2s = 60.0 / max(40.0, tempo)
+    roles = _infer_roles(pm)
+    tracks: Dict[str, List[Dict[str, Any]]] = {}
+    for role_name, insts in roles.items():
+        for inst in insts:
+            tracks.setdefault(role_name, [])
+            for n in inst.notes:
+                tracks[role_name].append({
+                    "start": round(float(n.start) / b2s, 5),
+                    "length": round(max(0.02, float(n.end - n.start)) / b2s, 5),
+                    "pitch": int(n.pitch),
+                    "velocity": int(n.velocity),
+                })
+    total_beats = max(8.0, round(float(pm.get_end_time()) / b2s / 4.0) * 4.0)
+    meta = {"bpm": tempo, "beats_per_bar": 4, "denominator": 4, "valence": 0.0,
+            "total_bars": max(1, int(round(total_beats / 4.0))), "tonic": expected_key or "C", "key": expected_key or "C"}
+    hc = {"key": expected_key or "C", "mode": "minor" if "minor" in (expected_key or "").lower() else "major"}
+    return build_score_ir(hc, meta, tracks)

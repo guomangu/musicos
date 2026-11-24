@@ -58,6 +58,13 @@ from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     ms_to_beats,
     sanitize_note_overlaps,
 )
+from score_ir import (  # v3.1 IR-02 — ScoreIR + clamp de frontière harmonique
+    apply_groove_to_score_ir,
+    build_score_ir,
+    clamp_flat_tracks_at_boundaries,
+    compile_score_ir_to_notes,
+    classify_role,
+)
 from musicality_metrics import optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
 from blueprint_safety import summarize_musical_safety  # noqa: E402
 from phrasing_engine import apply_instrumental_prosody  # noqa: F401 (re-exported for song scripts)
@@ -1503,26 +1510,24 @@ def compile_arrangement_plan(
             if mod.get("gain_db") is not None:
                 role_gains.setdefault(role, []).append((sec_start_beat, sec_end_beat, float(mod["gain_db"])))
 
-    # Expressive groove humanization
+    # v3.1 IR-02 — ScoreIR : l'inertie de fréquence reste structurelle (fusion de sub),
+    # puis tout le groove (strum/AMG/haas/swing) s'accumule dans `expression` sans toucher
+    # grid_beat/pitch, et compile_score_ir_to_notes applique le clamp de frontière harmonique
+    # (guard 20 ms) + sanitize_note_overlaps (garde 10 ms) en étape finale.
     for r_key, r_notes in list(tracks.items()):
         rl = r_key.lower()
         if any(k in rl for k in ("bass", "808", "sub")):
             tracks[r_key] = enforce_frequency_inertia(r_notes, bpm=bpm)
-        elif any(k in rl for k in ("chord", "pad", "keys")):
-            tracks[r_key] = apply_micro_strum(r_notes, strum_ms=15.0, bpm=bpm)
-        # Velocity humanization on every track (rapid subdivisions get accent+jitter,
-        # sparse notes get a gentle metric accent only -- avoids the "drum machine" feel).
-        tracks[r_key] = apply_anti_machine_gun(tracks[r_key], beats_per_bar=float(bpb), humanize_sparse=True)
-    tracks = apply_haas_pocket(tracks, bpm=bpm, profile=meta["mix_profile"])
-    # Blueprint swing: delay off-beat 8ths (declared `swing` was previously never applied).
-    swing = float(meta.get("swing", 0.0) or 0.0)
-    if swing > 0.0:
-        for r_key in list(tracks):
-            tracks[r_key] = apply_swing(tracks[r_key], swing=swing, beats_per_bar=float(bpb))
-    # v3.0 canonical pipeline, final step: sanitize note overlaps (mono note-stealing guard)
-    # AFTER all groove passes (swing/strum/AMG/haas/inertia) so the guard sees final timings.
+    hc_plan = plan.get("harmonic_core") or {"key": meta["tonic"], "mode": meta["mode"]}
     _voices_by_role = {str(ch.track_key).lower(): int(getattr(ch, "voices", 4) or 4) for ch in eff_channels}
-    tracks = sanitize_note_overlaps(tracks, bpm=bpm, voices_by_role=_voices_by_role)
+    score_ir = build_score_ir(hc_plan, meta, tracks, channels=eff_channels, voices_by_role=_voices_by_role)
+    swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
+    groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb))
+    tracks, score_ir_report = compile_score_ir_to_notes(score_ir)
+    try:
+        score_ir.save(os.path.join(abs_proj, "score_ir.json"))
+    except Exception:
+        pass
 
     # Phase 7 P2 — Instrumental prosody (phrase velocity arc, LPF breathing, cadential ornaments, section pocket)
     if apply_prosody:
@@ -1782,6 +1787,23 @@ def compile_arrangement_plan(
             outro_fade(autos, master_or_bus_idx=0, start_beat=f_start, end_beat=f_end, track_idx=min(31, auto_track_cursor))
             auto_track_cursor = min(31, auto_track_cursor + 1)
 
+    # v3.1 IR-02 — clamp de frontière harmonique final (post-groove / post-transitions) :
+    # aucune note chords/pad/bass/counter ne bave sur un accord suivant incompatible,
+    # puis sanitize final (vérification post-groove < 5 ms : 0 clash b2, 0 chevauchement 808).
+    _roles_map = {
+        ch.track_key: (str(ch.role) if getattr(ch, "role", None) else classify_role(ch.track_key))
+        for ch in eff_channels
+    }
+    tracks, _n_boundary_clamped = clamp_flat_tracks_at_boundaries(
+        tracks, score_ir.harmonic_grid, bpm, roles_map=_roles_map
+    )
+    tracks = sanitize_note_overlaps(tracks, bpm=bpm, voices_by_role=_voices_by_role)
+    post_groove_check = {
+        "boundary_clamps_applied": _n_boundary_clamped,
+        "groove_counts": groove_counts,
+        "score_ir_report": score_ir_report,
+    }
+
     # Export master_sketch.mid and verify MIDI gate
     bass_keys = [r for r in roles_ordered if any(k in r.lower() for k in ("bass", "808", "sub"))]
     chords_key = next((r for r in roles_ordered if any(k in r.lower() for k in ("chord", "pad"))), "chords")
@@ -1840,6 +1862,7 @@ def compile_arrangement_plan(
             "midi_gate": gate_res,
             "transitions": transition_reports,
             "register_split": register_split,
+            "post_groove_check": post_groove_check,
         }
 
     build_gridline_project(
@@ -1868,4 +1891,5 @@ def compile_arrangement_plan(
         "midi_gate": gate_res,
         "transitions": transition_reports,
         "register_split": register_split,
+        "post_groove_check": post_groove_check,
     }
