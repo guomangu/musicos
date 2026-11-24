@@ -65,10 +65,10 @@ Serveurs Python `mcp>=2.3.0` (`stdio`, logs sur `stderr`). Liste complète des o
 
 > **Règle `gl.multisampler` (`.sfz`)** : certains `.sfz` externes (`Headroom Piano Clean.sfz`) peuvent être muets (`-144 LUFS`) en GUI `--attach`. Privilégier `gl.sampler` avec un WAV 24-bit mono-note calibré `A4=440 Hz` (`Voices = 12`) ou `gl.keys` / `gl.warmsynth`.
 
-> **Règle Anti-Stridence (LPF par défaut selon le rôle)** :
-> - **Pads / Accords (`Chords`)** : LPF strict entre **`2.5 kHz` et `5.5 kHz`** (plus bas si `valence < 0`).
-> - **Leads / Mélodies** : LPF entre **`4.0 kHz` et `7.5 kHz`** (interdiction de laisser un synthé *saw/FM* ouvert jusqu'à `20 kHz`).
-> - **Cloches / FM / Métallique (`gl.fm`, `gl.alloy`, `gl.matrixfm`)** : LPF `<= 7.0 kHz` + creux `gl.eq` (`Band type = 6 Peak`, `-3.0 dB @ 3200 Hz`, `Band N width = 0.35` *≈ Q 1.6*).
+> **Règle Anti-Stridence / Anti-« mix en U » (v3.1+, source unique `config/mix_profiles.json` via `scripts/mix_config.py`)** :
+> - **Jamais de LPF brique (`gl.eq` 24 dB/oct) sous `6.5 kHz` sur l'harmonie (Pads/Accords) ni sous `9 kHz` sur le Lead** (planchers `source_lpf_floors_hz` dans `config/mix_profiles.json`) : un tel filtre creuse les haut-médiums et produit un « mix en U ».
+> - Pour **assombrir** un timbre brillant sans ce défaut : *high-shelf* doux atténuateur (`-3 dB` ~) ou **filtre de synthé musical** (pente douce 6–12 dB/oct, `Cutoff` du `gl.sampler`), jamais un LPF brique agressif. Ne pas laisser un synthé *saw/FM* complètement ouvert jusqu'à `20 kHz` non plus : adoucir par shelf.
+> - **Cloches / FM / Métallique (`gl.fm`, `gl.alloy`, `gl.matrixfm`)** : adoucir par shelf/filtre synthé (jamais de LPF brique < 9 kHz) + creux `gl.eq` (`Band type = 6 Peak`, `-3.0 dB @ 3200 Hz`, `Band N width = 0.35` *≈ Q 1.6*).
 > - **`gl.sampler` (mélodique ou hats brillants)** : Exploiter nativement les paramètres `Filter` (`1=Low pass`, `2=Low pass 24`) / `Cutoff` / `Resonance` du sampler si le sample est trop brillant.
 
 > **Règle d'Enveloppes ADSR sur Synthés `gl.*` (Anti-Rendu « Orgue Statique »)** :

@@ -37,7 +37,7 @@ Suivre cet ordre exact :
 * **Outils (`0 GPU`, hors `sfz/`)** : `librosa` (YIN, onsets, HPSS rapide), `praat-parselmouth` (`HNR`, $F_0$ dès `26 Hz`, formants), `scipy`/`essentia`/`soundfile` (phase M/S, Nyquist, harmoniques 808).
 * **`sample_nature`** : **`mono_oneshot`** (`playable_chromatically = True`, seul autorisé chromatiquement) · `melodic_sequence` (isoler 1 note via `extract_clean_oneshot`) · `poly_chord_or_dyad` (`DISSONANCE_RISK`) · `inharmonic_bell_or_fx` / `ambient_bed` / `percussion`.
 * **`analyze_vocal_signature`** : `est_voix_probable` (`80..400 Hz`, `HNR > 7 dB`), `chant_lent_tenu` (`< 2` attaques/s), `ratio_presence > 0.75`.
-* **Scoring 4 couches** : (1) Hard Filter (clipping, silence, phase `< 0.2`, `DISSONANCE_RISK`, `LOW_MID_WIDE_PHASE`), (2) Confort (`r_harsh` `2–5 kHz`, Plomp-Levelt ; filtrer `Cutoff <= 6 kHz` si centroïde `> 2.5 kHz` en `valence < 0` / `lofi_chill`), (3) Adéquation rôle & Bark 24 bandes, (4) CLAP optionnel.
+* **Scoring 4 couches** : (1) Hard Filter (clipping, silence, phase `< 0.2`, `DISSONANCE_RISK`, `LOW_MID_WIDE_PHASE`), (2) Confort (`r_harsh` `2–5 kHz`, Plomp-Levelt ; assombrir par shelf doux / filtre synthé musical si centroïde `> 2.5 kHz` en `valence < 0` / `lofi_chill` (jamais de LPF brique < 6,5 kHz, voir `config/mix_profiles.json`)), (3) Adéquation rôle & Bark 24 bandes, (4) CLAP optionnel.
 
 ---
 

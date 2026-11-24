@@ -1,5 +1,6 @@
 # Facette 0 — SOMMAIRE & Index Autonome du Framework AI-Studio
 > **v3.0** : en session de production, seul [AGENT_RUNBOOK.md](AGENT_RUNBOOK.md) est chargé (3 macro-tours, < 1 500 tokens) ; l'archive détaillée est dans [REFERENCE_ARCHIVE.md](REFERENCE_ARCHIVE.md).
+> **v3.2** : roadmap des 5 carences musicales majeures post-v3.1 dans [AUDIT_CARENCES_ET_SOLUTIONS_V3_2.md](AUDIT_CARENCES_ET_SOLUTIONS_V3_2.md) (NarrativeHarmony, ExpressionArticulations, FullCoverageCoreValidator, TimbralCohesion, MelodicAppealIndex + CI documentaire).
 
 
 > **Objectif** : Point d'entrée unique pour qu'un agent IA autonome localise immédiatement **chaque dossier et fichier** du framework (racine `$AI_STUDIO_DIR`), connaisse ses **fonctions / outils MCP exacts**, et suive l'**ordre d'utilité exact dans le workflow** sans explorer à l'aveugle.
@@ -25,6 +26,9 @@
 
 | Chemin | Rôle & Fonctions | Ordre / Usage |
 | :--- | :--- | :--- |
+| **`docs/AGENT_RUNBOOK.md`** | **Production (Tours 1–3)** | Runbook compact ($\le 1\,500$ tokens) pilotant les 3 macro-tours MCP. |
+| **`docs/REFERENCE_ARCHIVE.md`** | **Dev / Débogage** | Archive technique v3.0/v3.1, playbook des pièges et journal PQ. |
+| **`docs/AUDIT_CARENCES_ET_SOLUTIONS_V3_2.md`** | **Roadmap / Amélioration continue** | Les 5 carences musicales & structurelles majeures post-v3.1 et leurs solutions cibles v3.2. |
 | `.rules` *(symlinks `AGENTS.md`, `GEMINI.md`)* | Règles normatives globales : routeur de scénario `A/B/C/D`, routage documentaire just-in-time, pipeline en 5 tours et 14 invariants non-négociables. | **0** (lu automatiquement par l'agent) |
 | `README.md` | Présentation générale de l'environnement AI-Studio, installation rapide et prérequis Linux. | **0** (référence humaine) |
 | `.env` / `.env.example` | Variables d'environnement API (`FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`). | **3** (requis par `fetch_samples_api.py` / `fetch_samples_online`) |
@@ -38,7 +42,7 @@
 | `samples` *(symlink → `soundbanks/`)* | Point d'entrée canonique vers les banques locales utilisées par les indexeurs (`sfz/` exclu automatiquement). | **3** |
 | `soundbanks/` | Stockage réel des packs locaux WAV/OGG/MP3, boucles et sous-dossiers `.sfz` (exclus du scan mélodique). | **3** |
 | `SAMPLES/` | Arborescence pré-classée par rôle (`808/`, `bass/`, `clap/`, `fx/`, `guitar/`, `hat/`, `kick/`, `loop/`, `open_hat/`, `perc/`, `piano/`, `snare/`, `synth/`, `synth-samples/`, `vocal/`). | **3** |
-| `golden_references/` | Références golden par rôle (`bass_sub/`, `chord_keys/`, `hihat_perc/`, `kick/`, `lead_melody/`, `pad_atmosphere/`, `snare_clap/`), `README.md`, et **`spectral_profiles.json`** (empreintes Bark 24 bandes + pente spectrale + ratios `sub`/`low_mid`/`air` des 7 profils). | **3 & 6** (`build_references.py`, `bootstrap_golden_refs.py`) |
+| `golden_references/` | Références golden par rôle (`bass_sub/`, `chord_keys/`, `hihat_perc/`, `kick/`, `lead_melody/`, `pad_atmosphere/`, `snare_clap/`), `README.md`, et **`spectral_corridors.json`** (versionné Git : corridors `[P10,P90]` Bark24 + 8 métriques des 7 profils, référence de gate v3.1+) ; `spectral_profiles.json` = format legacy du builder (empreintes Bark 24 bandes + pente spectrale). | **3 & 6** (`build_references.py`, `bootstrap_golden_refs.py`) |
 | `voicebanks/` | Banques vocales OpenUTAU / DiffSinger (`README.md`, `TIGER_DS_v106/`). | **3** (`vocaloid`) |
 | `tools/` | Binaires et modèles externes : `tools/models/nmp.onnx` (Basic Pitch ONNX) et `tools/OpenUtau/OpenUtau` (rendu chant Linux `0.1.576`). | **3** (`reverse-engineer`, `vocaloid`) |
 | `projects/` | Projets Gridline actifs (`active/`, `active2/`..`active9/`, `active99/`, `selectionson/`, `validation_fm_dark/`), contenant chacun `song_blueprint.json`, `master_sketch.mid`, `samples/`, `scripts/`, `renders/`, `.gridline`. | **2–6** |
@@ -92,9 +96,22 @@ Lire **just-in-time** uniquement la facette correspondant à l'étape courante :
 | **5d** | `scripts/vertical_tester.py` | `classify_channel_stage`, `run_vertical_stage`, `run_all_vertical_stages`, `main` | **É2** : Orchestre les paliers `V1_LOW_END → V2_GROOVE → V3_HARMONY → V4_LEAD` par mute/unmute sur `core_loop.gridline`, retourne `target_layer_tracks` / `forbidden_tracks` et verrouille `core_loop_locked`. |
 | **6a** | `scripts/horizontal_tester.py` | `audit_seam_wav`, `audit_outro_wav`, `extract_sections_from_blueprint`, `audit_project_horizontal_seams`, `main` | **É3** : Rend uniquement les fenêtres de couture `4` mes. (`±2` mes.) autour des transitions + `Outro` : audite `ΔLUFS`, `beat4_dropout`/`filter_sweep`, `0` glitch `±150 ms` et extinction `< -45 dBFS`. |
 | **6b** | `scripts/loop_first_runner.py` | `LoopFirstStateMachine`, `detect_user_samples_locked`, `main` | **Orchestrateur d'états** (`<projet>/pipeline_state.json`) : pilote `E0 → E4`, verrouille `user_samples_locked`, bloque toute édition sur `forbidden_tracks` et escalade automatiquement vers `SWAP_SAMPLE` après 2 échecs. |
-| **6c** | `scripts/bootstrap_golden_refs.py` | `compute_bark24_distribution`, `build_spectral_profiles`, `compute_spectral_match`, `main` | Construit `golden_references/spectral_profiles.json` depuis `golden_references/external_masters/<profil>/` (provenance `external_pro_reference`, audio jamais versionné) ou les rendus internes (`internal_bootstrap`) et calcule `spectral_match_score` (0 PyTorch). |
+| **6c** | `scripts/bootstrap_golden_refs.py` | `compute_bark24_distribution`, `build_spectral_profiles`, `compute_spectral_match`, `main` | Construit `golden_references/spectral_profiles.json` (legacy) et `golden_references/spectral_corridors.json` (versionné, corridors `[P10,P90]`) depuis `golden_references/external_masters/<profil>/` (provenance `external_pro_reference`, audio jamais versionné) ou les rendus internes (`internal_bootstrap`) et calcule `spectral_match_score` (0 PyTorch). |
 | **6d** | `scripts/render_and_audit.py` | `parse_sections`, `render_and_evaluate`, `main` | Pipeline fermé Rendu + Audit + Quality Gate multi-genres (`--profile`, `--range`, `--no-neural`, `--no-drums`, `--blueprint`, `--sections`, `--mp3`) avec boucle **`--auto-fix --max-passes N`** écrivant `renders/autofix_history.json`. |
 | **7** | `scripts/build_references.py` | `build_golden_references`, `main` | Script CLI optionnel encodant les fichiers de `golden_references/<role>/` dans `mcp-servers/audio-index/golden_embeddings.npz` (CLAP CPU). |
+
+
+### 4b. Modules v3.0/v3.1/v3.2 (index complémentaire)
+
+| # | Script | Fonctions clés | Rôle |
+| :--- | :--- | :--- | :--- |
+| **v3.x** | `scripts/asset_hygiene.py` | `asset_hygiene` | Hygiène banques : whitelist extensions audio, magic bytes, parasites OS (`__MACOSX`, `.DS_Store`, `.wav.zpa`, `.fst`), fichiers < 1 Ko. Pas de détection de licence (responsabilité utilisateur). |
+| **v3.x** | `scripts/autofix_transaction.py` | `autofix_transaction` | Autofix transactionnel 3 paliers : rollback immédiat si invariant Palier 1 régresse, blacklist anti-oscillation, journal `renders/autofix_history.json`. |
+| **v3.x** | `scripts/blueprint_safety.py` | `blueprint_safety` | Audit musical projet-wide du blueprint : verrou octave exact `root_note == midi_root`, plafonds `S_max`, key-fit/BPM boucles, confinement cloches {1,5,8} ; bloque le rendu en `severity=error`. |
+| **v3.x** | `scripts/compile_song.py` | `compile_song` | Compilateur 100 % déclaratif (`--core-only` / `--probe` / complet) appliquant l'ordre canonique MIDI -> ScoreIR -> clamp frontière 20 ms ; tournoi de variantes `MelodicAppealIndex` en Tour 2 (v3.2). |
+| **v3.x** | `scripts/mix_config.py` | `mix_config` | Chargeur unique de `config/mix_profiles.json` (100 % des seuils mix/gate : `get_profile_config`, `tuning_tolerance`, `notch_budget`, `stem_hierarchy_bounds`, `autofix_step_bounds`). |
+| **v3.x** | `scripts/score_ir.py` | `score_ir` | ScoreIR (v3.1) + v3.2 articulations (`articulation`, `glide_ms`, `vibrato_delay_beats`) : groove non destructif (`expression`), clamp de frontière harmonique 20 ms, suspensions `4->3`/`9->8` résolues. |
+| **v3.x** | `scripts/stem_matrix_evaluator.py` | `stem_matrix_evaluator` | Évaluation NumPy V1..V4 d'un rendu stems + `evaluate_barwise_harmonic_alignment` (chroma-vs-grille par segment, contrat §4.3) + solveur de gains. |
 
 ---
 
