@@ -151,3 +151,19 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
 | `morceaux/song3` *Sillage de Minuit (Rap Inst.)* | Dark Trap / `144` / `Gm` | `120.0 s` | `-12.05` / `-1.32` | `1.00` / `0.922` | **`7.47`** | Instru Rap sans vox (`song3/Samples/` + alts `samples/`), 808 longues `1-2/mes`, `440.0 Hz (0.0 ct)`, 0 glitch/résonance, arc `4.44 dB` |
 | `morceaux/song4` *Ondes de Verre (Rap Inst.)* | Dark Trap / `172` / `Fm` | `178.6 s` | `-12.18` / `-1.29` | `1.00` / `0.990` | **`7.28`** | 100 % samples fournis (`air/Samples/` + 22 alts), 22 pistes isolées, `440.51 Hz (+2.0 ct)`, 0 glitch/résonance, arc `10.19 dB`, centralisation `sample_prep_lib` + `song_builder` |
 | `morceaux/song5` *Brume d'Automne (Rap Inst.)* | Melancholic Trap / `134` / `Dm` | `122.4 s` | `-11.59` / `-1.08` | `0.999` / `0.730` | **`7.44`** | 100 % samples fournis (`Untitled/Samples/` + 13 alts) + `gl.*`, 15 pistes isolées, `440.0 Hz (0.0 ct)`, 0 glitch/résonance, pente `-4.44 dB/oct`, `spectral_match=0.894` |
+
+
+---
+
+## Phase 6 — Synchronisation $S1/S2$, Pyramide $H \times V$, Cache & Auto-Fix Déterministe
+
+* **Micro-timing & Phase ($S1 / S2$)** :
+  * `S1/V` (`analyze_kick_bass_transient_phase`) : détecte les inversions de polarité Kick/808 (`INVERT_808_POLARITY` via `sample_prep_lib.invert_phase=True` ou `invertPolarity` mixer) et les micro-décalages (`SHIFT_BASS_MICRO_MS` borné à `±10 ms`).
+  * `S1/H` (`analyze_sustained_spectral_flux`) : signale les timbres soutenus figés (`STATIC_TIMBRE`).
+  * `S2/H` (`analyze_audio_pocket_alignment`) : mesure le retard d'attaque audio vs MIDI à la milliseconde et rogne les silences pré-attaque (`TRIM_SAMPLE_START_MS` via `sample_prep_lib.trim_start_ms`).
+  * `S2/V` (`analyze_transient_stacking`) : détecte `> 2` attaques non-percussives simultanées dans `1–4 kHz` / `LowMid` (`STAGGER_ATTACK_OR_STRUM` via `groove_lib.apply_micro_strum` ou enveloppe synthé `gl_dsl`).
+* **Surcharge par contrat & empreinte finale (`scripts/render_and_audit.py`)** : `--contract <multi_scale_contract.json>` surcharge localement `target_lufs`, `low_mids_max`, `air_min`, `sharp_max` et compare `bark24`; tout `PASS` complet exécute `macro_structure_audit.py` et exporte `<projet>/renders/master_fingerprint.json`.
+* **Workflow économe en tokens** :
+  * Préférer `audio-analyzer:audit_multiscale_hv(project_dir, stage, contract_path)` ou le CLI one-shot `.venv/bin/python scripts/run_autonomous_pipeline.py --project <dir> --stage E1|E2|E3|E4|ALL --auto-fix --max-autofix-passes 2 --json-compact`.
+  * Sortie strictement bornée par `scripts/multiscale_pyramid.py` (`<= 1 500` caractères, `<= 400` tokens, Top 3 déviations, blocage en cascade $S1/S2 \Rightarrow S4=S5=\text{null}$), détails complets écrits dans `renders/diagnostics/`.
+  * Cache SHA-256 incrémental (`scripts/artifact_cache.py` dans `pipeline_state.json`) sautant instantanément pistes É1, paliers É2 (`V1..V4`) et coutures É3 inchangés ; dispatcher local `scripts/multiscale_autofix.py` exécuté avant toute escalade LLM.

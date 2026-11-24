@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -27,10 +28,13 @@ for _p in (SCRIPTS_DIR, ANALYZER_DIR):
         sys.path.insert(0, _p)
 
 from audio_analyzer_server import _analyze_file
-from bootstrap_golden_refs import DEFAULT_PROFILES_PATH, compute_spectral_match
+from bootstrap_golden_refs import DEFAULT_PROFILES_PATH, compute_bark24_distribution, compute_spectral_match
+from catalog_coherence import build_master_fingerprint
 from deep_diagnostics import run_deep_audit
 from gl_dsl import clamp, eq_band, eq_params, limiter_master, to_mixer_params
+from macro_structure_audit import analyze_macro_structure
 from studio_lib import GridlineMCP
+from target_fingerprint import load_multi_scale_contract
 
 
 def parse_sections(spec: str) -> list[tuple[str, int, int]]:
@@ -108,6 +112,50 @@ def _resolve_blueprint_metadata(
     return valence, is_dark, bool(has_drums), used_bp
 
 
+def _extract_song_metadata_for_fingerprint(project_path: str, blueprint_used: str | None, fallback_bpm: float) -> dict[str, Any]:
+    bp_obj: dict[str, Any] = {}
+    cand_paths = []
+    if blueprint_used and os.path.isfile(blueprint_used):
+        cand_paths.append(blueprint_used)
+    proj_dir = os.path.dirname(os.path.abspath(os.path.expanduser(project_path)))
+    default_bp = os.path.join(proj_dir, "song_blueprint.json")
+    if os.path.isfile(default_bp) and default_bp not in cand_paths:
+        cand_paths.append(default_bp)
+    for p in cand_paths:
+        try:
+            with open(p, encoding="utf-8") as fh:
+                bp_obj = json.load(fh)
+            if isinstance(bp_obj, dict):
+                break
+        except Exception:
+            pass
+
+    eff_bpm = float(bp_obj.get("bpm") or fallback_bpm or 132.0)
+    hc = bp_obj.get("harmonic_core") or {}
+    key = str(hc.get("key") or bp_obj.get("key") or "")
+    deg = hc.get("degree_progression") or bp_obj.get("degree_progression") or ""
+
+    if os.path.isfile(os.path.expanduser(project_path)):
+        try:
+            with open(os.path.expanduser(project_path), encoding="utf-8") as fh:
+                gdata = json.load(fh)
+            if isinstance(gdata, dict):
+                if not bp_obj.get("bpm") and gdata.get("tempo"):
+                    eff_bpm = float(gdata["tempo"])
+                if not key and (gdata.get("key") or gdata.get("scale")):
+                    key = str(gdata.get("key") or gdata.get("scale"))
+        except Exception:
+            pass
+
+    return {
+        "project_name": os.path.basename(proj_dir) or os.path.splitext(os.path.basename(project_path))[0],
+        "project_dir": proj_dir,
+        "bpm": eff_bpm,
+        "key": key,
+        "degree_progression": deg,
+    }
+
+
 def render_and_evaluate(
     project: str,
     out_wav: str,
@@ -125,9 +173,17 @@ def render_and_evaluate(
     render_mp3: bool = False,
     use_neural: bool = True,
     profiles_path: str = DEFAULT_PROFILES_PATH,
+    contract_path: str = "",
+    run_macro_audit: bool = True,
+    stems_dir: str = "",
+    export_fingerprint: bool = True,
 ) -> dict[str, Any]:
     """Renders `.gridline` (optionally scoped by bar range) and computes full Quality Gate report."""
     gate_cfg = GENRE_GATES[profile]
+    proj_dir = os.path.dirname(os.path.abspath(os.path.expanduser(project)))
+    contract_obj = load_multi_scale_contract(contract_path=contract_path, project_dir=proj_dir)
+    s5_ctx = (contract_obj or {}).get("s5_context") or {}
+
     valence, is_dark, has_drums, blueprint_used = _resolve_blueprint_metadata(
         project_path=project,
         blueprint_path=blueprint,
@@ -136,9 +192,22 @@ def render_and_evaluate(
         has_drums_arg=has_drums_arg,
         profile=profile,
     )
-    air_min = gate_cfg["dark_air_min"] if is_dark else gate_cfg["air_min"]
-    sharp_max = gate_cfg["dark_sharp_max"] if is_dark else gate_cfg["sharp_max"]
-    eff_target_lufs = target_lufs if target_lufs is not None else gate_cfg["default_lufs"]
+    if contract_obj is not None and has_drums_arg is None and "has_drums" in contract_obj:
+        has_drums = bool(contract_obj["has_drums"])
+
+    air_min = float(s5_ctx["air_min"]) if s5_ctx.get("air_min") is not None else (
+        gate_cfg["dark_air_min"] if is_dark else gate_cfg["air_min"]
+    )
+    sharp_max = float(s5_ctx["sharp_max"]) if s5_ctx.get("sharp_max") is not None else (
+        gate_cfg["dark_sharp_max"] if is_dark else gate_cfg["sharp_max"]
+    )
+    low_mids_max = float(s5_ctx["low_mids_max"]) if s5_ctx.get("low_mids_max") is not None else gate_cfg["low_mids_max"]
+    pink_slope_range = s5_ctx.get("pink_slope_range")
+    eff_target_lufs = (
+        target_lufs
+        if target_lufs is not None
+        else (float(s5_ctx["target_lufs"]) if s5_ctx.get("target_lufs") is not None else gate_cfg["default_lufs"])
+    )
 
     abs_out = os.path.abspath(out_wav)
     os.makedirs(os.path.dirname(abs_out), exist_ok=True)
@@ -181,12 +250,21 @@ def render_and_evaluate(
     )
 
     mono = data.mean(axis=1)
+    bark24_measured = compute_bark24_distribution(mono, sr)
     spectral_match = compute_spectral_match(
         mono=mono,
         sr=sr,
         profile=profile,
         profiles_path=profiles_path,
+        bark_24=bark24_measured,
     )
+    if s5_ctx.get("bark24_target") and len(s5_ctx["bark24_target"]) == 24:
+        b_meas = np.asarray(bark24_measured, dtype=np.float64)
+        b_targ = np.asarray(s5_ctx["bark24_target"], dtype=np.float64)
+        denom = float(np.linalg.norm(b_meas) * np.linalg.norm(b_targ))
+        c_cos = round(float(np.dot(b_meas, b_targ) / denom), 4) if denom > 1e-12 else 0.0
+        spectral_match["contract_bark24_cosine"] = c_cos
+        spectral_match["reference_source"] = "multi_scale_contract"
 
     sec_lufs = {}
     if sections and not range_bars:
@@ -239,8 +317,8 @@ def render_and_evaluate(
             gate_failures.append(f"resonances={[r['freq_hz'] for r in severe_res]}")
     elif deep["third_octave_resonances"]:
         gate_failures.append(f"resonances={[r['freq_hz'] for r in deep['third_octave_resonances']]}")
-    if base["spectral_bands"]["low_mids"]["energy_pct"] > gate_cfg["low_mids_max"]:
-        gate_failures.append(f"low_mids={base['spectral_bands']['low_mids']['energy_pct']}% > {gate_cfg['low_mids_max']}%")
+    if base["spectral_bands"]["low_mids"]["energy_pct"] > low_mids_max:
+        gate_failures.append(f"low_mids={base['spectral_bands']['low_mids']['energy_pct']}% > {low_mids_max}%")
     if base["spectral_bands"]["air"]["energy_pct"] < air_min:
         gate_failures.append(f"air={base['spectral_bands']['air']['energy_pct']}% < {air_min}%")
     tune_ct = abs(float(deep["psychoacoustics"].get("tuning_cents_offset", 0.0)))
@@ -251,16 +329,73 @@ def render_and_evaluate(
         if arc_db < gate_cfg["arc_min"]:
             gate_failures.append(f"dynamic_arc={arc_db}dB < {gate_cfg['arc_min']}dB")
 
+    macro_res: dict[str, Any] | None = None
+    if run_macro_audit and not range_bars:
+        eff_stems_dir = stems_dir.strip() or (
+            os.path.join(proj_dir, "renders", "stems") if os.path.isdir(os.path.join(proj_dir, "renders", "stems")) else ""
+        )
+        try:
+            macro_res = analyze_macro_structure(
+                abs_out,
+                bpm=bpm,
+                beats_per_bar=max(1, int(round(beats_per_bar))),
+                sections=sections or None,
+                blueprint=blueprint_used or None,
+                contract=contract_obj,
+                stems_dir_or_map=eff_stems_dir or None,
+                project_dir=proj_dir,
+                has_drums=has_drums,
+            )
+            if contract_obj is not None:
+                if macro_res["clones_8bar"]["verdict"] == "FAIL":
+                    gate_failures.append(
+                        f"macro_8bar_clone={macro_res['clones_8bar']['max_similarity']}"
+                    )
+                if macro_res["cognitive_ceiling"]["verdict"] == "FAIL":
+                    gate_failures.append("macro_cognitive_ceiling_exceeded")
+        except Exception as exc:
+            macro_res = {"verdict": "SKIP", "error": str(exc)}
+
+    gate_passed = len(gate_failures) == 0
+    fp_path = ""
+    if export_fingerprint and gate_passed and not range_bars:
+        rms_all = float(np.sqrt(np.mean(mono ** 2))) + 1e-12
+        pk_all = float(np.max(np.abs(mono))) + 1e-12
+        crest_db = round(20.0 * math.log10(pk_all / rms_all), 2)
+        song_meta = _extract_song_metadata_for_fingerprint(project, blueprint_used, bpm)
+        fp_obj = build_master_fingerprint(
+            project_name=song_meta["project_name"],
+            project_dir=song_meta["project_dir"],
+            mix_profile=profile,
+            bpm=song_meta["bpm"],
+            key=song_meta["key"],
+            degree_progression=song_meta["degree_progression"],
+            integrated_lufs=base["integrated_lufs"],
+            true_peak_dbtp=base["true_peak_dbtp"],
+            crest_factor_db=crest_db,
+            pink_slope_db_per_oct=float(spectral_match.get("pink_slope_db_per_oct", -4.0)),
+            bark24=bark24_measured,
+            duration_s=base["duration_seconds"],
+        )
+        renders_dir = os.path.join(proj_dir, "renders")
+        os.makedirs(renders_dir, exist_ok=True)
+        fp_path = os.path.join(renders_dir, "master_fingerprint.json")
+        with open(fp_path, "w", encoding="utf-8") as fh:
+            json.dump(fp_obj, fh, indent=2, ensure_ascii=False)
+
     return {
         "profile": profile,
         "has_drums": has_drums,
         "dark_mode": is_dark,
         "valence": valence,
         "blueprint_used": blueprint_used,
+        "contract_used": bool(contract_obj is not None),
         "effective_thresholds": {
             "air_min": air_min,
             "sharp_max": sharp_max,
-            "low_mids_max": gate_cfg["low_mids_max"],
+            "low_mids_max": low_mids_max,
+            "target_lufs": eff_target_lufs,
+            "pink_slope_range": pink_slope_range,
             "arc_min": gate_cfg["arc_min"],
         },
         "target_lufs": eff_target_lufs,
@@ -280,8 +415,10 @@ def render_and_evaluate(
         "low_mid_corr": lm_corr,
         "neural": deep.get("neural_perception"),
         "section_lufs": sec_lufs,
+        "macro_structure": macro_res,
+        "master_fingerprint_path": fp_path or None,
         "quality_gate": {
-            "passed": len(gate_failures) == 0,
+            "passed": gate_passed,
             "failures": gate_failures,
         },
     }
@@ -584,6 +721,7 @@ def main() -> None:
     ap.add_argument("--no-neural", action="store_true", help="Skip Audiobox/CLAP for ultra-fast check")
     ap.add_argument("--auto-fix", action="store_true", help="Enable closed-loop deterministic mix auto-fix via GridlineMCP + gl_dsl")
     ap.add_argument("--max-passes", type=int, default=2, help="Maximum deterministic auto-fix passes (default 2)")
+    ap.add_argument("--contract", default="", help="Optional path to multi_scale_contract.json (auto-detected next to project)")
     args = ap.parse_args()
 
     has_drums_override: bool | None = False if args.no_drums else None
@@ -602,6 +740,7 @@ def main() -> None:
         has_drums_arg=has_drums_override,
         render_mp3=args.mp3 and not args.auto_fix,
         use_neural=not args.no_neural,
+        contract_path=args.contract,
     )
 
     if args.auto_fix:
@@ -647,6 +786,7 @@ def main() -> None:
                 has_drums_arg=has_drums_override,
                 render_mp3=args.mp3 and (pass_idx == max_p),
                 use_neural=not args.no_neural,
+                contract_path=args.contract,
             )
             history_passes.append(
                 {

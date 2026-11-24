@@ -30,11 +30,15 @@ if ANALYZER_DIR not in sys.path:
 from deep_diagnostics import audit_midi_file, resolve_allowed_pcs
 from musicality_metrics import (
     _PERC_TRACK_RE,
+    _bar_quarters,
     _compute_strong_beat_chord_tone_ratio,
     _extract_monophonic_topline,
     _infer_roles,
+    _note_quarter_pos,
     _resolve_time_signature,
     _strong_beat_times,
+    compute_motif_cohesion,
+    compute_rhythmic_interlocking,
     optimize_voice_leading,
 )
 
@@ -327,6 +331,249 @@ def _fix_strong_beat_chord_tones(
     return fixed
 
 
+def fix_motif_clone(
+    pm: pretty_midi.PrettyMIDI,
+    allowed_pcs: set[int],
+    min_pitch: int = 31,
+    max_pitch: int = 74,
+    time_signature: tuple[int, int] | str | None = None,
+    phrase_plan: str = "",
+    changes: list[dict[str, Any]] | None = None,
+) -> int:
+    """
+    Phase 6 §3.3 (`S3/H`): Mutate bar 2 (`A'`) and/or bar 3 (`A''`) of a cloned
+    4-bar Lead phrase (`ROBOTIC_LOOP_CLONE`) with diatonic chord/scale degree shifts
+    and a rhythmic half-beat variation while preserving stepwise motion and rests.
+    """
+    ch_log = changes if changes is not None else []
+    resolved_ts = _resolve_time_signature(pm, time_signature)
+    motif = compute_motif_cohesion(pm, time_signature=resolved_ts, phrase_plan=phrase_plan)
+    if motif.get("issue") != "ROBOTIC_LOOP_CLONE":
+        return 0
+
+    roles = _infer_roles(pm)
+    lead_insts = [i for i in roles["lead"] if i not in roles["chords"]]
+    if not lead_insts:
+        return 0
+
+    chord_notes = [n for inst in roles["chords"] for n in inst.notes]
+    bass_notes = [n for inst in roles["bass"] for n in inst.notes]
+    bar_q = _bar_quarters(resolved_ts[0], resolved_ts[1])
+    eff_min = max(48, int(min_pitch))
+
+    def _bar_notes_map(inst: pretty_midi.Instrument) -> dict[int, list[pretty_midi.Note]]:
+        out: dict[int, list[pretty_midi.Note]] = {}
+        for n in sorted(inst.notes, key=lambda x: x.start):
+            q = _note_quarter_pos(pm, n.start)
+            b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+            out.setdefault(b_idx, []).append(n)
+        return out
+
+    def _safe_diatonic_neighbor(note: pretty_midi.Note, target_delta: int, prev_p: int | None, next_p: int | None) -> int | None:
+        # Prefer active chord tones if on strong beat, else allowed scale PCs without b2 clash
+        active_harm = [
+            c.pitch for c in (chord_notes + bass_notes)
+            if c.start - 0.04 <= note.start <= c.end + 0.04
+        ]
+        harm_pcs = {p % 12 for p in active_harm}
+        cands: list[tuple[int, int]] = []
+        for delta in (-4, -3, -2, -1, 1, 2, 3, 4):
+            cand = int(note.pitch) + delta
+            if not (eff_min <= cand <= max_pitch):
+                continue
+            if allowed_pcs and (cand % 12) not in allowed_pcs:
+                continue
+            # Avoid minor 2nd / 9th clash against active harmony
+            if any(abs(cand - hp) in (1, 13) for hp in active_harm):
+                continue
+            # Keep stepwise smoothness
+            step_ok = True
+            if prev_p is not None and abs(cand - prev_p) > 4:
+                step_ok = False
+            if next_p is not None and abs(cand - next_p) > 4:
+                step_ok = False
+            if not step_ok:
+                continue
+            score = abs(delta - target_delta) * 10 - (3 if (cand % 12) in harm_pcs else 0)
+            cands.append((score, cand))
+        if not cands:
+            return None
+        cands.sort(key=lambda x: x[0])
+        return cands[0][1]
+
+    fixed = 0
+    for block_start_1 in motif.get("clone_start_bars") or []:
+        b0 = int(block_start_1) - 1
+        for inst in lead_insts:
+            tr_name = inst.name or f"Track_{inst.program}"
+            bmap = _bar_notes_map(inst)
+
+            # Mutate bar A' (b0 + 1) and bar A'' (b0 + 2) differently
+            for offset_bar, target_delta, rhy_shift_q in ((1, 2, 0.5), (2, 3, -0.5)):
+                notes_b = bmap.get(b0 + offset_bar, [])
+                if not notes_b:
+                    continue
+                # Pick a non-first note if possible (preserves strong-beat anchor)
+                pick_idx = min(len(notes_b) - 1, 1 if len(notes_b) >= 2 else 0)
+                if len(notes_b) >= 3 and offset_bar == 2:
+                    pick_idx = len(notes_b) - 1
+                target_note = notes_b[pick_idx]
+                prev_p = notes_b[pick_idx - 1].pitch if pick_idx > 0 else None
+                next_p = notes_b[pick_idx + 1].pitch if pick_idx + 1 < len(notes_b) else None
+
+                new_p = _safe_diatonic_neighbor(target_note, target_delta, prev_p, next_p)
+                if new_p is None:
+                    new_p = _safe_diatonic_neighbor(target_note, -target_delta, prev_p, next_p)
+                if new_p is not None and new_p != target_note.pitch:
+                    old_p = int(target_note.pitch)
+                    target_note.pitch = int(new_p)
+                    fixed += 1
+                    ch_log.append({
+                        "rule": "fix_motif_clone",
+                        "track": tr_name,
+                        "start_s": round(float(target_note.start), 3),
+                        "old_pitch": old_p,
+                        "new_pitch": int(new_p),
+                        "delta_st": int(new_p) - old_p,
+                    })
+
+                # Also shift one rhythmic onset by half a beat without overlapping neighbors
+                rhy_idx = min(len(notes_b) - 1, 1 if len(notes_b) >= 2 else 0)
+                rnote = notes_b[rhy_idx]
+                ppq = float(pm.resolution or 480)
+                q_cur = _note_quarter_pos(pm, rnote.start)
+                q_end = _note_quarter_pos(pm, rnote.end)
+                bar_start_q = float(b0 + offset_bar) * bar_q
+                bar_end_q = bar_start_q + bar_q
+                q_new = q_cur + rhy_shift_q
+                min_q = (_note_quarter_pos(pm, notes_b[rhy_idx - 1].end) + 0.05) if rhy_idx > 0 else bar_start_q
+                max_q = (_note_quarter_pos(pm, notes_b[rhy_idx + 1].start) - 0.20) if rhy_idx + 1 < len(notes_b) else (bar_end_q - 0.25)
+                if min_q <= q_new <= max_q:
+                    new_start_s = float(pm.tick_to_time(int(round(q_new * ppq))))
+                    dur_s = max(0.08, float(rnote.end - rnote.start))
+                    next_lim_s = float(notes_b[rhy_idx + 1].start) - 0.02 if rhy_idx + 1 < len(notes_b) else float(pm.tick_to_time(int(round(bar_end_q * ppq))))
+                    new_end_s = min(next_lim_s, new_start_s + dur_s)
+                    if new_end_s > new_start_s + 0.06:
+                        old_s = round(float(rnote.start), 3)
+                        rnote.start = new_start_s
+                        rnote.end = new_end_s
+                        fixed += 1
+                        ch_log.append({
+                            "rule": "fix_motif_clone_rhythm",
+                            "track": tr_name,
+                            "old_start_s": old_s,
+                            "new_start_s": round(new_start_s, 3),
+                        })
+
+    return fixed
+
+
+def fix_chords_lead_overlap(
+    pm: pretty_midi.PrettyMIDI,
+    time_signature: tuple[int, int] | str | None = None,
+    max_overlap: float = 0.30,
+    changes: list[dict[str, Any]] | None = None,
+) -> int:
+    """
+    Phase 6 §3.3 (`S3/V`): Relieve excessive `chords_lead_attack_overlap` (> `max_overlap`)
+    by anticipating (preferred: preserves strong-beat chord harmony) or delaying colliding
+    `Chords` slices by 1/16th of a bar so Lead attacks speak cleanly.
+    """
+    ch_log = changes if changes is not None else []
+    resolved_ts = _resolve_time_signature(pm, time_signature)
+    inter = compute_rhythmic_interlocking(
+        pm, time_signature=resolved_ts, max_chords_lead_overlap=max_overlap
+    )
+    cur_overlap = inter.get("chords_lead_attack_overlap")
+    if cur_overlap is None or cur_overlap <= float(max_overlap):
+        return 0
+
+    roles = _infer_roles(pm)
+    chord_insts = roles["chords"]
+    lead_insts = roles["lead"]
+    if not chord_insts or not lead_insts:
+        return 0
+
+    bar_q = _bar_quarters(resolved_ts[0], resolved_ts[1])
+    ppq = float(pm.resolution or 480)
+    step_q = bar_q / 16.0
+
+    def _slot_of_time(t_s: float) -> tuple[int, int]:
+        q = _note_quarter_pos(pm, t_s)
+        b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+        ph = (q - b_idx * bar_q) / max(bar_q, 1e-4)
+        return b_idx, min(15, max(0, int(round(ph * 16.0))))
+
+    lead_slots: set[tuple[int, int]] = {
+        _slot_of_time(n.start) for inst in lead_insts for n in inst.notes
+    }
+
+    fixed = 0
+    for inst in chord_insts:
+        tr_name = inst.name or f"Track_{inst.program}"
+        slices = _group_chord_note_slices(inst.notes)
+        for sl_idx, sl in enumerate(slices):
+            # Re-evaluate stopping criterion
+            inter_now = compute_rhythmic_interlocking(
+                pm, time_signature=resolved_ts, max_chords_lead_overlap=max_overlap
+            )
+            if (inter_now.get("chords_lead_attack_overlap") or 0.0) <= float(max_overlap):
+                return fixed
+
+            t_ref = min(n.start for n in sl)
+            b_idx, slot = _slot_of_time(t_ref)
+            if (b_idx, slot) not in lead_slots:
+                continue
+
+            q_ref = _note_quarter_pos(pm, t_ref)
+            # Option A: Anticipate by 1/16th (keeps chord sounding ON the strong beat!)
+            shifted = False
+            if q_ref >= step_q * 0.9:
+                q_ant = max(0.0, q_ref - step_q)
+                t_ant = float(pm.tick_to_time(int(round(q_ant * ppq))))
+                ant_slot = _slot_of_time(t_ant)
+                prev_end = max(n.end for n in slices[sl_idx - 1]) if sl_idx > 0 else -1.0
+                if ant_slot not in lead_slots:
+                    # Trim previous slice slightly if needed so anticipation doesn't overlap
+                    if sl_idx > 0 and prev_end > t_ant - 0.01:
+                        for pn in slices[sl_idx - 1]:
+                            if pn.end > t_ant - 0.01 and pn.start < t_ant - 0.05:
+                                pn.end = max(pn.start + 0.05, t_ant - 0.01)
+                    delta_s = t_ant - t_ref
+                    for cn in sl:
+                        cn.start = max(0.0, cn.start + delta_s)
+                    shifted = True
+                    fixed += 1
+                    ch_log.append({
+                        "rule": "fix_chords_lead_overlap",
+                        "track": tr_name,
+                        "mode": "anticipate_16th",
+                        "old_start_s": round(float(t_ref), 3),
+                        "new_start_s": round(float(t_ant), 3),
+                    })
+
+            # Option B: Delay by 1/16th if anticipation wasn't possible (e.g. bar 1 beat 0)
+            if not shifted:
+                q_del = q_ref + step_q
+                t_del = float(pm.tick_to_time(int(round(q_del * ppq))))
+                del_slot = _slot_of_time(t_del)
+                min_end = min(n.end for n in sl)
+                if del_slot not in lead_slots and t_del < min_end - 0.05:
+                    delta_s = t_del - t_ref
+                    for cn in sl:
+                        cn.start = cn.start + delta_s
+                    fixed += 1
+                    ch_log.append({
+                        "rule": "fix_chords_lead_overlap",
+                        "track": tr_name,
+                        "mode": "delay_16th",
+                        "old_start_s": round(float(t_ref), 3),
+                        "new_start_s": round(float(t_del), 3),
+                    })
+
+    return fixed
+
+
 def autofix_midi(
     midi_path: str,
     expected_key: str = "",
@@ -339,6 +586,8 @@ def autofix_midi(
     phrase_plan: str = "",
     out_path: str | None = None,
     in_place: bool = False,
+    fix_s3: bool = False,
+    strict_s3: bool = False,
 ) -> dict[str, Any]:
     """
     Runs deterministic MIDI repairs, writes a corrected MIDI file, re-audits via `audit_midi_file`,
@@ -348,6 +597,7 @@ def autofix_midi(
     if not os.path.isfile(abs_in):
         return {"error": f"Fichier MIDI introuvable : {abs_in}", "gate_passed": False}
 
+    eff_strict_s3 = bool(strict_s3)
     initial_audit = audit_midi_file(
         midi_path=abs_in,
         expected_key=expected_key,
@@ -358,6 +608,7 @@ def autofix_midi(
         tension=tension,
         time_signature=time_signature,
         phrase_plan=phrase_plan,
+        strict_s3=eff_strict_s3,
     )
 
     ref_key = (expected_key or "").strip() or str(initial_audit.get("detected_key") or "C minor")
@@ -369,6 +620,23 @@ def autofix_midi(
     oos_fixed = _fix_out_of_scale(pm, allowed_pcs, min_pitch, max_pitch, changes)
     high_fixed, low_fixed = _fix_pitch_bounds(pm, min_pitch, max_pitch, changes)
     sub_fixed = _fix_sub_collisions(pm, max_pitch, changes)
+    motif_fixed = 0
+    overlap_fixed = 0
+    if fix_s3 or eff_strict_s3:
+        motif_fixed = fix_motif_clone(
+            pm,
+            allowed_pcs=allowed_pcs,
+            min_pitch=min_pitch,
+            max_pitch=max_pitch,
+            time_signature=resolved_ts,
+            phrase_plan=phrase_plan,
+            changes=changes,
+        )
+        overlap_fixed = fix_chords_lead_overlap(
+            pm,
+            time_signature=resolved_ts,
+            changes=changes,
+        )
     sb_fixed = _fix_strong_beat_chord_tones(
         pm=pm,
         allowed_pcs=allowed_pcs,
@@ -402,6 +670,7 @@ def autofix_midi(
         tension=tension,
         time_signature=resolved_ts,
         phrase_plan=phrase_plan,
+        strict_s3=eff_strict_s3,
     )
 
     remaining_structural = [
@@ -421,6 +690,8 @@ def autofix_midi(
             "too_low_count": low_fixed,
             "sub_collisions": sub_fixed,
             "strong_beat_chord_tone_ratio": sb_fixed,
+            "fix_motif_clone": motif_fixed,
+            "fix_chords_lead_overlap": overlap_fixed,
         },
         "total_changes": len(changes),
         "changes": changes,

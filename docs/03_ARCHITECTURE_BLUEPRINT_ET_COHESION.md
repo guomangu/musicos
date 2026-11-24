@@ -146,3 +146,17 @@ if __name__ == "__main__":
         insert_eq_params=eq_params(1, [eq_band(1, "hpf", 30)]) + eq_params(3, [eq_band(1, "hpf", 220), eq_band(4, "peak", 1800, -3.0, q=1.4)]),
     )
 ```
+
+
+---
+
+## Phase 6 — Contrat Multi-Échelles ($S5 \rightarrow S1$) & Cohérence Macro ($S4$)
+
+1. **Contrat normatif (`multi_scale_contract.json`)** : généré en **É0** via `scripts/target_fingerprint.py` (ou MCP `audio-analyzer:extract_target_fingerprint`) à partir de `0..3` audio de référence et du schéma `schemas/multi_scale_contract.schema.json`.
+2. **Synchronisation $S3$ (Syntaxe & Forme Courte)** : `audit_midi_harmony` / `evaluate_midi_musicality(..., strict_s3=True)` vérifie la cohésion motivique (`A-A'-A''-B`, rejetant clones robotiques `> 0.92` et phrases sans cohésion `< 0.08`), l'arc de tension harmonique sur 4 mesures et l'interlocking Accords/Lead (`chords_lead_attack_overlap <= 0.25`). Corrections mécaniques via `midi_autofix.autofix_midi(..., fix_s3=True)`.
+3. **Audit Macro-Structurel $S4$ (`scripts/macro_structure_audit.py`)** :
+   - **SSM bar-synchronisée** (`0.35 Chroma CQT + 0.40 MFCC 1..13 + 0.25 Rythme 16 pas`) : tout bloc de 8 mesures cloné (`S_bar8 > 0.94`) déclenche `MUTATE_BLOCK_DENSITY_OR_LPF`.
+   - **Nouveauté Checkerboard ($L=4$ mes.)** : chaque transition déclarée dans `song_blueprint.json` doit présenter un pic de nouveauté à `±1` mesure (`REINFORCE_SECTION_TRANSITION`).
+   - **Arc Dramatique 5D** `(LUFS, Centroïde, Densité d'onsets, Largeur M/S, Flux cognitifs)` : valide l'évolution de genres sans batterie (`has_drums=false` / `classical_ambient`).
+   - **Plafond Cognitif sur stems (`> -28 dBFS` RMS/mesure)** : vérifie le respect des quotas d'arrangement par section (`PRUNE_TRACK_IN_SECTION` si dépassement sur `> 2` mesures consécutives).
+4. **Catalogue & EP (`scripts/catalog_coherence.py`)** : sur chaque `É4 PASS`, `render_and_audit.py` exporte `<projet>/renders/master_fingerprint.json` ($\approx 1\text{ Ko}$), audité ensuite en lot par mode `ep|album|dj_set` (homogénéité LUFS `<= 1.5 dB`, pente rose `<= 1.2 dB/oct`, diversité BPM/clé/progression, ordre optimal Camelot).

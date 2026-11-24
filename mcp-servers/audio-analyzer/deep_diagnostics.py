@@ -496,6 +496,8 @@ def audit_midi_file(
     tension: float = 0.3,
     time_signature: tuple[int, int] | str | None = None,
     phrase_plan: str = "",
+    strict_s3: bool = False,
+    s3_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Audite la justesse harmonique, la tessiture (notes trop aiguës), les clashs MIDI et les métriques de musicalité."""
     import music21
@@ -570,6 +572,8 @@ def audit_midi_file(
         allowed_pcs=allowed_pcs,
         time_signature=time_signature,
         phrase_plan=phrase_plan,
+        strict_s3=strict_s3,
+        s3_contract=s3_contract,
     )
     clashes = musicality.get("minor_2nd_clashes", [])
     blocking_clashes = musicality.get("blocking_minor_2nd_clashes", clashes)
@@ -593,6 +597,7 @@ def audit_midi_file(
         "time_signature": musicality.get("time_signature", "4/4"),
         "phrase_plan": musicality.get("phrase_plan", phrase_plan or "standard"),
         "strict_musicality": strict_musicality,
+        "strict_s3": strict_s3,
         "emotion_mode": musicality.get("emotion_mode", "consonant"),
         "valence": valence,
         "tension": tension,
@@ -603,6 +608,7 @@ def audit_midi_file(
         "musicality_verdict": musicality["musicality_verdict"],
         "gate_passed": gate_ok if strict_musicality else (out_of_scale_total == 0 and pitch_range_ok and len(blocking_clashes) == 0),
         "musicality_metrics": musicality["metrics"],
+        "s3_diagnostics": musicality.get("s3_diagnostics"),
         "musicality_detected_roles": musicality["detected_roles"],
         "musicality_failures": musicality["failures"],
         "tracks": track_reports,
@@ -1042,12 +1048,760 @@ def _detect_bass_harmony_chroma_clash(mono: np.ndarray, sr: int) -> dict[str, An
         return {"clash_ratio": 0.0, "active_frames": 0, "clash_detected": False}
 
 
+def _load_mono_audio_input(wav_or_arr: Any, default_sr: int = 44100) -> tuple[np.ndarray, int]:
+    if isinstance(wav_or_arr, str):
+        data, sr = sf.read(os.path.abspath(os.path.expanduser(wav_or_arr)), dtype="float64", always_2d=True)
+        return np.mean(data, axis=1), int(sr)
+    if isinstance(wav_or_arr, (tuple, list)) and len(wav_or_arr) == 2 and isinstance(wav_or_arr[0], np.ndarray):
+        arr = np.asarray(wav_or_arr[0], dtype=np.float64)
+        if arr.ndim == 2:
+            arr = np.mean(arr, axis=1)
+        return arr, int(wav_or_arr[1])
+    arr = np.asarray(wav_or_arr, dtype=np.float64)
+    if arr.ndim == 2:
+        arr = np.mean(arr, axis=1)
+    return arr, int(default_sr)
+
+
+def analyze_kick_bass_transient_phase(
+    kick_wav: Any,
+    bass_wav: Any,
+    sr: int = 44100,
+    min_corr: float = 0.25,
+) -> dict[str, Any]:
+    """
+    Échelle S1 / Axe V (Phase 6 §3.1) :
+    Alignement de phase par cycle sous 120 Hz sur les 35 ms d'attaque commune Kick/Basse
+    pour tau in [-10 ms, +10 ms].
+    """
+    k_mono, k_sr = _load_mono_audio_input(kick_wav, default_sr=sr)
+    b_mono, b_sr = _load_mono_audio_input(bass_wav, default_sr=sr)
+    if b_sr != k_sr:
+        g = math.gcd(k_sr, b_sr)
+        b_mono = signal.resample_poly(b_mono, k_sr // g, b_sr // g)
+    eff_sr = k_sr
+    n_min = min(len(k_mono), len(b_mono))
+    if n_min < max(256, int(0.05 * eff_sr)):
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "r_0": None,
+            "r_max": None,
+            "r_inv": None,
+            "tau_star_ms": 0.0,
+            "shared_transients": 0,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+    k_mono = k_mono[:n_min]
+    b_mono = b_mono[:n_min]
+    # Cap long stems (> 30 s) to first active 24s window containing kick hits (< 0.1s CPU)
+    if len(k_mono) > int(30.0 * eff_sr):
+        k_pk = float(np.max(np.abs(k_mono))) + 1e-12
+        hits = np.where(np.abs(k_mono) >= 0.25 * k_pk)[0]
+        w_start = max(0, int(hits[0]) - int(0.05 * eff_sr)) if len(hits) else 0
+        w_end = min(len(k_mono), w_start + int(24.0 * eff_sr))
+        k_mono = k_mono[w_start:w_end]
+        b_mono = b_mono[w_start:w_end]
+        n_min = len(k_mono)
+
+    # Decimate low-end analysis to ~11.025 kHz (Nyquist 5.5 kHz >> 120 Hz, 4x faster on CPU)
+    if eff_sr >= 22050:
+        d_pre = max(1, int(eff_sr // 11025))
+        k_mono = k_mono[::d_pre]
+        b_mono = b_mono[::d_pre]
+        eff_sr = max(1, int(round(float(eff_sr) / float(d_pre))))
+        n_min = len(k_mono)
+
+    sos_lp = signal.butter(4, min(120.0, 0.45 * eff_sr), btype="lowpass", fs=eff_sr, output="sos")
+    k_lp = signal.sosfilt(sos_lp, k_mono)
+    b_lp = signal.sosfilt(sos_lp, b_mono)
+
+    # Detect Kick attacks purely via fast <120 Hz + fullband RMS envelope rise (<2 ms CPU, 0 JIT)
+    onsets_s: list[int] = []
+    hop_rms = max(1, int(0.003 * eff_sr))
+    nf = len(k_mono) // hop_rms
+    if nf >= 4:
+        k_env = np.sqrt(np.mean(k_mono[: nf * hop_rms].reshape(nf, hop_rms) ** 2, axis=1))
+        pk_max = float(np.max(k_env))
+        if pk_max > 0.01:
+            pk_h = max(1e-4, 0.28 * pk_max)
+            pks, _ = signal.find_peaks(k_env, height=pk_h, distance=max(2, int(0.08 * eff_sr / hop_rms)))
+            if len(pks) == 0 or (int(pks[0]) > 4 and float(np.max(k_env[:3])) >= pk_h):
+                nz = np.where(k_env[: max(4, int(0.02 * eff_sr / hop_rms))] >= 0.15 * pk_max)[0]
+                if len(nz):
+                    onsets_s.append(max(0, int(nz[0]) * hop_rms))
+            for pk in pks:
+                loc_h = float(k_env[int(pk)])
+                bt = int(pk)
+                while bt > 0 and k_env[bt - 1] >= 0.15 * loc_h and (int(pk) - bt) < 8:
+                    bt -= 1
+                s_cand = max(0, bt * hop_rms)
+                if not any(abs(s_cand - o) < int(0.06 * eff_sr) for o in onsets_s):
+                    onsets_s.append(s_cand)
+
+    onsets_s.sort()
+    # Decimate already low-passed (<120 Hz) signals to ~5.5 kHz for O(1) vectorized C cross-corr (<5 ms)
+    dec = max(1, int(round(float(eff_sr) / 5512.0)))
+    sr_sub = float(eff_sr) / float(dec)
+    k_sub = k_lp[::dec]
+    b_sub = b_lp[::dec]
+    n_sub = len(k_sub)
+
+    win_n = max(16, int(round(0.035 * sr_sub)))
+    max_lag = max(2, int(round(0.010 * sr_sub)))
+    lags = np.arange(-max_lag, max_lag + 1, dtype=int)
+    bass_thresh_rms = 10.0 ** (-30.0 / 20.0)  # -30 dBFS = 0.03162
+
+    corr_curves: list[np.ndarray] = []
+    for t_k in onsets_s[:24]:
+        tk_sub = t_k // dec
+        end_k = min(n_sub, tk_sub + win_n)
+        seg_len = end_k - tk_sub
+        if seg_len < max(12, win_n // 2):
+            continue
+        b_rms = float(np.sqrt(np.mean(b_sub[tk_sub:end_k] ** 2)))
+        if b_rms < bass_thresh_rms:
+            continue
+        xk = k_sub[tk_sub:end_k]
+        xk_norm = float(np.sum(xk ** 2))
+        if xk_norm < 1e-10:
+            continue
+
+        lo_b = tk_sub - max_lag
+        hi_b = tk_sub + seg_len + max_lag
+        pad_l = max(0, -lo_b)
+        pad_r = max(0, hi_b - n_sub)
+        b_slice = b_sub[max(0, lo_b) : min(n_sub, hi_b)]
+        if pad_l or pad_r:
+            b_slice = np.pad(b_slice, (pad_l, pad_r))
+        win_mat = np.lib.stride_tricks.sliding_window_view(b_slice, seg_len)[: len(lags)]
+        dots = win_mat @ xk
+        denoms = np.sqrt(xk_norm * np.sum(win_mat ** 2, axis=1)) + 1e-12
+        corr_curves.append(dots / denoms)
+
+    if not corr_curves:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "r_0": None,
+            "r_max": None,
+            "r_inv": None,
+            "tau_star_ms": 0.0,
+            "shared_transients": 0,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    mean_curve = np.median(np.vstack(corr_curves), axis=0)
+    zero_idx = int(max_lag)
+    r_0 = round(float(mean_curve[zero_idx]), 4)
+    best_idx = int(np.argmax(mean_curve))
+    r_max = round(float(mean_curve[best_idx]), 4)
+    tau_star_ms = round(float(lags[best_idx]) * 1000.0 / float(sr_sub), 2)
+    r_inv = round(float(np.max(-mean_curve)), 4)
+
+    if r_0 >= float(min_corr):
+        verdict = "PASS"
+        status = "PASS"
+        next_action: dict[str, Any] = {"code": "KEEP", "params": {}}
+        score = round(min(1.0, 0.70 + 0.30 * max(0.0, r_0)), 3)
+    elif r_0 < -0.15 and (-r_0) > 0.50:
+        verdict = "FIX"
+        status = "FAIL"
+        next_action = {"code": "INVERT_808_POLARITY", "params": {"r_0": r_0}}
+        score = round(max(0.10, 0.50 + r_0 * 0.4), 3)
+    elif r_0 < float(min_corr) and r_max >= 0.55 and abs(tau_star_ms) <= 10.0:
+        verdict = "FIX"
+        status = "FAIL"
+        delta_ms = round(-tau_star_ms, 2)
+        next_action = {
+            "code": "SHIFT_BASS_MICRO_MS",
+            "params": {"delta_ms": delta_ms, "tau_star_ms": tau_star_ms, "r_0": r_0, "r_max": r_max},
+        }
+        score = round(max(0.25, 0.55 + r_0 * 0.3), 3)
+    elif r_0 < -0.15 and r_inv > 0.50:
+        verdict = "FIX"
+        status = "FAIL"
+        next_action = {"code": "INVERT_808_POLARITY", "params": {"r_0": r_0, "r_inv": r_inv}}
+        score = round(max(0.15, 0.45 + r_0 * 0.3), 3)
+    else:
+        verdict = "FIX"
+        status = "FAIL"
+        next_action = {"code": "ADJUST_SIDECHAIN_OR_POCKET", "params": {"r_0": r_0, "r_max": r_max}}
+        score = round(max(0.20, 0.50 + r_0 * 0.3), 3)
+
+    return {
+        "status": status,
+        "verdict": verdict,
+        "score": score,
+        "r_0": r_0,
+        "r_max": r_max,
+        "r_inv": r_inv,
+        "tau_star_ms": tau_star_ms,
+        "shared_transients": len(corr_curves),
+        "next_action": next_action,
+    }
+
+
+def analyze_sustained_spectral_flux(
+    wav_or_arr: Any,
+    sr: int = 44100,
+    min_flux: float = 0.015,
+    role: str = "pad",
+) -> dict[str, Any]:
+    """
+    Échelle S1 / Axe H (Phase 6 §3.1) :
+    Sur notes tenues > 0.4 s (hors percussions), mesure le flux spectral normalisé
+    trame à trame sur la portion centrale [20%, 80%] + kurtosis (TIMESTRETCH_ARTIFACT).
+    """
+    low_role = (role or "").lower()
+    if any(k in low_role for k in ("kick", "snare", "clap", "hat", "perc", "drum")):
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "spectral_flux_norm": None,
+            "flux_kurtosis": None,
+            "warning": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    mono, eff_sr = _load_mono_audio_input(wav_or_arr, default_sr=sr)
+    if len(mono) > int(24.0 * eff_sr):
+        # Analyze centered 24s window so long 2-min stems run in <0.1s CPU
+        mid = len(mono) // 2
+        half = int(12.0 * eff_sr)
+        mono = mono[max(0, mid - half) : min(len(mono), mid + half)]
+    if len(mono) < int(0.42 * eff_sr):
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "spectral_flux_norm": None,
+            "flux_kurtosis": None,
+            "warning": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    hop = 256
+    n_fft = 1024
+    rms_frames = librosa.feature.rms(y=mono.astype(np.float32), frame_length=n_fft, hop_length=hop)[0]
+    pk_rms = float(np.max(rms_frames)) + 1e-12
+    active = rms_frames > (0.15 * pk_rms)
+
+    # Find contiguous sustained segments > 0.4 s
+    min_frames = max(4, int(round(0.40 * eff_sr / hop)))
+    segments: list[tuple[int, int]] = []
+    cur_s: int | None = None
+    for idx, flag in enumerate(active):
+        if flag and cur_s is None:
+            cur_s = idx
+        elif not flag and cur_s is not None:
+            if idx - cur_s >= min_frames:
+                segments.append((cur_s, idx))
+            cur_s = None
+    if cur_s is not None and len(active) - cur_s >= min_frames:
+        segments.append((cur_s, len(active)))
+
+    if not segments:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "spectral_flux_norm": None,
+            "flux_kurtosis": None,
+            "warning": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    stft_mag = np.abs(librosa.stft(mono.astype(np.float32), n_fft=n_fft, hop_length=hop))
+    flux_vals: list[np.ndarray] = []
+    for f0, f1 in segments:
+        seg_len = f1 - f0
+        c0 = f0 + int(round(0.20 * seg_len))
+        c1 = min(stft_mag.shape[1], f0 + int(round(0.80 * seg_len)))
+        if c1 - c0 < 3:
+            continue
+        sub = stft_mag[:, c0:c1]
+        norms = np.linalg.norm(sub[:, 1:], axis=0) + 1e-9
+        diffs = np.linalg.norm(sub[:, 1:] - sub[:, :-1], axis=0)
+        flux_vals.append(diffs / norms)
+
+    if not flux_vals:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "spectral_flux_norm": None,
+            "flux_kurtosis": None,
+            "warning": None,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    all_flux = np.concatenate(flux_vals)
+    f_med = round(float(np.median(all_flux)), 5)
+    from scipy.stats import kurtosis as _scipy_kurtosis
+
+    flux_kurt = (
+        round(float(_scipy_kurtosis(all_flux, fisher=True)), 2)
+        if len(all_flux) >= 8 and float(np.std(all_flux)) > 1e-9
+        else 0.0
+    )
+
+    static_timbre = f_med < float(min_flux)
+    timestretch_art = flux_kurt > 25.0
+    warning: str | None = None
+    next_action: dict[str, Any] = {"code": "KEEP", "params": {}}
+    score = 1.0
+    if static_timbre:
+        warning = "STATIC_TIMBRE"
+        next_action = {
+            "code": "ADD_SUBTLE_MODULATION_OR_LPF_MOVEMENT",
+            "params": {"spectral_flux_norm": f_med, "min_flux": min_flux},
+        }
+        score = round(max(0.35, min(0.64, f_med / max(1e-5, float(min_flux)) * 0.65)), 3)
+    elif timestretch_art:
+        warning = "TIMESTRETCH_ARTIFACT"
+        next_action = {
+            "code": "FIX_TIMESTRETCH_ARTIFACT",
+            "params": {"flux_kurtosis": flux_kurt},
+        }
+        score = 0.50
+
+    return {
+        "status": "WARN" if warning else "PASS",
+        "verdict": "FIX" if warning else "PASS",
+        "score": score,
+        "spectral_flux_norm": f_med,
+        "flux_kurtosis": flux_kurt,
+        "sustained_segments": len(segments),
+        "warning": warning,
+        "next_action": next_action,
+    }
+
+
+def _detect_highres_onsets_s(mono: np.ndarray, sr: int) -> list[float]:
+    if len(mono) < 256 or float(np.max(np.abs(mono))) < 1e-4:
+        return []
+    hop = 64
+    o_env = librosa.onset.onset_strength(
+        y=mono.astype(np.float32),
+        sr=sr,
+        hop_length=hop,
+        n_fft=512,
+        n_mels=48,
+        fmin=30.0,
+        fmax=min(16000.0, 0.45 * float(sr)),
+    )
+    pre_m = max(1, int(round(0.030 * sr / hop)))
+    avg_m = max(2, int(round(0.080 * sr / hop)))
+    wait_m = max(2, int(round(0.060 * sr / hop)))
+    frames = librosa.onset.onset_detect(
+        onset_envelope=o_env,
+        sr=sr,
+        hop_length=hop,
+        pre_max=pre_m,
+        post_max=pre_m,
+        pre_avg=avg_m,
+        post_avg=avg_m,
+        delta=0.07,
+        wait=wait_m,
+        backtrack=True,
+        units="frames",
+    )
+    samples = [int(f * hop) for f in frames]
+    abs_m = np.abs(mono)
+    pk = float(np.max(abs_m))
+    if not samples:
+        nz = np.where(abs_m >= 0.12 * pk)[0]
+        if len(nz):
+            samples = [int(nz[0])]
+    elif int(samples[0]) > int(0.025 * sr) and float(np.max(abs_m[: int(0.015 * sr)])) >= 0.25 * pk:
+        # Handle initial hit right near sample 0 missed by peak-picking window
+        nz0 = np.where(abs_m[: int(0.015 * sr)] >= 0.08 * pk)[0]
+        if len(nz0):
+            samples.insert(0, int(nz0[0]))
+
+    refined_s: list[float] = []
+    look_back = int(0.025 * sr)
+    look_fwd = int(0.025 * sr)
+    win_cmp = int(0.012 * sr)
+    for s_idx in samples:
+        lo = max(0, s_idx - look_back)
+        hi = min(len(mono), s_idx + look_fwd)
+        seg = abs_m[lo:hi]
+        if len(seg) < 16:
+            refined_s.append(float(s_idx) / float(sr))
+            continue
+        loc_pk = float(np.max(seg))
+        if loc_pk < 1e-4:
+            continue
+        # Snap to exact threshold crossing where signal rises above 8% of local peak
+        nz = np.where(seg >= 0.08 * loc_pk)[0]
+        exact_idx = lo + int(nz[0]) if len(nz) else s_idx
+        if exact_idx > int(0.015 * sr) and (exact_idx + win_cmp) < len(mono):
+            pre_rms = float(np.sqrt(np.mean(mono[max(0, exact_idx - win_cmp) : exact_idx] ** 2)))
+            post_rms = float(np.sqrt(np.mean(mono[exact_idx : exact_idx + win_cmp] ** 2)))
+            if pre_rms >= post_rms * 0.95:
+                continue
+        t_s = float(exact_idx) / float(sr)
+        if not refined_s or (t_s - refined_s[-1]) >= 0.050:
+            refined_s.append(t_s)
+    return refined_s
+
+
+def _lookup_haas_target_ms(role_name: str, haas_targets_ms: dict[str, float] | None) -> float:
+    if not haas_targets_ms:
+        return 0.0
+    low = role_name.lower()
+    if low in haas_targets_ms:
+        return float(haas_targets_ms[low])
+    for kw, val in haas_targets_ms.items():
+        if kw.lower() in low or low in kw.lower():
+            return float(val)
+    return 0.0
+
+
+def analyze_audio_pocket_alignment(
+    stems_by_role: dict[str, Any],
+    midi_notes_by_role: dict[str, list[Any]],
+    bpm: float = 132.0,
+    haas_targets_ms: dict[str, float] | None = None,
+    tolerance_ms: float = 7.0,
+    sr: int = 44100,
+    track_is_sampler: dict[str, bool] | None = None,
+) -> dict[str, Any]:
+    """
+    Échelle S2 / Axe H (Phase 6 §3.2) :
+    Détecte les onsets audio haute résolution (hop_length=64, backtrack=True),
+    apparie à la note MIDI attendue (±60 ms) et compare le lag médian à la cible Haas.
+    """
+    beat_s = 60.0 / max(40.0, float(bpm))
+    role_reports: dict[str, Any] = {}
+    failing_roles: list[dict[str, Any]] = []
+    scores: list[float] = []
+
+    for role_key, wav_src in (stems_by_role or {}).items():
+        notes_raw = (midi_notes_by_role or {}).get(role_key)
+        if not notes_raw:
+            continue
+        midi_times_s: list[float] = []
+        for item in notes_raw:
+            if isinstance(item, dict):
+                midi_times_s.append(float(item.get("start", 0.0)) * beat_s)
+            else:
+                midi_times_s.append(float(item))
+        midi_times_s = sorted(set(round(t, 5) for t in midi_times_s))
+        if not midi_times_s:
+            continue
+
+        mono, eff_sr = _load_mono_audio_input(wav_src, default_sr=sr)
+        offset_s = 0.0
+        if len(mono) > int(30.0 * eff_sr):
+            m_pk = float(np.max(np.abs(mono))) + 1e-12
+            nz_h = np.where(np.abs(mono) >= 0.15 * m_pk)[0]
+            w_s = max(0, int(nz_h[0]) - int(0.05 * eff_sr)) if len(nz_h) else 0
+            w_e = min(len(mono), w_s + int(24.0 * eff_sr))
+            offset_s = float(w_s) / float(eff_sr)
+            mono = mono[w_s:w_e]
+        audio_onsets = [t_a + offset_s for t_a in _detect_highres_onsets_s(mono, eff_sr)]
+        if not audio_onsets:
+            continue
+
+        lags_ms: list[float] = []
+        used_audio_idx: set[int] = set()
+        for t_m in midi_times_s:
+            best_idx: int | None = None
+            best_abs_diff = 1e9
+            for idx, t_a in enumerate(audio_onsets):
+                if idx in used_audio_idx:
+                    continue
+                diff_s = t_a - t_m
+                if -0.045 <= diff_s <= 0.060 and abs(diff_s) < best_abs_diff:
+                    best_abs_diff = abs(diff_s)
+                    best_idx = idx
+            if best_idx is not None:
+                used_audio_idx.add(best_idx)
+                lags_ms.append((audio_onsets[best_idx] - t_m) * 1000.0)
+
+        if not lags_ms:
+            continue
+
+        med_lag = round(float(np.median(lags_ms)), 2)
+        q75, q25 = np.percentile(lags_ms, [75, 25])
+        iqr_ms = round(float(q75 - q25), 2)
+        target_ms = _lookup_haas_target_ms(role_key, haas_targets_ms)
+        lag_err = round(med_lag - target_ms, 2)
+        abs_err = abs(lag_err)
+
+        is_sampler = bool((track_is_sampler or {}).get(role_key, True))
+        ok = abs_err <= float(tolerance_ms)
+        if ok:
+            r_score = 1.0
+            act = {"code": "KEEP", "params": {}}
+        else:
+            r_score = round(max(0.20, 1.0 - (abs_err - float(tolerance_ms)) / 25.0), 3)
+            if lag_err > 0 and is_sampler:
+                act = {
+                    "code": "TRIM_SAMPLE_START_MS",
+                    "params": {"track": role_key, "ms": round(lag_err, 2)},
+                }
+            else:
+                act = {
+                    "code": "ADJUST_SYNTH_ATTACK_MS",
+                    "params": {"track": role_key, "delta_ms": round(-lag_err, 2)},
+                }
+            failing_roles.append({
+                "role": role_key,
+                "lag_ms": med_lag,
+                "target_ms": target_ms,
+                "lag_error_ms": lag_err,
+                "next_action": act,
+            })
+
+        scores.append(r_score)
+        role_reports[role_key] = {
+            "median_lag_ms": med_lag,
+            "jitter_iqr_ms": iqr_ms,
+            "target_haas_ms": target_ms,
+            "lag_error_ms": lag_err,
+            "matched_onsets": len(lags_ms),
+            "passed": ok,
+            "next_action": act,
+        }
+
+    if not role_reports:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "roles": {},
+            "failing_roles": [],
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    overall_score = round(float(min(scores)), 3) if scores else 1.0
+    top_fail = max(failing_roles, key=lambda x: abs(x["lag_error_ms"])) if failing_roles else None
+    return {
+        "status": "FAIL" if failing_roles else "PASS",
+        "verdict": "FIX" if failing_roles else "PASS",
+        "score": overall_score,
+        "roles": role_reports,
+        "failing_roles": failing_roles,
+        "next_action": top_fail["next_action"] if top_fail else {"code": "KEEP", "params": {}},
+    }
+
+
+def analyze_transient_stacking(
+    stem_wavs: dict[str, Any] | list[Any],
+    bpm: float = 132.0,
+    sr: int = 44100,
+    max_simultaneous: int = 2,
+    max_collision_ratio: float = 0.15,
+) -> dict[str, Any]:
+    """
+    Échelle S2 / Axe V (Phase 6 §3.2) :
+    Matrice d'attaques Bark x Grille 1/16 sur pistes non-percussives :
+    détecte les pas 1/16 où > 2 pistes non-percussives déclenchent simultanément (+6 dB, > -24 dBFS)
+    dans Presence (800-4000 Hz) ou LowMid (120-800 Hz).
+    """
+    perc_bus_kw = (
+        "kick", "snare", "clap", "hat", "hh", "perc", "drum", "rim",
+        "crash", "cymbal", "shaker", "tom", "master", "bus ", "fx room", "reverb",
+    )
+    items: list[tuple[str, Any]] = []
+    if isinstance(stem_wavs, dict):
+        for k, v in stem_wavs.items():
+            if not any(kw in k.lower() for kw in perc_bus_kw):
+                items.append((k, v))
+    else:
+        for idx, v in enumerate(stem_wavs):
+            nm = os.path.basename(v) if isinstance(v, str) else f"stem_{idx}"
+            if not any(kw in nm.lower() for kw in perc_bus_kw):
+                items.append((nm, v))
+
+    if len(items) <= int(max_simultaneous):
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "stems_analyzed": [nm for nm, _ in items],
+            "collision_steps": 0,
+            "active_steps": 0,
+            "collision_ratio": 0.0,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    loaded: list[tuple[str, np.ndarray, int]] = []
+    max_len = 0
+    eff_sr = sr
+    for nm, src in items:
+        mono, s_sr = _load_mono_audio_input(src, default_sr=sr)
+        if loaded and s_sr != eff_sr:
+            g = math.gcd(eff_sr, s_sr)
+            mono = signal.resample_poly(mono, eff_sr // g, s_sr // g)
+        else:
+            eff_sr = s_sr
+        max_len = max(max_len, len(mono))
+        loaded.append((nm, mono, eff_sr))
+
+    step_samples = max(64, int(round((60.0 / max(40.0, float(bpm)) / 4.0) * eff_sr)))
+    n_steps = max_len // step_samples
+    if n_steps < 2:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "stems_analyzed": [nm for nm, _ in items],
+            "collision_steps": 0,
+            "active_steps": 0,
+            "collision_ratio": 0.0,
+            "next_action": {"code": "KEEP", "params": {}},
+        }
+
+    bands = {
+        "Sub": (20.0, 120.0),
+        "LowMid": (120.0, 800.0),
+        "Presence": (800.0, 4000.0),
+        "Air": (4000.0, min(16000.0, 0.48 * eff_sr)),
+    }
+    sos_bands: dict[str, np.ndarray] = {}
+    for b_name, (lo, hi) in bands.items():
+        if hi > lo * 1.1:
+            sos_bands[b_name] = signal.butter(4, [lo, hi], btype="bandpass", fs=eff_sr, output="sos")
+
+    # attacks[band][step_k] = list of stem names with strong attack on step_k
+    attack_counts: dict[str, list[list[str]]] = {
+        b: [[] for _ in range(n_steps)] for b in sos_bands
+    }
+
+    usable_len = n_steps * step_samples
+    max_band_steps = int((24.0 * float(eff_sr)) // step_samples)
+    if n_steps > max_band_steps >= 8:
+        # Center on active 24s slice for long stems while preserving 1/16 step precision
+        st_lo = (n_steps - max_band_steps) // 2
+        st_hi = st_lo + max_band_steps
+        s_off = st_lo * step_samples
+        e_off = st_hi * step_samples
+        n_steps = max_band_steps
+        usable_len = n_steps * step_samples
+        attack_counts = {b: [[] for _ in range(n_steps)] for b in sos_bands}
+    else:
+        s_off = 0
+        e_off = usable_len
+
+    for nm, mono, _ in loaded:
+        buf = np.zeros(usable_len, dtype=np.float64)
+        seg = mono[s_off:] if s_off < len(mono) else np.zeros(0, dtype=np.float64)
+        n_cp = min(len(seg), usable_len)
+        buf[:n_cp] = seg[:n_cp]
+        for b_name, sos in sos_bands.items():
+            yb = signal.sosfilt(sos, buf)
+            pk_steps = np.max(np.abs(yb.reshape(n_steps, step_samples)), axis=1)
+            db_steps = 20.0 * np.log10(np.maximum(pk_steps, 1e-12))
+            for k in range(n_steps):
+                lvl = float(db_steps[k])
+                if lvl <= -24.0:
+                    continue
+                if k == 0 or (lvl - float(db_steps[k - 1])) > 6.0:
+                    attack_counts[b_name][k].append(nm)
+
+    collision_steps = 0
+    active_steps = 0
+    collision_examples: list[dict[str, Any]] = []
+    for k in range(n_steps):
+        pres_hits = attack_counts.get("Presence", [[] for _ in range(n_steps)])[k]
+        lm_hits = attack_counts.get("LowMid", [[] for _ in range(n_steps)])[k]
+        if pres_hits or lm_hits:
+            active_steps += 1
+        pres_col = len(pres_hits) > int(max_simultaneous)
+        lm_col = len(lm_hits) > int(max_simultaneous)
+        if pres_col or lm_col:
+            collision_steps += 1
+            if len(collision_examples) < 6:
+                collision_examples.append({
+                    "step_16": k,
+                    "presence_tracks": pres_hits,
+                    "lowmid_tracks": lm_hits,
+                })
+
+    collision_ratio = round(collision_steps / float(max(1, active_steps)), 4) if active_steps > 0 else 0.0
+    passed = collision_ratio <= float(max_collision_ratio)
+    score = 1.0 if passed else round(max(0.20, 1.0 - (collision_ratio - float(max_collision_ratio)) * 1.5), 3)
+
+    target_tracks = sorted({
+        t for ex in collision_examples for t in (ex["presence_tracks"] + ex["lowmid_tracks"])
+        if any(kw in t.lower() for kw in ("chord", "pad", "keys", "counter", "arp"))
+    })
+    next_act: dict[str, Any] = (
+        {
+            "code": "STAGGER_ATTACK_OR_STRUM",
+            "params": {
+                "tracks": target_tracks or [nm for nm, _ in items],
+                "collision_ratio": collision_ratio,
+            },
+        }
+        if not passed
+        else {"code": "KEEP", "params": {}}
+    )
+
+    return {
+        "status": "FAIL" if not passed else "PASS",
+        "verdict": "FIX" if not passed else "PASS",
+        "score": score,
+        "stems_analyzed": [nm for nm, _ in items],
+        "active_steps": active_steps,
+        "collision_steps": collision_steps,
+        "collision_ratio": collision_ratio,
+        "collision_examples": collision_examples,
+        "next_action": next_act,
+    }
+
+
+def _find_role_stems_in_dir(stems_dir: str) -> dict[str, Any]:
+    """Classify stem WAV files inside `stems_dir` into kick, bass, and non-percussive track maps."""
+    kick_wav: str | None = None
+    bass_wav: str | None = None
+    bus_bass_wav: str | None = None
+    non_perc: dict[str, str] = {}
+    all_tracks: dict[str, str] = {}
+    for w in sorted(Path(stems_dir).glob("*.wav")):
+        stem = w.stem
+        label = stem.split(" - ", 1)[1] if " - " in stem else stem
+        low = label.lower()
+        if "master" in low:
+            continue
+        if "bus " in low or "fx room" in low or "reverb" in low:
+            if "bus" in low and ("bass" in low or "808" in low):
+                bus_bass_wav = str(w)
+            continue
+        all_tracks[label] = str(w)
+        if "kick" in low and kick_wav is None:
+            kick_wav = str(w)
+        elif any(k in low for k in ("808", "bass", "sub")):
+            if bass_wav is None:
+                bass_wav = str(w)
+            non_perc[label] = str(w)
+        elif not any(k in low for k in ("snare", "clap", "hat", "hh", "perc", "drum", "rim", "crash", "cymbal", "shaker", "tom")):
+            non_perc[label] = str(w)
+    return {
+        "kick": kick_wav,
+        "bass": bass_wav or bus_bass_wav,
+        "non_perc": non_perc,
+        "all_tracks": all_tracks,
+    }
+
+
 def analyze_vertical_stage(
     wav_path: str,
     stage: str,
     profile: str = "trap_rap",
     blueprint: dict[str, Any] | None = None,
     stems: dict[str, str] | str | None = None,
+    expected_onsets_by_role: dict[str, list[Any]] | None = None,
+    bpm: float | None = None,
+    contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Incremental vertical stage audit (RFC §4.2):
@@ -1129,6 +1883,14 @@ def analyze_vertical_stage(
 
     stems_dir = stems if isinstance(stems, str) and os.path.isdir(stems) else ""
     stems_map = stems if isinstance(stems, dict) else {}
+    dir_stems = _find_role_stems_in_dir(stems_dir) if stems_dir else {"kick": None, "bass": None, "non_perc": {}, "all_tracks": {}}
+    eff_bpm = float(bpm or bp.get("bpm") or 132.0)
+    s1_cfg = (contract or {}).get("s1_physical") or {}
+    s2_cfg = (contract or {}).get("s2_acoustic") or {}
+    min_kb_corr = float(s1_cfg.get("min_kick_bass_transient_corr", 0.25))
+    haas_targets = s2_cfg.get("haas_targets_ms")
+    lag_tol_ms = float(s2_cfg.get("onset_lag_tolerance_ms", 7.0))
+    max_sim_trans = int(s2_cfg.get("max_simultaneous_bark_transients", 2))
 
     checks: dict[str, bool] = {}
     metrics: dict[str, Any] = {"rms_dbfs": rms_db}
@@ -1167,27 +1929,49 @@ def analyze_vertical_stage(
                 if np.sum(msk) >= 4 and np.std(ek_f[msk]) > 1e-9 and np.std(eb_f[msk]) > 1e-9:
                     overlap = round(float(np.corrcoef(ek_f[msk], eb_f[msk])[0, 1]), 3)
 
+        # Phase 6 S1/V: Kick/Bass transient phase alignment (< 120 Hz, 35 ms window)
+        kb_phase: dict[str, Any] | None = None
+        k_src = stems_map.get("kick") or dir_stems.get("kick")
+        b_src = stems_map.get("bass") or dir_stems.get("bass")
+        if has_drums and k_src and b_src:
+            kb_phase = analyze_kick_bass_transient_phase(k_src, b_src, sr=sr, min_corr=min_kb_corr)
+
         corr_thresh = 0.70 if has_drums else 0.40
         corr_ok = (low_end_corr >= corr_thresh) or (low_total < 5.0 and not has_drums)
         overlap_ok = True if overlap is None else (overlap <= 0.30)
         infra_ok = (infra_ratio <= 0.42) or (low_total < 8.0)
+        phase_ok = True if (kb_phase is None or kb_phase.get("status") == "SKIP") else (kb_phase.get("verdict") == "PASS")
 
-        checks.update({"low_end_corr_ok": corr_ok, "transient_overlap_ok": overlap_ok, "infra_sub_ok": infra_ok})
+        checks.update({
+            "low_end_corr_ok": corr_ok,
+            "transient_overlap_ok": overlap_ok,
+            "infra_sub_ok": infra_ok,
+            "kick_bass_transient_phase_ok": phase_ok,
+        })
         metrics.update({
             "low_end_corr": low_end_corr,
             "kick_bass_transient_overlap": overlap,
+            "kick_bass_transient_phase": kb_phase,
             "energy_50_100hz_pct": low_50_100,
             "infra_sub_ratio_lt45hz": infra_ratio,
         })
 
+        if not phase_ok and kb_phase is not None:
+            score -= 0.40
+            diag.append(
+                f"Désalignement de phase transitoire Kick/Basse <120Hz (r0={kb_phase['r_0']}, tau*={kb_phase['tau_star_ms']} ms)."
+            )
+            next_action = kb_phase["next_action"]
         if not corr_ok:
             score -= 0.35
             diag.append(f"Phase grave < 150 Hz trop large (corr={low_end_corr} < {corr_thresh}) : forcer mono sur BUS Bass.")
-            next_action = {"code": "MONO_LOW_END", "params": {"mixer": 18, "plugin": "gl.stereo", "Width": 0.0}}
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "MONO_LOW_END", "params": {"mixer": 18, "plugin": "gl.stereo", "Width": 0.0}}
         if not overlap_ok:
             score -= 0.35
             diag.append(f"Masquage Kick/Basse < 150 Hz (overlap={overlap} > 0.30) : renforcer sidechain ou apply_haas_pocket +12 ms.")
-            next_action = {"code": "ADJUST_SIDECHAIN_OR_POCKET", "params": {"sidechain_level": 1.0, "haas_bass_ms": 12.0}}
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = {"code": "ADJUST_SIDECHAIN_OR_POCKET", "params": {"sidechain_level": 1.0, "haas_bass_ms": 12.0}}
         if not infra_ok:
             score -= 0.25
             diag.append(f"Infra-sub excessif < 45 Hz ({infra_ratio*100:.0f}% du grave) : monter Root note +12 st ou HPF 32 Hz.")
@@ -1230,12 +2014,33 @@ def analyze_vertical_stage(
 
         sharp_ok = sharp_val < sharp_max
         peaks_ok = len(peaks_25_45) == 0
-        checks.update({"sharpness_ok": sharp_ok, "no_harsh_drum_peaks": peaks_ok, "hat_groove_variance_ok": hat_ok})
+
+        # Phase 6 S2/H: audio pocket alignment when stems + expected onsets provided
+        pocket_res: dict[str, Any] | None = None
+        if expected_onsets_by_role and (dir_stems.get("all_tracks") or stems_map):
+            st_in = stems_map if stems_map else dir_stems["all_tracks"]
+            pocket_res = analyze_audio_pocket_alignment(
+                st_in,
+                expected_onsets_by_role,
+                bpm=eff_bpm,
+                haas_targets_ms=haas_targets,
+                tolerance_ms=lag_tol_ms,
+                sr=sr,
+            )
+        pocket_ok = True if (pocket_res is None or pocket_res.get("status") == "SKIP") else (pocket_res.get("verdict") == "PASS")
+
+        checks.update({
+            "sharpness_ok": sharp_ok,
+            "no_harsh_drum_peaks": peaks_ok,
+            "hat_groove_variance_ok": hat_ok,
+            "audio_pocket_alignment_ok": pocket_ok,
+        })
         metrics.update({
             "sharpness_din_acum": sharp_val,
             "sharp_max": sharp_max,
             "peaks_2500_4500hz": peaks_25_45[:3],
             "hat_velocity_cv": hat_cv,
+            "audio_pocket_alignment": pocket_res,
             "crest_factor_db": round(_lin_to_db(float(np.max(np.abs(mono)))) - rms_db, 2),
         })
 
@@ -1254,6 +2059,11 @@ def analyze_vertical_stage(
             diag.append(f"Hi-hats trop mécaniques ('mitraillette', CV={hat_cv}) : appliquer groove_lib.apply_anti_machine_gun.")
             if next_action["code"] == "ADVANCE_NEXT_STAGE":
                 next_action = {"code": "APPLY_ANTI_MACHINE_GUN", "params": {"target": "hihat_perc"}}
+        if not pocket_ok and pocket_res is not None:
+            score -= 0.25
+            diag.append(f"Décalage micro-timing audio vs grille Haas détecté : {pocket_res['next_action']['code']}.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = pocket_res["next_action"]
         if not diag:
             diag.append(f"Palier V2_GROOVE validé : sharpness={sharp_val} (< {sharp_max}), 0 pic 2.5-4.5 kHz, groove vivant.")
             next_action = {"code": "ADVANCE_TO_V3_HARMONY", "params": {"next_stage": "V3_HARMONY"}}
@@ -1264,17 +2074,34 @@ def analyze_vertical_stage(
         corr_min = 0.55 if prof == "classical_ambient" else 0.65
         chroma_info = _detect_bass_harmony_chroma_clash(mono, sr)
 
+        # Phase 6 S2/V: envelope collision matrix (Bark x 1/16 grid) on non-percussive stems
+        non_perc_stems = dict(dir_stems.get("non_perc") or {})
+        if not non_perc_stems and stems_map:
+            non_perc_stems = dict(stems_map)
+        stack_res: dict[str, Any] | None = None
+        if len(non_perc_stems) > max_sim_trans:
+            stack_res = analyze_transient_stacking(
+                non_perc_stems, bpm=eff_bpm, sr=sr, max_simultaneous=max_sim_trans
+            )
+        stack_ok = True if (stack_res is None or stack_res.get("status") == "SKIP") else (stack_res.get("verdict") == "PASS")
+
         lm_ok = low_mids_pct <= lm_max
         corr_ok = low_mid_corr >= corr_min
         chroma_ok = not chroma_info["clash_detected"]
 
-        checks.update({"low_mids_ok": lm_ok, "low_mid_corr_ok": corr_ok, "chroma_consonance_ok": chroma_ok})
+        checks.update({
+            "low_mids_ok": lm_ok,
+            "low_mid_corr_ok": corr_ok,
+            "chroma_consonance_ok": chroma_ok,
+            "transient_stacking_ok": stack_ok,
+        })
         metrics.update({
             "low_mids_pct": low_mids_pct,
             "low_mids_max": lm_max,
             "low_mid_corr": low_mid_corr,
             "low_mid_corr_min": corr_min,
             "bass_harmony_chroma_clash": chroma_info,
+            "transient_stacking": stack_res,
         })
 
         if not chroma_ok:
@@ -1294,6 +2121,13 @@ def analyze_vertical_stage(
             diag.append(f"Phase bas-médiums trop large (corr={low_mid_corr} < {corr_min}) : appliquer stabilize_stereo_low_mid.")
             if next_action["code"] == "ADVANCE_NEXT_STAGE":
                 next_action = {"code": "STABILIZE_HARMONY_PHASE", "params": {"cutoff_hz": 650.0, "side_keep_low": 0.18}}
+        if not stack_ok and stack_res is not None:
+            score -= 0.25
+            diag.append(
+                f"Collision d'enveloppes non-percussives ({stack_res['collision_ratio']*100:.0f}% des pas 1/16) : étaler attaques/strum."
+            )
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = stack_res["next_action"]
         if not diag:
             diag.append(f"Palier V3_HARMONY validé : bas-médiums {low_mids_pct}% (<= {lm_max}%), phase {low_mid_corr}, 0 conflit tonal.")
             next_action = {"code": "ADVANCE_TO_V4_LEAD", "params": {"next_stage": "V4_LEAD"}}
@@ -1340,12 +2174,41 @@ def analyze_vertical_stage(
         except Exception:
             spec_match = None
 
+        non_perc_stems_v4 = dict(dir_stems.get("non_perc") or {})
+        if not non_perc_stems_v4 and stems_map:
+            non_perc_stems_v4 = dict(stems_map)
+        stack_v4: dict[str, Any] | None = None
+        if len(non_perc_stems_v4) > max_sim_trans:
+            stack_v4 = analyze_transient_stacking(
+                non_perc_stems_v4, bpm=eff_bpm, sr=sr, max_simultaneous=max_sim_trans
+            )
+        stack_v4_ok = True if (stack_v4 is None or stack_v4.get("status") == "SKIP") else (stack_v4.get("verdict") == "PASS")
+
+        pocket_v4: dict[str, Any] | None = None
+        if expected_onsets_by_role and (dir_stems.get("all_tracks") or stems_map):
+            st_in = stems_map if stems_map else dir_stems["all_tracks"]
+            pocket_v4 = analyze_audio_pocket_alignment(
+                st_in,
+                expected_onsets_by_role,
+                bpm=eff_bpm,
+                haas_targets_ms=haas_targets,
+                tolerance_ms=lag_tol_ms,
+                sr=sr,
+            )
+        pocket_v4_ok = True if (pocket_v4 is None or pocket_v4.get("status") == "SKIP") else (pocket_v4.get("verdict") == "PASS")
+
         lead_ok = True if lead_vs_harm is None else (lead_vs_harm >= 2.0)
         slope_ok = (limits["pink_min"] <= pink_slope <= limits["pink_max"])
         mid_1_3k_pct = _band_pct(1000.0, 3000.0)
         masking_1_3k_ok = mid_1_3k_pct <= 48.0
 
-        checks.update({"lead_hierarchy_ok": lead_ok, "pink_slope_ok": slope_ok, "no_mid_congestion_1_3k": masking_1_3k_ok})
+        checks.update({
+            "lead_hierarchy_ok": lead_ok,
+            "pink_slope_ok": slope_ok,
+            "no_mid_congestion_1_3k": masking_1_3k_ok,
+            "transient_stacking_ok": stack_v4_ok,
+            "audio_pocket_alignment_ok": pocket_v4_ok,
+        })
         metrics.update({
             "lead_vs_harmony_db": lead_vs_harm,
             "lead_silence_ratio": lead_silence_ratio,
@@ -1353,6 +2216,8 @@ def analyze_vertical_stage(
             "pink_slope_range": [limits["pink_min"], limits["pink_max"]],
             "spectral_match_score": spec_match,
             "band_1_3khz_pct": mid_1_3k_pct,
+            "transient_stacking": stack_v4,
+            "audio_pocket_alignment": pocket_v4,
         })
 
         if not lead_ok:
@@ -1373,6 +2238,16 @@ def analyze_vertical_stage(
             diag.append(f"Congestion 1-3 kHz ({mid_1_3k_pct}%) : creuser Chords -3 dB @ 2 kHz.")
             if next_action["code"] == "ADVANCE_NEXT_STAGE":
                 next_action = {"code": "CARVE_LEAD_POCKET", "params": {"chords_eq_hz": 2000.0, "chords_eq_db": -3.0}}
+        if not stack_v4_ok and stack_v4 is not None:
+            score -= 0.20
+            diag.append(f"Empilement de transitoires non-percussifs ({stack_v4['collision_ratio']*100:.0f}% > 15%) : STAGGER_ATTACK_OR_STRUM.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = stack_v4["next_action"]
+        if not pocket_v4_ok and pocket_v4 is not None:
+            score -= 0.20
+            diag.append(f"Décalage d'attaque Lead vs grille Haas : {pocket_v4['next_action']['code']}.")
+            if next_action["code"] == "ADVANCE_NEXT_STAGE":
+                next_action = pocket_v4["next_action"]
         if not diag:
             diag.append(
                 f"Palier V4_LEAD validé : pente rose {pink_slope:.2f} dB/oct"

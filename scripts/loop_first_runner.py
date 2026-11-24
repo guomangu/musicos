@@ -75,9 +75,18 @@ class LoopFirstStateMachine:
         self.state_path = os.path.join(self.project_dir, "pipeline_state.json")
         self.max_attempts = max(1, int(max_attempts))
 
+        self._dirty_hashes = False
+        default_contract = os.path.join(self.project_dir, "multi_scale_contract.json")
+        auto_contract = default_contract if os.path.isfile(default_contract) else None
+
         if os.path.isfile(self.state_path):
             with open(self.state_path, encoding="utf-8") as fh:
                 self.state: dict[str, Any] = json.load(fh)
+            self.state.setdefault("artifact_hashes", {})
+            self.state.setdefault("contract_path", auto_contract)
+            self.state.setdefault("multiscale_scores", {})
+            if detect_user_samples_locked(self.project_dir):
+                self.state["user_samples_locked"] = True
         else:
             bp_has_drums = self._infer_has_drums_from_blueprint()
             eff_has_drums = bp_has_drums if has_drums is None else bool(has_drums)
@@ -88,12 +97,15 @@ class LoopFirstStateMachine:
                 "has_drums": eff_has_drums,
                 "user_samples_locked": detect_user_samples_locked(self.project_dir),
                 "selected_palette_id": None,
+                "contract_path": auto_contract,
                 "core_loop_locked": False,
                 "max_attempts": self.max_attempts,
                 "track_stage_map": dict(track_stage_map or {}),
                 "soundcheck_results": {},
                 "vertical_results": {},
                 "horizontal_seams": {},
+                "multiscale_scores": {},
+                "artifact_hashes": {},
                 "final_gate_passed": False,
                 "next_mandatory_step": {},
             }
@@ -115,6 +127,15 @@ class LoopFirstStateMachine:
 
     def save(self) -> str:
         os.makedirs(self.project_dir, exist_ok=True)
+        if not self._dirty_hashes and os.path.isfile(self.state_path):
+            try:
+                with open(self.state_path, encoding="utf-8") as fh:
+                    disk_state = json.load(fh)
+                if isinstance(disk_state, dict) and "artifact_hashes" in disk_state:
+                    self.state["artifact_hashes"] = disk_state["artifact_hashes"]
+            except Exception:
+                pass
+        self._dirty_hashes = False
         with open(self.state_path, "w", encoding="utf-8") as fh:
             json.dump(self.state, fh, indent=2, ensure_ascii=False)
         return self.state_path
@@ -347,6 +368,37 @@ class LoopFirstStateMachine:
         self._recompute_next_step()
         self.save()
         return self.state
+
+    def set_contract_path(self, contract_path: str) -> dict[str, Any]:
+        self.state["contract_path"] = os.path.abspath(os.path.expanduser(contract_path))
+        self.save()
+        return self.state
+
+    def record_multiscale_scores(self, stage: str, pyramid_output: dict[str, Any]) -> dict[str, Any]:
+        ms = self.state.setdefault("multiscale_scores", {})
+        ms[str(stage)] = {
+            "verdict": pyramid_output.get("verdict"),
+            "blocking_scale": pyramid_output.get("blocking_scale"),
+            "global_alignment_score": pyramid_output.get("global_alignment_score"),
+            "scale_matrix": pyramid_output.get("scale_matrix"),
+            "full_report_path": pyramid_output.get("full_report_path"),
+        }
+        self.save()
+        return self.state
+
+    def set_artifact_hash(self, key: str, hash_val: str, result: dict[str, Any] | None = None) -> dict[str, Any]:
+        ah = self.state.setdefault("artifact_hashes", {})
+        ah[str(key)] = {
+            "hash": str(hash_val),
+            "verdict": (result or {}).get("verdict"),
+            "result": result or {},
+        }
+        self._dirty_hashes = True
+        self.save()
+        return self.state
+
+    def get_artifact_hash(self, key: str) -> dict[str, Any] | None:
+        return (self.state.get("artifact_hashes") or {}).get(str(key))
 
     def validate_edit_target(self, track_name: str, *, raise_on_forbidden: bool = True) -> dict[str, Any]:
         """

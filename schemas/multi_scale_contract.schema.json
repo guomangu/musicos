@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI-Studio Multi-Scale Contract (S5 -> S1)",
+  "description": "Top-Down multi-scale contract compiled in E0 from prompt/blueprint and 0..3 reference audio tracks.",
+  "type": "object",
+  "required": [
+    "mix_profile",
+    "has_drums",
+    "s5_context",
+    "s4_form",
+    "s3_syntax",
+    "s2_acoustic",
+    "s1_physical"
+  ],
+  "$defs": {
+    "sectionArc5D": {
+      "type": "object",
+      "required": [
+        "lufs_rel",
+        "centroid_norm",
+        "onset_density_norm",
+        "stereo_width",
+        "max_cognitive_streams"
+      ],
+      "properties": {
+        "section": { "type": "string" },
+        "start_bar": { "type": "integer", "minimum": 1 },
+        "bars": { "type": "integer", "minimum": 1 },
+        "lufs_rel": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "centroid_norm": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "onset_density_norm": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "stereo_width": { "type": "number", "minimum": 0.0, "maximum": 2.0 },
+        "max_cognitive_streams": { "type": "integer", "minimum": 1, "maximum": 12 }
+      }
+    }
+  },
+  "properties": {
+    "version": { "type": ["string", "integer"] },
+    "mix_profile": {
+      "type": "string",
+      "enum": [
+        "trap_rap",
+        "pop_rnb",
+        "edm_club",
+        "rock_metal",
+        "lofi_chill",
+        "jazz_acoustic",
+        "classical_ambient"
+      ]
+    },
+    "has_drums": { "type": "boolean" },
+    "emotion_vector": {
+      "type": "object",
+      "properties": {
+        "valence": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+        "tension": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "energy": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "depth": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
+    },
+    "s5_context": {
+      "type": "object",
+      "required": [
+        "reference_tracks",
+        "subgenre_tag",
+        "bark24_target",
+        "pink_slope_range",
+        "stereo_width_by_band",
+        "crest_factor_range_db",
+        "target_onset_density_per_sec"
+      ],
+      "properties": {
+        "reference_tracks": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "subgenre_tag": { "type": "string" },
+        "bark24_target": {
+          "type": "array",
+          "minItems": 24,
+          "maxItems": 24,
+          "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+        },
+        "pink_slope_range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" }
+        },
+        "stereo_width_by_band": {
+          "type": "object",
+          "required": ["sub", "low_mid", "high_mid", "air"],
+          "properties": {
+            "sub": { "type": "number", "minimum": 0.0 },
+            "low_mid": { "type": "number", "minimum": 0.0 },
+            "high_mid": { "type": "number", "minimum": 0.0 },
+            "air": { "type": "number", "minimum": 0.0 }
+          }
+        },
+        "crest_factor_range_db": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number", "minimum": 0.0 }
+        },
+        "target_onset_density_per_sec": { "type": "number", "minimum": 0.0 },
+        "target_lufs": { "type": "number", "minimum": -36.0, "maximum": -2.0 },
+        "breathing_ratio": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "low_mids_max": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
+        "air_min": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
+        "sharp_max": { "type": "number", "minimum": 0.5, "maximum": 5.0 },
+        "spectral_match_min": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
+    },
+    "s4_form": {
+      "type": "object",
+      "required": [
+        "sections_energy_arc",
+        "max_8bar_ssm_similarity",
+        "boundary_alignment_tolerance_bars"
+      ],
+      "properties": {
+        "sections_energy_arc": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/sectionArc5D" }
+            },
+            {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/sectionArc5D" }
+            }
+          ]
+        },
+        "max_8bar_ssm_similarity": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 1.0,
+          "default": 0.94
+        },
+        "boundary_alignment_tolerance_bars": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 4.0,
+          "default": 1.0
+        }
+      }
+    },
+    "s3_syntax": {
+      "type": "object",
+      "required": [
+        "motif_similarity_band",
+        "tension_curve_4bar",
+        "max_chords_lead_attack_overlap"
+      ],
+      "properties": {
+        "motif_similarity_band": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+        },
+        "tension_curve_4bar": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+        },
+        "max_chords_lead_attack_overlap": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.25
+        }
+      }
+    },
+    "s2_acoustic": {
+      "type": "object",
+      "required": [
+        "haas_targets_ms",
+        "onset_lag_tolerance_ms",
+        "max_simultaneous_bark_transients"
+      ],
+      "properties": {
+        "haas_targets_ms": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "onset_lag_tolerance_ms": {
+          "type": "number",
+          "minimum": 0.5,
+          "default": 7.0
+        },
+        "max_simultaneous_bark_transients": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2
+        }
+      }
+    },
+    "s1_physical": {
+      "type": "object",
+      "required": [
+        "min_kick_bass_transient_corr",
+        "min_sustained_spectral_flux"
+      ],
+      "properties": {
+        "min_kick_bass_transient_corr": {
+          "type": "number",
+          "minimum": -1.0,
+          "maximum": 1.0,
+          "default": 0.25
+        },
+        "min_sustained_spectral_flux": {
+          "type": "number",
+          "minimum": 0.0,
+          "default": 0.015
+        }
+      }
+    }
+  }
+}

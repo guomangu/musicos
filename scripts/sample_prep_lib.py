@@ -152,7 +152,9 @@ def build_sample_from_spec(src_dir: str, out_dir: str, spec: dict[str, Any]) -> 
       - `out` (output filename in `out_dir`)
       - `slice_s`: `(start_s, end_s)`
       - `max_dur_s`: truncate to max seconds
+      - `trim_start_ms`: exact milliseconds to drop from start of sample
       - `trim_leading`: `bool | float` (threshold ratio)
+      - `invert_phase`: `bool` (invert sample polarity `-y`)
       - `eq_peaks`: `list[(freq_hz, gain_db, q)]`
       - `saturate_drive`: `float`
       - `varispeed_hz`: `(src_hz, dst_hz)` or `varispeed_ratio`: `float`
@@ -168,9 +170,18 @@ def build_sample_from_spec(src_dir: str, out_dir: str, spec: dict[str, Any]) -> 
 
     y, sr = read_stereo(src_path)
 
+    if spec.get("trim_start_ms"):
+        cut_ms = max(0.0, float(spec["trim_start_ms"]))
+        cut_samples = min(max(0, len(y) - 64), int(round(cut_ms * sr / 1000.0)))
+        if cut_samples > 0:
+            y = y[cut_samples:]
+
     if spec.get("trim_leading"):
         th = 0.015 if spec["trim_leading"] is True else float(spec["trim_leading"])
         y = trim_leading_silence(y, sr, thresh=th)
+
+    if spec.get("invert_phase"):
+        y = (-y).astype(np.float32)
 
     if "slice_s" in spec and spec["slice_s"] is not None:
         s0, s1 = spec["slice_s"]

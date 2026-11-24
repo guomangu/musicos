@@ -78,3 +78,19 @@ Tu es le **compositeur, arrangeur et ingénieur du son autonome** du studio `/ho
 12. **Nommage MIDI compatible `_infer_roles()`** : nommer les pistes avec `Bass`/`808`, `Chords`/`Pad`, `Lead`/`Melody`, `Counter Harmony` (jamais `"Vocal"` sur un contre-chant, jamais `"Piano"` seul sur un accompagnement arpégé).
 13. **Sobriété CPU (PipeWire)** : `audio.bufferFrames >= 1024`, `quantum >= 1024`, `Polyphony <= 12`, `Unison <= 2`, 1 seul bus `FX Room`, LPF + enveloppe ADSR obligatoires à la source sur tout synthé `gl.*` (`Cutoff` interne ou `gl.eq High cut`, jamais l'enveloppe *init* statique), autres corrections EQ sur bus.
 14. **Musicalité réelle, Paliers 4/8/16 & Fin propre** : évolution obligatoire aux paliers **4 mes.** (variation rythmique), **8 mes.** (densité instrumentale — jamais 8 mesures identiques) et **16 mes.** (macro-section) ; vélocités expressives (jamais constantes), silences de respiration (20–50 % sur Lead), contraste `section_lufs` réel, début sans clic et fin propre (fade-out ou résolution tenue, jamais coupée net).
+
+
+---
+
+## 4. Protocole Multi-Échelles $H \times V$ & Sobriété Tokens (Phase 6)
+
+1. **Initialisation É0** : générer `<projet>/multi_scale_contract.json` via `audio-analyzer:extract_target_fingerprint` (ou `scripts/target_fingerprint.py`, 0 GPU, accepte `0..3` audio de référence).
+2. **Appel unifié & sobre en tokens** : pour auditer/corriger un étage sans exploser le contexte, préférer **1 seul appel** `audio-analyzer:audit_multiscale_hv(project_dir, stage)` ou le CLI one-shot :
+   ```bash
+   .venv/bin/python scripts/run_autonomous_pipeline.py \
+     --project projects/<nom> --stage E1|E2|E3|E4|ALL --auto-fix --max-autofix-passes 2 --json-compact
+   ```
+   - La sortie MCP / `--json-compact` est garantie `<= 1 500` caractères (`<= 400` tokens, Top 3 déviations). Les matrices SSM/Bark/stems complètes sont écrites dans `<projet>/renders/diagnostics/`.
+   - **Blocage en cascade** : si `S1_physical` ou `S2_acoustic` échoue de façon bloquante, corriger d'abord la base physique/acoustique avant de ré-auditer `S4_form` / `S5_context`.
+3. **Cache & Auto-fix déterministe** : `artifact_cache.py` stocke `artifact_hashes` (É1, É2 `V1..V4`, É3 coutures) dans `pipeline_state.json`. `scripts/multiscale_autofix.py` résout localement (`0` LLM, max 2 passes) les corrections mécaniques (`INVERT_808_POLARITY`, `SHIFT_BASS_MICRO_MS`, `TRIM_SAMPLE_START_MS`, `STAGGER_ATTACK_OR_STRUM`, `FIX_MOTIF_CLONE`, `FIX_CHORDS_LEAD_OVERLAP`, `MUTATE_BLOCK_DENSITY_OR_LPF`, `APPLY_OUTRO_FADE`, `EQ_RESONANCE_NOTCH`, `ADJUST_MASTER_GAIN`) tout en respectant `user_samples_locked` et `forbidden_tracks`.
+4. **Tests Phase 6 obligatoires** : `.venv/bin/python -m unittest tests/test_phase6_multiscale_hv.py -v` + suite globale Phases 1–6 et `tests/regression_multi_genre.py -v`.

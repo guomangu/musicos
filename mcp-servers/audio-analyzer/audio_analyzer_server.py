@@ -615,5 +615,85 @@ def check_pipewire_health() -> str:
     return json.dumps(inspect_pipewire(), ensure_ascii=False, indent=2)
 
 
+@mcp.tool(name="extract_target_fingerprint")
+def extract_target_fingerprint_tool(
+    audio_paths: list[str] | None = None,
+    mix_profile: str = "trap_rap",
+    emotion_vector: dict | None = None,
+    project_dir: str = "",
+    blueprint_path: str = "",
+    subgenre_tag: str = "",
+    has_drums: bool | None = None,
+) -> str:
+    """
+    Phase 6 Top-Down Target Fingerprint & Multi-Scale Contract compiler (0 GPU, <= 400 tokens).
+    Saves `multi_scale_contract.json` & `song_target_profile.json` in `project_dir` and returns compact summary.
+    """
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    scripts_dir = os.path.join(root_dir, "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from target_fingerprint import extract_target_fingerprint
+
+    res = extract_target_fingerprint(
+        audio_paths=audio_paths or [],
+        mix_profile=mix_profile,
+        emotion_vector=emotion_vector,
+        blueprint=blueprint_path or None,
+        project_dir=project_dir,
+        subgenre_tag=subgenre_tag,
+        has_drums=has_drums,
+    )
+    c = res["multi_scale_contract"]
+    s5 = c.get("s5_context") or {}
+    compact = {
+        "source_mode": res["source_mode"],
+        "reference_count": res["reference_count"],
+        "mix_profile": res["mix_profile"],
+        "has_drums": res["has_drums"],
+        "target_lufs": s5.get("target_lufs"),
+        "pink_slope_range": s5.get("pink_slope_range"),
+        "low_mids_max": s5.get("low_mids_max"),
+        "air_min": s5.get("air_min"),
+        "sharp_max": s5.get("sharp_max"),
+        "spectral_match_min": s5.get("spectral_match_min"),
+        "contract_path": res.get("contract_path"),
+        "profile_path": res.get("profile_path"),
+    }
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+
+
+@mcp.tool()
+def audit_multiscale_hv(
+    project_dir: str,
+    stage: str = "ALL",
+    contract_path: str = "",
+    wav_path: str = "",
+    skip_render: bool = False,
+    auto_fix: bool = False,
+    max_autofix_passes: int = 2,
+) -> str:
+    """
+    Phase 6 Unified Multi-Scale H x V Audit (0 GPU, <= 1,500 chars / <= 400 tokens).
+    Writes full diagnostics to `<project_dir>/renders/diagnostics/` and returns Top-3 Deviation Pyramid.
+    """
+    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    scripts_dir = os.path.join(root_dir, "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from run_autonomous_pipeline import audit_multiscale_hv as _run_audit_hv
+
+    pyramid = _run_audit_hv(
+        project_dir=project_dir,
+        stage=stage,
+        contract_path=contract_path,
+        wav_path=wav_path,
+        skip_render=skip_render,
+        auto_fix=auto_fix,
+        max_autofix_passes=max_autofix_passes,
+    )
+    return json.dumps(pyramid, ensure_ascii=False, separators=(",", ":"))
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

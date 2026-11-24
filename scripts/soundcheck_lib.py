@@ -35,8 +35,14 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR, INDEX_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
+from artifact_cache import compute_e1_track_hash, get_cached_verdict, set_cached_verdict
 from audio_metrics import extract_dsp_metrics, load_and_normalize_audio, parse_key_tonic_pc
-from deep_diagnostics import _scan_glitches_and_crackle, _third_octave_profile
+from deep_diagnostics import (
+    _scan_glitches_and_crackle,
+    _third_octave_profile,
+    analyze_audio_pocket_alignment,
+    analyze_sustained_spectral_flux,
+)
 from gl_dsl import SYNTH_REGISTRY, _default_cutoff_hz, eq_band, eq_params, synth_voice
 from groove_lib import apply_anti_machine_gun
 from indexer import build_timbre_card_from_dsp
@@ -342,8 +348,10 @@ def audit_soundcheck_wav(
     bpm: float = 132.0,
     valence: float = 0.0,
     expected_midis: list[int] | None = None,
+    expected_notes: list[dict[str, Any]] | None = None,
     is_sample: bool = False,
     blueprint: dict[str, Any] | None = None,
+    contract: dict[str, Any] | None = None,
     listener: ListenerBackend | None = None,
     diagnostics_dir: str = "",
 ) -> dict[str, Any]:
@@ -470,6 +478,32 @@ def audit_soundcheck_wav(
             playable_chromatically=dsp.get("playable_chromatically"),
         )
 
+        # 7) Phase 6 S1/H: sustained spectral flux & timestretch artifact detection
+        s1_cfg = (contract or {}).get("s1_physical") or {}
+        s2_cfg = (contract or {}).get("s2_acoustic") or {}
+        min_flux = float(s1_cfg.get("min_sustained_spectral_flux", 0.015))
+        flux_res = analyze_sustained_spectral_flux(mono, sr=sr, min_flux=min_flux, role=role)
+        static_warn = flux_res.get("warning")
+
+        # 8) Phase 6 S2/H: high-res onset lag vs expected MIDI notes
+        pocket_res: dict[str, Any] | None = None
+        onset_lag_ms: float | None = None
+        onset_jitter_ms: float | None = None
+        if expected_notes:
+            pocket_res = analyze_audio_pocket_alignment(
+                {t_name: mono},
+                {t_name: expected_notes},
+                bpm=bpm,
+                haas_targets_ms=s2_cfg.get("haas_targets_ms"),
+                tolerance_ms=float(s2_cfg.get("onset_lag_tolerance_ms", 7.0)),
+                sr=sr,
+                track_is_sampler={t_name: is_sample},
+            )
+            r_info = (pocket_res.get("roles") or {}).get(t_name)
+            if r_info:
+                onset_lag_ms = r_info.get("median_lag_ms")
+                onset_jitter_ms = r_info.get("jitter_iqr_ms")
+
         metrics.update({
             "spectral_centroid_hz": round(centroid_hz, 1),
             "spectral_rolloff_85_hz": rolloff_85_hz,
@@ -486,6 +520,12 @@ def audit_soundcheck_wav(
             "envelope_issue": env_issue,
             "recommended_adsr_params": rec_adsr,
             "recommended_lpf_hz": rec_lpf,
+            "sustained_spectral_flux": flux_res.get("spectral_flux_norm"),
+            "flux_kurtosis": flux_res.get("flux_kurtosis"),
+            "static_timbre_warning": static_warn,
+            "onset_lag_ms": onset_lag_ms,
+            "onset_jitter_ms": onset_jitter_ms,
+            "pocket_alignment": pocket_res,
         })
 
     dsp_report = {
@@ -507,6 +547,9 @@ def audit_soundcheck_wav(
     result["wav_path"] = abs_wav
     result["timbre_card"] = timbre_card
     result["checks"] = checks
+    result["s1_h_flux"] = metrics.get("sustained_spectral_flux")
+    result["static_timbre_warning"] = metrics.get("static_timbre_warning")
+    result["s2_h_onset_lag_ms"] = metrics.get("onset_lag_ms")
     result["metrics_summary"] = {
         "rms_dbfs": rms_dbfs,
         "peak_dbfs": peak_dbfs,
@@ -514,6 +557,9 @@ def audit_soundcheck_wav(
         "tuning_error_cents": metrics.get("tuning_error_cents"),
         "micro_glitches": metrics.get("micro_glitches", 0),
         "estimated_decay_ms": metrics.get("estimated_decay_ms"),
+        "sustained_spectral_flux": metrics.get("sustained_spectral_flux"),
+        "static_timbre_warning": metrics.get("static_timbre_warning"),
+        "onset_lag_ms": metrics.get("onset_lag_ms"),
     }
 
     if diagnostics_dir:
@@ -538,8 +584,11 @@ def audit_track_soundcheck(
     key: str = "C minor",
     valence: float = 0.0,
     blueprint: dict[str, Any] | None = None,
+    contract: dict[str, Any] | None = None,
     expected_midis: list[int] | None = None,
+    expected_notes: list[dict[str, Any]] | None = None,
     listener_config: dict[str, Any] | None = None,
+    use_cache: bool = True,
     keep_tmp: bool = False,
 ) -> dict[str, Any]:
     """
@@ -564,6 +613,16 @@ def audit_track_soundcheck(
         if "valence" in ev and valence == 0.0:
             valence = float(ev["valence"])
 
+    eff_contract = contract
+    if eff_contract is None and project_dir:
+        c_file = os.path.join(project_dir, "multi_scale_contract.json")
+        if os.path.isfile(c_file):
+            try:
+                with open(c_file, encoding="utf-8") as fh:
+                    eff_contract = json.load(fh)
+            except Exception:
+                eff_contract = None
+
     listener = get_listener_backend(listener_config)
     diag_dir = os.path.join(project_dir, "renders", "diagnostics") if project_dir else ""
 
@@ -573,18 +632,39 @@ def audit_track_soundcheck(
             is_samp = track_spec.plugin == "gl.sampler"
         elif isinstance(track_spec, dict):
             is_samp = track_spec.get("plugin") == "gl.sampler" or bool(track_spec.get("sample_file"))
-        return audit_soundcheck_wav(
+        eff_name = track_name or (track_spec.name if isinstance(track_spec, ChannelSpec) else (track_spec or {}).get("name", role))
+        e1_key = f"e1:{eff_name}"
+        e1_hash = ""
+        if use_cache and project_dir:
+            e1_hash = compute_e1_track_hash(
+                wav_path=wav_path,
+                notes_slice=expected_notes,
+                bpm=bpm,
+                role=role,
+                key=key,
+                valence=valence,
+                project_dir=project_dir,
+            )
+            cached = get_cached_verdict(project_dir, e1_key, e1_hash)
+            if cached is not None:
+                return cached
+        res_wav = audit_soundcheck_wav(
             wav_path,
             role=role,
-            track_name=track_name or (track_spec.name if isinstance(track_spec, ChannelSpec) else (track_spec or {}).get("name", role)),
+            track_name=eff_name,
             bpm=bpm,
             valence=valence,
             expected_midis=expected_midis,
+            expected_notes=expected_notes,
             is_sample=is_samp,
             blueprint=bp,
+            contract=eff_contract,
             listener=listener,
             diagnostics_dir=diag_dir,
         )
+        if use_cache and project_dir and e1_hash:
+            set_cached_verdict(project_dir, e1_key, e1_hash, res_wav)
+        return res_wav
 
     if track_spec is None:
         raise ValueError("Either `wav_path` or `track_spec` must be provided to audit_track_soundcheck.")
@@ -621,7 +701,6 @@ def audit_track_soundcheck(
 
     tmp_proj = os.path.join(tmp_dir, f"{slug}.gridline")
     out_wav = os.path.join(render_dir, f"{slug}.wav")
-    shutil.copyfile(TEMPLATE_EMPTY_MIXER, tmp_proj)
 
     bars, notes = _build_role_test_pattern(
         eff_role,
@@ -631,6 +710,25 @@ def audit_track_soundcheck(
         valence=valence,
         blueprint=bp,
     )
+    e1_key = f"e1:{t_name}"
+    e1_hash = ""
+    if use_cache and project_dir:
+        e1_hash = compute_e1_track_hash(
+            sample_path=str(spec.get("sample_file") or ""),
+            plugin_params=spec.get("plugin_params") or {},
+            notes_slice=notes,
+            bpm=bpm,
+            track_spec=spec,
+            role=eff_role,
+            key=key,
+            valence=valence,
+            project_dir=project_dir,
+        )
+        cached = get_cached_verdict(project_dir, e1_key, e1_hash)
+        if cached is not None:
+            return cached
+
+    shutil.copyfile(TEMPLATE_EMPTY_MIXER, tmp_proj)
     plugin = str(spec.get("plugin") or "gl.sampler")
     is_sample = plugin == "gl.sampler"
 
@@ -724,11 +822,16 @@ def audit_track_soundcheck(
         bpm=bpm,
         valence=valence,
         expected_midis=played_midis if eff_role in TONAL_ROLES else None,
+        expected_notes=expected_notes or notes,
         is_sample=is_sample,
         blueprint=bp,
+        contract=eff_contract,
         listener=listener,
         diagnostics_dir=diag_dir,
     )
+
+    if use_cache and project_dir and e1_hash:
+        set_cached_verdict(project_dir, e1_key, e1_hash, res)
 
     if not keep_tmp and os.path.isdir(tmp_dir):
         shutil.rmtree(tmp_dir, ignore_errors=True)

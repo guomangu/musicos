@@ -467,6 +467,498 @@ def detect_minor_2nd_clashes(
     return all_clashes, blocking_clashes
 
 
+def _levenshtein(seq1: List[int], seq2: List[int]) -> int:
+    n, m = len(seq1), len(seq2)
+    if n == 0:
+        return m
+    if m == 0:
+        return n
+    prev = list(range(m + 1))
+    for i, a in enumerate(seq1, start=1):
+        curr = [i]
+        for j, b in enumerate(seq2, start=1):
+            cost = 0 if a == b else 1
+            curr.append(min(curr[-1] + 1, prev[j] + 1, prev[j - 1] + cost))
+        prev = curr
+    return prev[-1]
+
+
+def _load_pm(pm_or_path: Any) -> pretty_midi.PrettyMIDI:
+    if isinstance(pm_or_path, pretty_midi.PrettyMIDI):
+        return pm_or_path
+    if isinstance(pm_or_path, str):
+        return pretty_midi.PrettyMIDI(pm_or_path)
+    raise TypeError(f"Expected PrettyMIDI or file path, got {type(pm_or_path).__name__}")
+
+
+def _note_quarter_pos(pm: pretty_midi.PrettyMIDI, time_s: float) -> float:
+    ppq = float(pm.resolution or 480)
+    return float(pm.time_to_tick(max(0.0, float(time_s)))) / ppq
+
+
+def compute_motif_cohesion(
+    pm_or_notes: Any,
+    time_signature: Optional[Any] = None,
+    phrase_plan: str = "",
+    motif_similarity_band: Tuple[float, float] = (0.15, 0.55),
+    bpm: float = 120.0,
+) -> Dict[str, Any]:
+    """
+    Échelle S3 / Axe H (Phase 6 §3.3) :
+    Segmente la piste Lead par mesure, calcule contour intervallaire + grille 1/16,
+    et mesure la distance composite d(A, A'), d(A, A''), d(A, B).
+    Rejette `ROBOTIC_LOOP_CLONE` (< 0.05) et `NO_MOTIF_COHESION` (> 0.75).
+    """
+    is_free_ambient = (phrase_plan or "").strip().lower() == "free_ambient"
+    if is_free_ambient:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "issue": None,
+            "d_a_ap": None,
+            "d_a_app": None,
+            "d_a_b": None,
+            "blocks_evaluated": 0,
+            "reason": "free_ambient",
+        }
+
+    pm: Optional[pretty_midi.PrettyMIDI] = None
+    if isinstance(pm_or_notes, (pretty_midi.PrettyMIDI, str)):
+        pm = _load_pm(pm_or_notes)
+        num, den = _resolve_time_signature(pm, time_signature)
+        roles = _infer_roles(pm)
+        has_explicit_lead = bool(roles["lead"]) and any(inst not in roles["chords"] for inst in roles["lead"])
+        if not has_explicit_lead:
+            return {
+                "status": "SKIP",
+                "verdict": "PASS",
+                "score": 1.0,
+                "issue": None,
+                "d_a_ap": None,
+                "d_a_app": None,
+                "d_a_b": None,
+                "blocks_evaluated": 0,
+                "reason": "no_explicit_lead",
+            }
+        topline = _extract_monophonic_topline([n for i in roles["lead"] for n in i.notes])
+    else:
+        parsed_ts = _parse_time_signature(time_signature)
+        num, den = parsed_ts if parsed_ts else (4, 4)
+        topline = _extract_monophonic_topline(list(pm_or_notes or []))
+
+    bar_q = _bar_quarters(num, den)
+    sec_per_q = 60.0 / max(40.0, float(bpm))
+
+    by_bar: Dict[int, List[Tuple[float, int]]] = {}
+    for n in topline:
+        q = _note_quarter_pos(pm, n.start) if pm is not None else (float(n.start) / sec_per_q)
+        b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+        bar_phase = (q - b_idx * bar_q) / max(bar_q, 1e-4)
+        by_bar.setdefault(b_idx, []).append((bar_phase, int(n.pitch)))
+
+    def _bar_sig(events: List[Tuple[float, int]]) -> Tuple[List[int], np.ndarray]:
+        ev_sorted = sorted(events, key=lambda x: x[0])
+        pitches = [p for _, p in ev_sorted]
+        contour = [pitches[k + 1] - pitches[k] for k in range(len(pitches) - 1)]
+        rgrid = np.zeros(16, dtype=np.float64)
+        for ph, _ in ev_sorted:
+            slot = min(15, max(0, int(round(ph * 16.0))))
+            rgrid[slot] = 1.0
+        return contour, rgrid
+
+    def _dist(sig1: Tuple[List[int], np.ndarray], sig2: Tuple[List[int], np.ndarray]) -> float:
+        c1, r1 = sig1
+        c2, r2 = sig2
+        lev = _levenshtein(c1, c2) / float(max(len(c1), len(c2), 1))
+        n1 = float(np.linalg.norm(r1))
+        n2 = float(np.linalg.norm(r2))
+        r_cos = float(np.dot(r1, r2) / (n1 * n2 + 1e-9)) if (n1 > 0 and n2 > 0) else 0.0
+        return round(0.5 * lev + 0.5 * (1.0 - r_cos), 4)
+
+    active_bars = sorted(by_bar.keys())
+    if len(active_bars) < 3:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "issue": None,
+            "d_a_ap": None,
+            "d_a_app": None,
+            "d_a_b": None,
+            "blocks_evaluated": 0,
+            "reason": "fewer_than_3_active_bars",
+        }
+
+    # Evaluate 4-bar phrase blocks aligned to first active phrase or bar-0 grid
+    max_bar = active_bars[-1]
+    blocks: List[Tuple[int, int, int, int]] = []
+    start_bar = 0
+    while start_bar <= max_bar:
+        if start_bar in by_bar and ((start_bar + 1) in by_bar or (start_bar + 2) in by_bar):
+            blocks.append((start_bar, start_bar + 1, start_bar + 2, start_bar + 3))
+            start_bar += 4
+        else:
+            start_bar += 1
+
+    if not blocks:
+        # Fallback: take first 4 active bars sequentially
+        padded = active_bars[:4]
+        while len(padded) < 4:
+            padded.append(-1)
+        blocks = [(padded[0], padded[1], padded[2], padded[3])]
+
+    lo_opt, hi_opt = float(motif_similarity_band[0]), float(motif_similarity_band[1])
+    hi_app_opt = max(0.60, hi_opt + 0.05)
+
+    block_reports: List[Dict[str, Any]] = []
+    clone_blocks: List[int] = []
+    erratic_blocks: List[int] = []
+    d_ap_vals: List[float] = []
+    d_app_vals: List[float] = []
+    d_b_vals: List[float] = []
+
+    for b_a, b_ap, b_app, b_b in blocks:
+        if b_a not in by_bar:
+            continue
+        sig_a = _bar_sig(by_bar[b_a])
+        d_ap = _dist(sig_a, _bar_sig(by_bar[b_ap])) if b_ap in by_bar else None
+        d_app = _dist(sig_a, _bar_sig(by_bar[b_app])) if b_app in by_bar else None
+        d_b = _dist(sig_a, _bar_sig(by_bar[b_b])) if b_b in by_bar else None
+        if d_ap is not None:
+            d_ap_vals.append(d_ap)
+        if d_app is not None:
+            d_app_vals.append(d_app)
+        if d_b is not None:
+            d_b_vals.append(d_b)
+
+        pairs = [v for v in (d_ap, d_app) if v is not None]
+        if len(pairs) >= 2:
+            if max(pairs) < 0.05:
+                clone_blocks.append(b_a + 1)
+            elif min(pairs) > 0.75:
+                erratic_blocks.append(b_a + 1)
+        elif len(pairs) == 1:
+            if pairs[0] < 0.05 and (d_b is None or d_b < 0.05):
+                clone_blocks.append(b_a + 1)
+            elif pairs[0] > 0.75:
+                erratic_blocks.append(b_a + 1)
+
+        block_reports.append({
+            "start_bar_1idx": b_a + 1,
+            "d_a_ap": d_ap,
+            "d_a_app": d_app,
+            "d_a_b": d_b,
+        })
+
+    med_ap = round(float(np.median(d_ap_vals)), 4) if d_ap_vals else None
+    med_app = round(float(np.median(d_app_vals)), 4) if d_app_vals else None
+    med_b = round(float(np.median(d_b_vals)), 4) if d_b_vals else None
+
+    issue: Optional[str] = None
+    if clone_blocks:
+        issue = "ROBOTIC_LOOP_CLONE"
+    elif erratic_blocks:
+        issue = "NO_MOTIF_COHESION"
+
+    # Score calculation (1.0 inside optimal band, penalized outside / on failure)
+    score = 1.0
+    if issue == "ROBOTIC_LOOP_CLONE":
+        score = 0.25
+    elif issue == "NO_MOTIF_COHESION":
+        score = 0.30
+    else:
+        for val, hi_lim in ((med_ap, hi_opt), (med_app, hi_app_opt)):
+            if val is None:
+                continue
+            if val < lo_opt:
+                score -= min(0.25, (lo_opt - val) * 1.5)
+            elif val > hi_lim:
+                score -= min(0.25, (val - hi_lim) * 1.2)
+
+    return {
+        "status": "FAIL" if issue else "PASS",
+        "verdict": "FAIL" if issue else "PASS",
+        "score": round(max(0.0, min(1.0, score)), 3),
+        "issue": issue,
+        "d_a_ap": med_ap,
+        "d_a_app": med_app,
+        "d_a_b": med_b,
+        "clone_start_bars": clone_blocks,
+        "erratic_start_bars": erratic_blocks,
+        "blocks_evaluated": len(block_reports),
+        "blocks": block_reports,
+    }
+
+
+def compute_harmonic_tension_curve(
+    pm_or_path: Any,
+    allowed_pcs: Optional[set[int]] = None,
+    tonic_pc: Optional[int] = None,
+    target_tension: float = 0.35,
+    time_signature: Optional[Any] = None,
+    phrase_plan: str = "",
+) -> Dict[str, Any]:
+    """
+    Échelle S3 / Axe H x V (Phase 6 §3.3) :
+    Calcule T_m in [0, 1] par mesure (degrés tendus b2/4/#4/b6/7, distance tonale de l'accord,
+    rugosité verticale) et valide la moyenne (+-0.25) et la dynamique std >= 0.08 sur 4 mesures.
+    """
+    pm = _load_pm(pm_or_path)
+    num, den = _resolve_time_signature(pm, time_signature)
+    bar_q = _bar_quarters(num, den)
+    roles = _infer_roles(pm)
+
+    bass_notes = [n for inst in roles["bass"] for n in inst.notes]
+    chord_notes = [n for inst in roles["chords"] for n in inst.notes]
+    lead_notes = [n for inst in roles["lead"] for n in inst.notes]
+    counter_notes = [n for inst in roles["counter"] for n in inst.notes]
+    all_melodic = bass_notes + chord_notes + lead_notes + counter_notes
+
+    if not all_melodic:
+        return {
+            "status": "SKIP",
+            "verdict": "PASS",
+            "score": 1.0,
+            "curve": [],
+            "mean_tension": 0.0,
+            "std_tension": 0.0,
+            "target_tension": float(target_tension),
+            "issues": [],
+        }
+
+    # Resolve tonic pitch class deterministically
+    eff_tonic = tonic_pc
+    if eff_tonic is None and bass_notes:
+        first_bass = sorted(bass_notes, key=lambda n: n.start)
+        eff_tonic = int(first_bass[0].pitch) % 12
+    elif eff_tonic is None and allowed_pcs:
+        eff_tonic = min(allowed_pcs)
+    elif eff_tonic is None:
+        eff_tonic = int(sorted(all_melodic, key=lambda n: n.start)[0].pitch) % 12
+
+    tense_intervals = {1, 5, 6, 8, 11}  # b2, 4, #4/b5, b6, 7
+    bar_notes: Dict[int, List[pretty_midi.Note]] = {}
+    bar_harm_pcs: Dict[int, List[int]] = {}
+    bar_bass_pcs: Dict[int, List[int]] = {}
+
+    for n in all_melodic:
+        q = _note_quarter_pos(pm, n.start)
+        b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+        bar_notes.setdefault(b_idx, []).append(n)
+    for n in chord_notes:
+        q = _note_quarter_pos(pm, n.start)
+        b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+        bar_harm_pcs.setdefault(b_idx, []).append(n.pitch % 12)
+    for n in bass_notes:
+        q = _note_quarter_pos(pm, n.start)
+        b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+        bar_bass_pcs.setdefault(b_idx, []).append(n.pitch % 12)
+
+    max_b = max(bar_notes.keys())
+    curve: List[float] = []
+    for b_idx in range(max_b + 1):
+        notes_b = bar_notes.get(b_idx, [])
+        if not notes_b:
+            continue
+
+        # 1) Duration-weighted proportion of tense scale degrees relative to tonic
+        tot_dur = 0.0
+        tense_dur = 0.0
+        for n in notes_b:
+            d = max(0.05, float(n.end - n.start))
+            tot_dur += d
+            rel = (int(n.pitch) - eff_tonic) % 12
+            if rel in tense_intervals:
+                weight = 1.0 if rel in (1, 6, 11) else 0.75
+                tense_dur += d * weight
+        tense_prop = min(1.0, tense_dur / max(tot_dur, 1e-6))
+
+        # 2) Chord distance from tonic
+        pcs_b = set(bar_harm_pcs.get(b_idx, []) + bar_bass_pcs.get(b_idx, []))
+        if not pcs_b:
+            pcs_b = {n.pitch % 12 for n in notes_b}
+        root_pc = bar_bass_pcs[b_idx][0] if bar_bass_pcs.get(b_idx) else min(pcs_b)
+        root_rel = (root_pc - eff_tonic) % 12
+        rel_pcs = {(pc - eff_tonic) % 12 for pc in pcs_b}
+        has_tritone = any(((p1 - p2) % 12 == 6) for p1 in pcs_b for p2 in pcs_b)
+        if has_tritone or root_rel in (1, 6, 11):
+            chord_dist = 0.90
+        elif root_rel == 7:  # Dominant V
+            chord_dist = 0.80
+        elif root_rel in (2, 5, 8, 10):  # ii, iv/IV, bVI, bVII
+            chord_dist = 0.52
+        elif root_rel in (3, 4, 9):  # iii/bIII, vi/VI
+            chord_dist = 0.38
+        else:  # Tonic I / i
+            chord_dist = 0.10 + (0.12 if 11 in rel_pcs or 1 in rel_pcs else 0.0)
+
+        # 3) Vertical roughness across overlapping notes in bar
+        rough_pairs = 0.0
+        total_pairs = 0
+        s_notes = sorted(notes_b, key=lambda x: x.start)
+        for i, n1 in enumerate(s_notes):
+            for n2 in s_notes[i + 1 :]:
+                if n2.start >= n1.end - 0.01:
+                    break
+                total_pairs += 1
+                iv = abs(int(n1.pitch) - int(n2.pitch)) % 12
+                if iv in (1, 11):
+                    rough_pairs += 1.0
+                elif iv == 6:
+                    rough_pairs += 0.85
+                elif iv in (2, 10):
+                    rough_pairs += 0.45
+        roughness = min(1.0, rough_pairs / max(1, total_pairs))
+
+        t_m = max(0.0, min(1.0, 0.35 * tense_prop + 0.40 * chord_dist + 0.25 * roughness))
+        curve.append(round(t_m, 3))
+
+    mean_t = round(float(np.mean(curve)), 3) if curve else 0.0
+    std_t = round(float(np.std(curve)), 3) if len(curve) >= 2 else 0.0
+    is_free_ambient = (phrase_plan or "").strip().lower() == "free_ambient"
+
+    issues: List[str] = []
+    if len(curve) >= 4 and not is_free_ambient:
+        if abs(mean_t - float(target_tension)) > 0.25:
+            issues.append(f"harmonic_tension_mean={mean_t} hors cible {target_tension:.2f}±0.25")
+        if std_t < 0.08:
+            issues.append(f"harmonic_tension_flat std={std_t} < 0.08 (tension harmonique plate)")
+
+    score = 1.0
+    if len(curve) >= 4 and not is_free_ambient:
+        mean_err = abs(mean_t - float(target_tension))
+        if mean_err > 0.25:
+            score -= min(0.45, (mean_err - 0.25) * 1.6)
+        if std_t < 0.08:
+            score -= min(0.45, (0.08 - std_t) * 5.0)
+
+    return {
+        "status": "FAIL" if issues else "PASS",
+        "verdict": "FAIL" if issues else "PASS",
+        "score": round(max(0.0, min(1.0, score)), 3),
+        "curve": curve,
+        "mean_tension": mean_t,
+        "std_tension": std_t,
+        "target_tension": float(target_tension),
+        "tonic_pc": eff_tonic,
+        "issues": issues,
+    }
+
+
+def compute_rhythmic_interlocking(
+    pm_or_path: Any,
+    time_signature: Optional[Any] = None,
+    max_chords_lead_overlap: float = 0.30,
+    max_grid_saturation: float = 0.25,
+) -> Dict[str, Any]:
+    """
+    Échelle S3 / Axe V x H (Phase 6 §3.3) :
+    Projette les attaques Kick/Snare/Bass/Chords/Lead sur une grille 1/16 par mesure :
+      - `chords_lead_attack_overlap` <= 0.30
+      - `kick_bass_downbeat_lock` (quand has_drums == True)
+      - `grid_saturation_ratio` <= 0.25 (> 3 rôles simultanés sur même pas 1/16)
+    """
+    pm = _load_pm(pm_or_path)
+    num, den = _resolve_time_signature(pm, time_signature)
+    bar_q = _bar_quarters(num, den)
+    roles = _infer_roles(pm)
+
+    kick_slots: set[Tuple[int, int]] = set()
+    drum_other_slots: set[Tuple[int, int]] = set()
+    for inst in pm.instruments:
+        nm = (inst.name or "").lower()
+        is_perc = bool(inst.is_drum) or bool(_PERC_TRACK_RE.search(nm))
+        if not is_perc:
+            continue
+        for n in inst.notes:
+            q = _note_quarter_pos(pm, n.start)
+            b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+            ph = (q - b_idx * bar_q) / max(bar_q, 1e-4)
+            slot = min(15, max(0, int(round(ph * 16.0))))
+            if "kick" in nm or "bd" in nm or (inst.is_drum and n.pitch in (35, 36)):
+                kick_slots.add((b_idx, slot))
+            else:
+                drum_other_slots.add((b_idx, slot))
+
+    def _collect_slots(insts: List[pretty_midi.Instrument]) -> set[Tuple[int, int]]:
+        s: set[Tuple[int, int]] = set()
+        for inst in insts:
+            for n in inst.notes:
+                q = _note_quarter_pos(pm, n.start)
+                b_idx = max(0, int((q + 1e-6) // max(bar_q, 1e-4)))
+                ph = (q - b_idx * bar_q) / max(bar_q, 1e-4)
+                slot = min(15, max(0, int(round(ph * 16.0))))
+                s.add((b_idx, slot))
+        return s
+
+    bass_slots = _collect_slots(roles["bass"])
+    chords_slots = _collect_slots(roles["chords"])
+    lead_slots = _collect_slots(roles["lead"])
+    counter_slots = _collect_slots(roles["counter"])
+
+    chords_lead_overlap: Optional[float] = None
+    if lead_slots and chords_slots:
+        shared = len(lead_slots & chords_slots)
+        chords_lead_overlap = round(shared / float(len(lead_slots)), 3)
+
+    has_drums = bool(kick_slots or drum_other_slots)
+    kick_bass_lock: Optional[float] = None
+    if has_drums and kick_slots and bass_slots:
+        # Check whether bass attacks anchor cleanly with kick (within ±1 1/16th slot for Haas/sidechain)
+        bass_idx_linear = [b * 16 + s for b, s in sorted(bass_slots)]
+        kick_idx_set = {b * 16 + s for b, s in kick_slots}
+        locked = sum(
+            1 for idx in bass_idx_linear
+            if any((idx + d) in kick_idx_set for d in (-1, 0, 1))
+        )
+        kick_bass_lock = round(locked / float(len(bass_idx_linear)), 3)
+
+    all_slots = kick_slots | drum_other_slots | bass_slots | chords_slots | lead_slots | counter_slots
+    if all_slots:
+        active_bars = {b for b, _ in all_slots}
+        total_grid_steps = max(1, len(active_bars) * 16)
+        saturated = 0
+        for pos in all_slots:
+            count = sum(
+                1
+                for grp in (kick_slots, drum_other_slots, bass_slots, chords_slots, lead_slots, counter_slots)
+                if pos in grp
+            )
+            if count > 3:
+                saturated += 1
+        grid_saturation = round(saturated / float(total_grid_steps), 3)
+    else:
+        grid_saturation = 0.0
+
+    issues: List[str] = []
+    if chords_lead_overlap is not None and chords_lead_overlap > float(max_chords_lead_overlap):
+        issues.append(
+            f"chords_lead_attack_overlap={chords_lead_overlap} > {max_chords_lead_overlap}"
+        )
+    if grid_saturation > float(max_grid_saturation):
+        issues.append(
+            f"grid_saturation_ratio={grid_saturation} > {max_grid_saturation}"
+        )
+
+    score = 1.0
+    if chords_lead_overlap is not None and chords_lead_overlap > float(max_chords_lead_overlap):
+        score -= min(0.50, (chords_lead_overlap - float(max_chords_lead_overlap)) * 1.5)
+    if grid_saturation > float(max_grid_saturation):
+        score -= min(0.45, (grid_saturation - float(max_grid_saturation)) * 2.0)
+
+    return {
+        "status": "FAIL" if issues else "PASS",
+        "verdict": "FAIL" if issues else "PASS",
+        "score": round(max(0.0, min(1.0, score)), 3),
+        "chords_lead_attack_overlap": chords_lead_overlap,
+        "kick_bass_downbeat_lock": kick_bass_lock,
+        "grid_saturation_ratio": grid_saturation,
+        "has_drums": has_drums,
+        "issues": issues,
+    }
+
+
 def evaluate_midi_musicality(
     midi_path: str,
     thresholds: Optional[MusicalityThresholds] = None,
@@ -475,6 +967,8 @@ def evaluate_midi_musicality(
     allowed_pcs: Optional[set[int]] = None,
     time_signature: Optional[Any] = None,
     phrase_plan: str = "",
+    strict_s3: bool = False,
+    s3_contract: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Point d'entrée principal à appeler depuis audit_midi_harmony."""
     dark_tense = (valence < -0.3) or (tension >= 0.5)
@@ -528,6 +1022,29 @@ def evaluate_midi_musicality(
         pm, allowed_pcs=eff_allowed, valence=valence, tension=tension, time_signature=eff_ts
     )
 
+    # S3 Phase 6 metrics (always computed fast < 50 ms; enforced when strict_s3=True or s3_contract given)
+    s3_cfg = s3_contract or {}
+    motif_band = tuple(s3_cfg.get("motif_similarity_band") or (0.15, 0.55))
+    max_cl_overlap = float(s3_cfg.get("max_chords_lead_attack_overlap", 0.30))
+    motif_cohesion = compute_motif_cohesion(
+        pm,
+        time_signature=eff_ts,
+        phrase_plan=phrase_plan,
+        motif_similarity_band=(float(motif_band[0]), float(motif_band[1])),
+    )
+    harmonic_tension = compute_harmonic_tension_curve(
+        pm,
+        allowed_pcs=eff_allowed,
+        target_tension=tension,
+        time_signature=eff_ts,
+        phrase_plan=phrase_plan,
+    )
+    rhythmic_interlocking = compute_rhythmic_interlocking(
+        pm,
+        time_signature=eff_ts,
+        max_chords_lead_overlap=max_cl_overlap,
+    )
+
     failures: List[str] = []
     if has_explicit_lead:
         if not is_free_ambient and stepwise_ratio < th.stepwise_ratio_min:
@@ -550,6 +1067,14 @@ def evaluate_midi_musicality(
             f"({'<= 2 diatoniques/4 mes. autorisées' if dark_tense else '0 autorisé'})"
         )
 
+    if strict_s3 or s3_contract is not None:
+        if motif_cohesion.get("issue"):
+            failures.append(
+                f"motif_cohesion={motif_cohesion['issue']} (d_a_ap={motif_cohesion['d_a_ap']}, d_a_app={motif_cohesion['d_a_app']})"
+            )
+        failures.extend(harmonic_tension.get("issues") or [])
+        failures.extend(rhythmic_interlocking.get("issues") or [])
+
     return {
         "musicality_verdict": "PASS" if not failures else "FAIL",
         "emotion_mode": "dark_tense" if dark_tense else "consonant",
@@ -568,6 +1093,19 @@ def evaluate_midi_musicality(
             "contrary_or_oblique_ratio": contrary_ratio,
             "minor_2nd_clashes_total": len(all_clashes),
             "minor_2nd_clashes_blocking": len(blocking_clashes),
+            "motif_d_a_ap": motif_cohesion.get("d_a_ap"),
+            "motif_d_a_app": motif_cohesion.get("d_a_app"),
+            "motif_issue": motif_cohesion.get("issue"),
+            "harmonic_tension_mean": harmonic_tension.get("mean_tension"),
+            "harmonic_tension_std": harmonic_tension.get("std_tension"),
+            "chords_lead_attack_overlap": rhythmic_interlocking.get("chords_lead_attack_overlap"),
+            "kick_bass_downbeat_lock": rhythmic_interlocking.get("kick_bass_downbeat_lock"),
+            "grid_saturation_ratio": rhythmic_interlocking.get("grid_saturation_ratio"),
+        },
+        "s3_diagnostics": {
+            "motif_cohesion": motif_cohesion,
+            "harmonic_tension": harmonic_tension,
+            "rhythmic_interlocking": rhythmic_interlocking,
         },
         "minor_2nd_clashes": all_clashes,
         "blocking_minor_2nd_clashes": blocking_clashes,

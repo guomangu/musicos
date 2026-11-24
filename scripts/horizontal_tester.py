@@ -35,7 +35,9 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
+from artifact_cache import compute_e3_seam_hash, get_cached_verdict, set_cached_verdict
 from deep_diagnostics import _lin_to_db, _scan_glitches_and_crackle
+from macro_structure_audit import analyze_macro_structure
 
 _HIGH_ENERGY_KW = ("drop", "chorus", "refrain", "climax", "hook", "peak")
 _LOW_ENERGY_KW = ("intro", "break", "bridge", "pont", "outro", "ambient", "calm")
@@ -298,10 +300,16 @@ def audit_project_horizontal_seams(
     bpm: float = 132.0,
     beats_per_bar: int = 4,
     max_seams: int = 6,
+    use_cache: bool = True,
+    include_macro_ssm: bool = False,
+    full_mix_wav: str = "",
+    contract_path: str = "",
+    stems_dir: str = "",
 ) -> dict[str, Any]:
     """
     Render and audit up to `max_seams` 4-bar section transition windows plus the `Outro`
-    window directly from a `.gridline` project.
+    window directly from a `.gridline` project. Supports incremental SHA-256 caching per
+    seam (`artifact_cache.py`) and optional full-song `macro_structure_audit` (`S4`).
     """
     abs_proj = os.path.abspath(os.path.expanduser(project_path))
     if not os.path.isfile(abs_proj):
@@ -345,6 +353,8 @@ def audit_project_horizontal_seams(
     transitions.sort(key=lambda x: (x[0], x[3]))
     selected = sorted(transitions[: max(1, int(max_seams))], key=lambda x: x[3])
 
+    cache_hits = 0
+    cache_misses = 0
     seam_results: list[dict[str, Any]] = []
     for idx, (_pr, n1, n2, b_bar, t_type) in enumerate(selected, start=1):
         w_start = max(1, b_bar - 2)
@@ -352,6 +362,23 @@ def audit_project_horizontal_seams(
         bars_before = float(b_bar - w_start)
         bars_after = float(w_end - b_bar + 1)
         out_wav = os.path.join(seam_dir, f"seam_{idx}_{w_start}_{w_end}.wav")
+        seam_key = f"E3_{n1}->{n2}_{w_start}_{w_end}"
+        seam_hash = compute_e3_seam_hash(
+            seam_key,
+            project_path=abs_proj,
+            bar_range=f"{w_start}-{w_end}",
+            bpm=bpm,
+            beats_per_bar=beats_per_bar,
+        )
+        cached = get_cached_verdict(proj_dir, seam_key, seam_hash) if use_cache else None
+        if cached and isinstance(cached.get("result"), dict) and cached["result"].get("verdict"):
+            sr_res = dict(cached["result"])
+            sr_res["cache_hit"] = True
+            cache_hits += 1
+            seam_results.append(sr_res)
+            continue
+
+        cache_misses += 1
         cmd = ["gridline", "render", abs_proj, "-o", out_wav, "--bits", "24", "--scope", f"range:{w_start}-{w_end}"]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         if proc.returncode != 0:
@@ -368,18 +395,49 @@ def audit_project_horizontal_seams(
         )
         sr_res["bar_range"] = f"{w_start}-{w_end}"
         sr_res["boundary_bar"] = b_bar
+        sr_res["cache_hit"] = False
+        set_cached_verdict(proj_dir, seam_key, seam_hash, sr_res)
         seam_results.append(sr_res)
 
     # Outro window (last 4 bars)
     o_start = max(1, total_bars - 3)
     o_end = total_bars
     outro_wav = os.path.join(seam_dir, f"outro_{o_start}_{o_end}.wav")
-    cmd_o = ["gridline", "render", abs_proj, "-o", outro_wav, "--bits", "24", "--scope", f"range:{o_start}-{o_end}"]
-    proc_o = subprocess.run(cmd_o, capture_output=True, text=True, timeout=90)
-    if proc_o.returncode != 0:
-        raise RuntimeError(f"Outro render failed ({o_start}-{o_end}): {proc_o.stderr or proc_o.stdout}")
-    outro_res = audit_outro_wav(outro_wav)
-    outro_res["bar_range"] = f"{o_start}-{o_end}"
+    outro_key = f"E3_OUTRO_{o_start}_{o_end}"
+    outro_hash = compute_e3_seam_hash(
+        outro_key,
+        project_path=abs_proj,
+        bar_range=f"{o_start}-{o_end}",
+        bpm=bpm,
+        beats_per_bar=beats_per_bar,
+    )
+    cached_outro = get_cached_verdict(proj_dir, outro_key, outro_hash) if use_cache else None
+    if cached_outro and isinstance(cached_outro.get("result"), dict) and cached_outro["result"].get("verdict"):
+        outro_res = dict(cached_outro["result"])
+        outro_res["cache_hit"] = True
+        cache_hits += 1
+    else:
+        cache_misses += 1
+        cmd_o = ["gridline", "render", abs_proj, "-o", outro_wav, "--bits", "24", "--scope", f"range:{o_start}-{o_end}"]
+        proc_o = subprocess.run(cmd_o, capture_output=True, text=True, timeout=90)
+        if proc_o.returncode != 0:
+            raise RuntimeError(f"Outro render failed ({o_start}-{o_end}): {proc_o.stderr or proc_o.stdout}")
+        outro_res = audit_outro_wav(outro_wav)
+        outro_res["bar_range"] = f"{o_start}-{o_end}"
+        outro_res["cache_hit"] = False
+        set_cached_verdict(proj_dir, outro_key, outro_hash, outro_res)
+
+    macro_res: dict[str, Any] | None = None
+    if include_macro_ssm and full_mix_wav and os.path.isfile(os.path.expanduser(full_mix_wav)):
+        macro_res = analyze_macro_structure(
+            full_mix_wav,
+            bpm=bpm,
+            beats_per_bar=beats_per_bar,
+            blueprint=bp or None,
+            contract=contract_path or None,
+            stems_dir_or_map=stems_dir or None,
+            project_dir=proj_dir,
+        )
 
     all_items = seam_results + [outro_res]
     failed = [x for x in all_items if x["verdict"] != "PASS"]
@@ -391,6 +449,11 @@ def audit_project_horizontal_seams(
             f["human_diagnosis"][0] for f in failed[:2]
         ]
         next_action = failed[0]["next_action"]
+    elif macro_res and macro_res["verdict"] != "PASS":
+        verdict = "FIX"
+        m_dev = (macro_res.get("deviations") or [{}])[0]
+        next_action = m_dev.get("action_payload") or {"code": "MUTATE_BLOCK_DENSITY_OR_LPF", "params": {}}
+        diag = [m_dev.get("diagnosis") or "Macro-structure S4 deviation detected."]
     else:
         diag = [f"Toutes les coutures ({len(seam_results)}) et l'Outro sont validées (score={avg_score:.2f})."]
         next_action = {"code": "PROCEED_TO_FINAL_RENDER", "params": {"stage": "E4_FINAL_GATE"}}
@@ -399,10 +462,13 @@ def audit_project_horizontal_seams(
         "project_path": abs_proj,
         "verdict": verdict,
         "score": avg_score,
+        "cache_hits": cache_hits,
+        "cache_misses": cache_misses,
         "human_diagnosis": diag[:3],
         "next_action": next_action,
         "seams": seam_results,
         "outro": outro_res,
+        "macro_structure": macro_res,
     }
     diag_path = os.path.join(diag_dir, "horizontal_seams.json")
     with open(diag_path, "w", encoding="utf-8") as fh:
