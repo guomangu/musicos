@@ -116,13 +116,13 @@ Cocher quels rôles jouent dans chaque section afin de garantir un **arc dynamiq
 ```python
 #!/usr/bin/env python3
 import sys
-sys.path.insert(0, "/home/gamo/Bureau/musicos/scripts")
+sys.path.insert(0, "$AI_STUDIO_DIR/scripts")
 from gl_dsl import eq_band, eq_params
 from groove_lib import apply_anti_machine_gun, apply_haas_pocket, apply_micro_strum, enforce_frequency_inertia
 from song_builder import ChannelSpec, degree_to_midi, optimize_voice_leading, run_song_cli
 from transitions_lib import add_transition_fx, apply_harmonic_anticipation, beat4_dropout, generate_drum_fill, outro_fade, section_gain_arc
 
-PROJ_DIR = "/home/gamo/Bureau/musicos/projects/mon_morceau"
+PROJ_DIR = "$AI_STUDIO_DIR/projects/mon_morceau"
 SECTIONS = [("Intro", 0, 8, "intro"), ("Drop1", 8, 16, "chorus"), ("Outro", 24, 8, "outro")]  # start_bar 0-idx
 
 def generate(meta):

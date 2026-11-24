@@ -790,5 +790,165 @@ def audit_multiscale_hv(
     return json.dumps(pyramid, ensure_ascii=False, separators=(",", ":"))
 
 
+def _compact_json(obj: Any, limit: int = 1500) -> str:
+    """v3.0 token budget: every macro-tool answer is a compact JSON <= 1500 chars (~<= 400 tokens)."""
+    txt = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), default=str)
+    return txt if len(txt) <= limit else txt[: limit - 3] + "..."
+
+
+@mcp.tool()
+def studio_prepare_session(project_dir: str, style_intent: str = "", reference_paths: list[str] | None = None) -> str:
+    """v3.0 Tour 1/3 — Préparation: indexe Samples/ (scénario B, user_samples_locked), propose 3 palettes
+    avec root_note/BPM, calcule le profil cible. Retour JSON compact <= 1500 cars, 0 token LLM côté chaîne."""
+    import shutil as _sh
+    try:
+        proj = os.path.abspath(os.path.expanduser(project_dir))
+        bp_path = os.path.join(proj, "song_blueprint.json")
+        bp = {}
+        if os.path.isfile(bp_path):
+            with open(bp_path, encoding="utf-8") as fh:
+                bp = json.load(fh)
+        cat_path = os.path.join(proj, "samples_catalog.json")
+        indexed = False
+        has_samples_dir = any(os.path.isdir(os.path.join(proj, d)) for d in ("Samples", "samples"))
+        if has_samples_dir and not os.path.isfile(cat_path):
+            from index_project_samples import index_project_samples
+            index_project_samples(proj, with_clap=False, write_catalog=True)
+            indexed = True
+        key = str(bp.get("key") or "C minor")
+        bpm = float(bp.get("bpm") or 132.0)
+        profile = str(bp.get("mix_profile") or "trap_rap")
+        palettes_summary = []
+        if has_samples_dir:
+            try:
+                index_dir = os.path.join(_ROOT_DIR, "mcp-servers", "audio-index")
+                if index_dir not in sys.path:
+                    sys.path.insert(0, index_dir)
+                from palette_builder import propose_palettes
+                pal = propose_palettes(
+                    mix_profile=profile,
+                    emotion_vector=bp.get("emotion_vector"),
+                    target_key=key,
+                    project_samples_dir=proj,
+                    bpm=bpm,
+                    num_palettes=3,
+                )
+                for p in (pal.get("palettes") or [])[:3]:
+                    palettes_summary.append({
+                        "id": p.get("palette_id"),
+                        "tracks": [
+                            {"role": t.get("role"), "file": os.path.basename(str(t.get("filepath") or t.get("name") or "")),
+                             "root_note": t.get("root_note"), "bpm": t.get("bpm")}
+                            for t in (p.get("slots") or p.get("blueprint_tracks") or [])[:6]
+                        ],
+                    })
+            except Exception as exc:
+                palettes_summary = [{"error": str(exc)[:120]}]
+        return _compact_json({
+            "ok": True,
+            "tour": 1,
+            "project_dir": proj,
+            "user_samples_locked": has_samples_dir,
+            "indexed_now": indexed,
+            "key": key,
+            "bpm": bpm,
+            "mix_profile": profile,
+            "valence": (bp.get("emotion_vector") or {}).get("valence"),
+            "palettes": palettes_summary,
+            "gridline_available": bool(_sh.which("gridline")),
+        })
+    except Exception as exc:
+        return _compact_json({"ok": False, "tour": 1, "error": str(exc)[:300]})
+
+
+@mcp.tool()
+def studio_build_and_validate_core(project_dir: str, palette_id: str = "") -> str:
+    """v3.0 Tour 2/3 — Noyau validé: gate blueprint_safety (octave/shift/boucles/cloches) puis
+    compile_song --core-only (ordre canonique MIDI immuable). Si gridline est dispo: 1 rendu
+    stems 8 mesures + stem_matrix_evaluator (V1..V4 + solveur de gains) en NumPy pur.
+    Retour: PASS ou Top-3 défauts actionnables, JSON <= 1500 cars."""
+    import shutil as _sh
+    try:
+        from compile_song import compile_song
+        rep = compile_song(project_dir, core_only=True)
+        if not rep.get("ok"):
+            issues = (rep.get("musical_safety") or {}).get("issues") or []
+            top3 = [{"code": i.get("code"), "track": i.get("track"), "fix": (i.get("fix") or "")[:140]}
+                    for i in issues if i.get("severity") == "error"][:3]
+            return _compact_json({"ok": False, "tour": 2, "stage": rep.get("stage"), "top_defects": top3})
+        stems_eval = None
+        if _sh.which("gridline"):
+            try:
+                from stem_matrix_evaluator import evaluate_stem_matrix, load_stems_dir
+                stems_dir = os.path.join(os.path.abspath(os.path.expanduser(project_dir)), "renders", "stems_core")
+                if os.path.isdir(stems_dir):
+                    stems, sr = load_stems_dir(stems_dir)
+                    bp = {}
+                    bp_path = os.path.join(os.path.abspath(os.path.expanduser(project_dir)), "song_blueprint.json")
+                    if os.path.isfile(bp_path):
+                        with open(bp_path, encoding="utf-8") as fh:
+                            bp = json.load(fh)
+                    stems_eval = evaluate_stem_matrix(stems, sr, profile=str(bp.get("mix_profile") or "trap_rap"))
+            except Exception as exc:
+                stems_eval = {"error": str(exc)[:120]}
+        return _compact_json({
+            "ok": True,
+            "tour": 2,
+            "stage": rep.get("stage"),
+            "out": rep.get("out"),
+            "musical_safety_ok": True,
+            "stems_eval": ({"ok": stems_eval.get("ok"), "n_stems": stems_eval.get("n_stems"),
+                            "gridline_renders_used": stems_eval.get("gridline_renders_used"),
+                            "issues": stems_eval.get("issues")} if stems_eval and "error" not in stems_eval else stems_eval),
+            "palette_id": palette_id or None,
+        })
+    except Exception as exc:
+        return _compact_json({"ok": False, "tour": 2, "error": str(exc)[:300]})
+
+
+@mcp.tool()
+def studio_render_final_master(project_dir: str, export_mp3: bool = True, profile: str = "") -> str:
+    """v3.0 Tour 3/3 — Master final: compile_song complet puis UN SEUL rendu Gridline master
+    + quality gate render_and_audit (1 passe DAG max). Retour: fiche 5 lignes <= 1500 cars."""
+    import shutil as _sh
+    try:
+        proj = os.path.abspath(os.path.expanduser(project_dir))
+        if not _sh.which("gridline"):
+            return _compact_json({"ok": False, "tour": 3, "error": "binaire gridline indisponible (headless CI)"})
+        from compile_song import compile_song
+        rep = compile_song(proj, core_only=False)
+        if not rep.get("ok"):
+            return _compact_json({"ok": False, "tour": 3, "stage": rep.get("stage"),
+                                  "musical_safety": rep.get("musical_safety")})
+        bp = {}
+        bp_path = os.path.join(proj, "song_blueprint.json")
+        if os.path.isfile(bp_path):
+            with open(bp_path, encoding="utf-8") as fh:
+                bp = json.load(fh)
+        prof = profile or str(bp.get("mix_profile") or "trap_rap")
+        from render_and_audit import render_and_evaluate
+        renders_dir = os.path.join(proj, "renders")
+        os.makedirs(renders_dir, exist_ok=True)
+        out_wav = os.path.join(renders_dir, "master.wav")
+        summary = render_and_evaluate(
+            os.path.join(proj, "projet.gridline"), out_wav,
+            profile=prof, blueprint=bp_path, render_mp3=bool(export_mp3),
+        )
+        return _compact_json({
+            "ok": bool(summary["quality_gate"]["passed"]),
+            "tour": 3,
+            "wav": out_wav,
+            "mp3": os.path.splitext(out_wav)[0] + ".mp3" if export_mp3 else None,
+            "lufs": summary["integrated_lufs"],
+            "true_peak_dbtp": summary["true_peak_dbtp"],
+            "lra_lu": summary.get("lra_lu"),
+            "gate_failures": summary["quality_gate"]["failures"][:5],
+            "musical_safety_ok": (summary.get("musical_safety") or {}).get("ok", True),
+            "render_count": 1,
+        })
+    except Exception as exc:
+        return _compact_json({"ok": False, "tour": 3, "error": str(exc)[:300]})
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

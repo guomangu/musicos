@@ -48,6 +48,7 @@ from studio_lib import GridlineMCP
 from target_fingerprint import load_multi_scale_contract
 from taste_memory import record_validated_taste
 from blueprint_safety import summarize_musical_safety
+from mix_config import notch_caps, profile_settings, tuning_invariants
 
 
 def _should_record_taste(proj_dir: str, taste_memory_path: str = "", approve_taste: bool = False) -> bool:
@@ -203,7 +204,18 @@ def render_and_evaluate(
     record_taste: bool = True,
 ) -> dict[str, Any]:
     """Renders `.gridline` (optionally scoped by bar range) and computes full Quality Gate report."""
-    gate_cfg = GENRE_GATES[profile]
+    gate_cfg = dict(GENRE_GATES[profile])
+    # v3.0: config/mix_profiles.json is the single source of truth — overlay genre values
+    _ps = profile_settings(profile)
+    _gate_overlay = {
+        "low_end_max": "low_end_max_pct", "low_mids_max": "low_mids_max_pct",
+        "air_min": "air_min_pct", "dark_air_min": "air_min_dark_pct",
+        "sharp_max": "sharpness_max", "dark_sharp_max": "sharpness_max_dark",
+        "arc_min": "dynamic_arc_min_db", "default_lufs": "target_lufs",
+    }
+    for _gk, _ck in _gate_overlay.items():
+        if _ck in _ps:
+            gate_cfg[_gk] = float(_ps[_ck])
     proj_dir = os.path.dirname(os.path.abspath(os.path.expanduser(project)))
     contract_obj = load_multi_scale_contract(contract_path=contract_path, project_dir=proj_dir)
     s5_ctx = (contract_obj or {}).get("s5_context") or {}
@@ -382,8 +394,15 @@ def render_and_evaluate(
     if base["spectral_bands"]["air"]["energy_pct"] < air_min:
         gate_failures.append(f"air={base['spectral_bands']['air']['energy_pct']}% < {air_min}%")
     tune_ct = abs(float(deep["psychoacoustics"].get("tuning_cents_offset", 0.0)))
-    if tune_ct > 6.5:
-        gate_failures.append(f"tuning_offset={tune_ct}ct > 6.5ct")
+    _tune_inv = tuning_invariants()
+    # v3.0: on the full master, vibrato/expressive tracks may oscillate +-12 ct around the
+    # juste note -> only the expressive PEAK cap applies at master level. The strict
+    # foundation threshold (<= 6.0 ct) is enforced on stable Bass/Chords stems below.
+    if tune_ct > _tune_inv["expressive_peak_ct"]:
+        gate_failures.append(
+            f"tuning_offset={tune_ct}ct > {_tune_inv['expressive_peak_ct']}ct (master peak cap; "
+            f"foundation stems must stay <= {_tune_inv['foundation_max_ct']}ct)"
+        )
     if len(sec_lufs) >= 2:
         arc_db = round(max(sec_lufs.values()) - min(sec_lufs.values()), 2)
         if arc_db < gate_cfg["arc_min"]:
@@ -405,6 +424,18 @@ def render_and_evaluate(
     stem_hier_res: dict[str, Any] | None = None
     if eff_stems_dir and os.path.isdir(eff_stems_dir):
         st_roles = _find_role_stems_in_dir(eff_stems_dir)
+        # v3.0: strict tuning on stable foundation stems (Bass/808 + Chords), not on the
+        # vibrato-bearing master — expressive vibrato +-12 ct is NOT an out-of-tune render.
+        try:
+            from sample_prep_lib import measure_fft_tuning
+            _found_stems = list(st_roles.get("bass") or []) + list(st_roles.get("chords") or []) + list(st_roles.get("harmony_list") or [])
+            for _stem in _found_stems[:2]:
+                _ti = measure_fft_tuning(_stem)
+                _ct = abs(float(_ti.get("harmonic_tuning_ct") if _ti.get("harmonic_tuning_ct") is not None else (_ti.get("fft_cents_offset") or 0.0)))
+                if _ct > _tune_inv["foundation_max_ct"]:
+                    gate_failures.append(f"tuning_offset_stem={_ct}ct > {_tune_inv['foundation_max_ct']}ct on {os.path.basename(_stem)}")
+        except Exception:
+            pass
         if st_roles.get("bass"):
             bass_trans_res = analyze_bass_harmonic_translation(st_roles["bass"], sr=sr)
             if bass_trans_res.get("verdict") == "FIX":
@@ -851,13 +882,26 @@ def _apply_autofix_mutations(
             bm_idx = int(bus_music_track["mixer"])
             bm_eq_slots = _slots_for_plugin(bus_music_track, "gl.eq")
 
-            # Rule 3: surgical resonances (-4 dB @ F_i, Q=2.8 -> width=0.22, max 3 bands in [200, 8000] Hz)
+            # Rule 3: surgical resonances (-4 dB @ F_i, Q=2.8 -> width=0.22) with the v3.0
+            # notch budget from config: beyond max_eq_notches_total the fix is SWAP_SAMPLE,
+            # not more comb-like EQ (a sample needing 4 surgical cuts is the wrong timbre).
             if resonances:
-                top_res = sorted(
-                    resonances,
-                    key=lambda r: float(r.get("local_excess_db", r.get("excess_db", 0.0))),
-                    reverse=True,
-                )[:3]
+                _per_track_cap, _total_cap = notch_caps()
+                _already = int(state.get("resonance_notches_total", 0))
+                if _already >= _total_cap:
+                    mutations.append({
+                        "rule": "resonances_surgical_eq",
+                        "skipped": True,
+                        "action": "SWAP_SAMPLE",
+                        "reason": f"notch budget exhausted ({_already}/{_total_cap} total) — stop EQ, swap the sample",
+                    })
+                    top_res = []
+                else:
+                    top_res = sorted(
+                        resonances,
+                        key=lambda r: float(r.get("local_excess_db", r.get("excess_db", 0.0))),
+                        reverse=True,
+                    )[: max(0, _total_cap - _already)]
                 if len(bm_eq_slots) >= 2:
                     surg_slot = bm_eq_slots[-1]
                 else:
@@ -878,18 +922,22 @@ def _apply_autofix_mutations(
                     )
                     for idx, r in enumerate(top_res, start=1)
                 ]
-                param_changes.extend(eq_params(bm_idx, surg_bands, slot=surg_slot, quality=0))
-                for unused_idx in range(len(top_res) + 1, 8):
-                    param_changes.append((f"mixer/{bm_idx}/slot/{surg_slot}/Band {unused_idx} enabled", 0))
-                mutations.append(
-                    {
-                        "rule": "resonances_surgical_eq",
-                        "target": f"mixer/{bm_idx}/slot/{surg_slot}",
-                        "freqs_hz": [float(r["freq_hz"]) for r in top_res],
-                        "gain_db": [-min(12.0, max(6.0, float(r.get("local_excess_db", 5.0)) + 1.0)) for r in top_res],
-                        "q": 2.8,
-                    }
-                )
+                if top_res:
+                    param_changes.extend(eq_params(bm_idx, surg_bands, slot=surg_slot, quality=0))
+                    for unused_idx in range(len(top_res) + 1, 8):
+                        param_changes.append((f"mixer/{bm_idx}/slot/{surg_slot}/Band {unused_idx} enabled", 0))
+                    state["resonance_notches_total"] = _already + len(top_res)
+                    mutations.append(
+                        {
+                            "rule": "resonances_surgical_eq",
+                            "target": f"mixer/{bm_idx}/slot/{surg_slot}",
+                            "freqs_hz": [float(r["freq_hz"]) for r in top_res],
+                            "gain_db": [-min(12.0, max(6.0, float(r.get("local_excess_db", 5.0)) + 1.0)) for r in top_res],
+                            "q": 2.8,
+                            "notches_total": state["resonance_notches_total"],
+                            "notch_cap_total": _total_cap,
+                        }
+                    )
 
             # Rules 4 & 5 on primary BUS Music EQ
             need_low_mids = (low_mids_val > low_mids_max) and not state.get("low_mids_applied", False)

@@ -55,9 +55,14 @@ class TestLoopBpmFiltering(unittest.TestCase):
         unknown_loop = {"is_loop": True, "bpm": None}
         self.assertEqual(loop_bpm_penalty(oneshot, 90.0), 0.0)
         self.assertEqual(loop_bpm_penalty(unknown_loop, 90.0), 0.0)
-        self.assertEqual(loop_bpm_penalty({"is_loop": True, "bpm": 92.0}, 90.0), 0.0)
-        self.assertEqual(loop_bpm_penalty({"is_loop": True, "bpm": 100.0}, 90.0), 0.15)
-        self.assertGreaterEqual(loop_bpm_penalty(loop140, 90.0), 10.0)  # effectively excluded
+        # v3.0 lock: exact tempo -> 0; any residual > 0.05 BPM needs an exact time-stretch (0.15)
+        self.assertEqual(loop_bpm_penalty({"is_loop": True, "bpm": 90.0}, 90.0), 0.0)
+        self.assertEqual(loop_bpm_penalty({"is_loop": True, "bpm": 92.0}, 90.0), 0.15)
+        self.assertEqual(loop_bpm_penalty({"is_loop": True, "bpm": 100.0}, 90.0), 0.15)  # r_eff=0.9 in [0.88,1.14]
+        self.assertGreaterEqual(loop_bpm_penalty(loop140, 90.0), 10.0)  # r_eff=0.643 out of range -> excluded
+        self.assertGreaterEqual(loop_bpm_penalty({"is_loop": True, "bpm": 110.0}, 145.0), 10.0)  # r_eff=1.318 -> excluded
+        # half/double tempo allowed: 180 BPM loop in a 90 BPM project -> ratio 0.5, no stretch
+        self.assertEqual(loop_bpm_penalty({"is_loop": True, "bpm": 180.0}, 90.0), 0.0)
 
     def test_propose_palettes_excludes_wrong_bpm_loop_and_emits_root_note(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -564,14 +569,21 @@ class TestBlueprintMusicalSafety(unittest.TestCase):
             bp = self._bp([self._sample_track(name="LeadBell", role="lead", root_note=60,
                                               sample_path="samples/bell_a4.wav")])
             issues = blueprint_musical_safety_issues(bp, catalog_path=cat_path)
-            mism = [i for i in issues if i["code"] == "root_note_pc_mismatch"]
+            mism = [i for i in issues if i["code"] == "root_note_mismatch"]
             self.assertEqual(len(mism), 1)
             self.assertEqual(mism[0]["severity"], "error")
             self.assertEqual(mism[0]["detected_midi_root"], 69)
-            self.assertEqual(mism[0]["recommended_root_note"], 57)  # closest octave of 69 to 60 (57, not 69)
-            # same pitch class (octave error only) -> no mismatch
-            bp2 = self._bp([self._sample_track(root_note=81, sample_path="samples/bell_a4.wav")])  # same pc as 69 (octave)
-            self.assertNotIn("root_note_pc_mismatch", {i["code"] for i in blueprint_musical_safety_issues(bp2, catalog_path=cat_path)})
+            self.assertEqual(mism[0]["recommended_root_note"], 69)  # strict lock: exact midi_root
+            self.assertEqual(mism[0]["delta_st"], 9)
+            # v3.0: even a pure octave error (+12 st) is blocking (varispeed chipmunk/smudge)
+            bp2 = self._bp([self._sample_track(root_note=81, sample_path="samples/bell_a4.wav")])
+            issues2 = blueprint_musical_safety_issues(bp2, catalog_path=cat_path)
+            mism2 = [i for i in issues2 if i["code"] == "root_note_mismatch"]
+            self.assertEqual(len(mism2), 1)
+            self.assertEqual(mism2[0]["delta_st"], -12)
+            # exact match -> no issue
+            bp3 = self._bp([self._sample_track(root_note=69, sample_path="samples/bell_a4.wav")])
+            self.assertNotIn("root_note_mismatch", {i["code"] for i in blueprint_musical_safety_issues(bp3, catalog_path=cat_path)})
 
     def test_non_playable_chord_sample_in_melodic_role_is_error(self):
         import json as _json
@@ -627,7 +639,7 @@ class TestBlueprintMusicalSafety(unittest.TestCase):
             summ = summarize_musical_safety(bp, catalog_path=os.path.join(tmp, "samples_catalog.json"))
             self.assertFalse(summ["ok"])
             self.assertGreater(summ["errors"], 0)
-            self.assertIn("root_note_pc_mismatch", {i["code"] for i in summ["issues"]})
+            self.assertIn("root_note_mismatch", {i["code"] for i in summ["issues"]})
 
     def test_load_blueprint_exposes_musical_safety(self):
         from song_builder import load_blueprint

@@ -1352,3 +1352,102 @@ def analyze_single_file(
         "clap_index": None,
     }
     return entry, vec
+
+
+# ---------------------------------------------------------------------------
+# v3.0 -- octave sanity, loop typing (HPSS/HNR), CQT chroma, inharmonicity
+# ---------------------------------------------------------------------------
+
+def validate_midi_root_octave(midi_root: int | None, centroid_hz: float | None, low_energy_ratio: float | None) -> tuple[int | None, bool]:
+    """v3.0 octave sanity: a sample with spectral centroid ~2.8 kHz and no energy < 150 Hz
+    cannot have a fundamental below MIDI 48 (C3) — such a detection locked onto a partial.
+    Returns (corrected midi_root, was_corrected)."""
+    if midi_root is None or centroid_hz is None or low_energy_ratio is None:
+        return midi_root, False
+    mr = int(midi_root)
+    corrected = False
+    while mr < 48 and float(centroid_hz) >= 2800.0 and float(low_energy_ratio) < 0.02 and mr + 12 <= 84:
+        mr += 12
+        corrected = True
+    return mr, corrected
+
+
+def loop_hpss_hnr(y_mono: np.ndarray, sr: int) -> tuple[float, float, np.ndarray]:
+    """v3.0 loop typing: HPSS harmonic energy share + HNR of the harmonic part (dB).
+
+    Returns (harmonic_energy_ratio, hnr_db, harmonic_component).
+    """
+    y = np.asarray(y_mono, dtype=np.float32)
+    if len(y) < 2048 or sr <= 0:
+        return 0.0, 0.0, y
+    try:
+        harm, perc = librosa.effects.hpss(y)
+    except Exception:
+        harm, perc = y, np.zeros_like(y)
+    e_h = float(np.sum(harm ** 2))
+    e_p = float(np.sum(perc ** 2))
+    ratio = e_h / (e_h + e_p + 1e-12)
+    # HNR of the harmonic part: peak-bin energy vs mean floor in [f0_min..8kHz]
+    n_fft = 8192
+    win = harm[: min(len(harm), sr * 4)]
+    if len(win) < 2048:
+        win = np.pad(harm, (0, max(0, 2048 - len(harm))))
+    sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft))
+    fr = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    band = (fr >= 60.0) & (fr <= 8000.0)
+    if not np.any(band) or float(np.sum(sp[band])) <= 1e-12:
+        return ratio, 0.0, harm
+    sb = sp[band]
+    peak = float(np.max(sb))
+    floor = float(np.median(sb)) + 1e-12
+    hnr_db = round(10.0 * math.log10(peak / floor), 2)
+    return round(ratio, 4), hnr_db, harm
+
+
+def mean_chroma_cqt(y_harm: np.ndarray, sr: int) -> list[float]:
+    """v3.0: mean 12-bin CQT chroma of the harmonic component (normalized to sum 1)."""
+    y = np.asarray(y_harm, dtype=np.float32)
+    if len(y) < 2048 or sr <= 0:
+        return [0.0] * 12
+    try:
+        c = librosa.feature.chroma_cqt(y=y, sr=sr)
+        v = np.mean(c, axis=1)
+        tot = float(np.sum(v))
+        if tot <= 1e-9:
+            return [0.0] * 12
+        return [round(float(x) / tot, 6) for x in v]
+    except Exception:
+        return [0.0] * 12
+
+
+def estimate_inharmonicity(y_mono: np.ndarray, sr: int, f0: float | None) -> float:
+    """v3.0: fraction of peak energy in [f0, 8*f0] NOT at integer multiples of f0.
+
+    Bells/FM with strong non-integer partials (2.76x, 5.40x) score high (> 0.15).
+    """
+    y = np.asarray(y_mono, dtype=np.float32)
+    if f0 is None or f0 <= 0 or len(y) < 4096 or sr <= 0:
+        return 0.0
+    n_fft = 65536
+    win = y[: min(len(y), sr * 3)]
+    if len(win) < 4096:
+        win = y
+    sp = np.abs(np.fft.rfft(win * np.hanning(len(win)), n=n_fft))
+    fr = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    lo, hi = f0 * 0.9, min(8.0 * f0, sr * 0.49)
+    band = (fr >= lo) & (fr <= hi)
+    if not np.any(band):
+        return 0.0
+    sb, fb = sp[band], fr[band]
+    # local peaks
+    peaks = (sb[1:-1] > sb[:-2]) & (sb[1:-1] >= sb[2:]) & (sb[1:-1] > float(np.max(sb)) * 0.05)
+    pf, pa = fb[1:-1][peaks], sb[1:-1][peaks]
+    if len(pf) == 0:
+        return 0.0
+    total = float(np.sum(pa ** 2))
+    harm_e = 0.0
+    for f, a in zip(pf, pa):
+        k = f / f0
+        if abs(k - round(k)) <= 0.04 * max(1.0, round(k)):
+            harm_e += float(a ** 2)
+    return round(max(0.0, 1.0 - harm_e / (total + 1e-12)), 4)

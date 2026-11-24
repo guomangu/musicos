@@ -9,6 +9,7 @@ and `manifest.json` generation.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from typing import Any
@@ -359,3 +360,113 @@ def process_sample_specs(
     for spec in specs:
         build_sample_from_spec(src_dir, out_dir, spec)
     return audit_samples_manifest(out_dir, verbose=verbose)
+
+
+# ---------------------------------------------------------------------------
+# v3.0 -- kick tuning guard & loop repitch helpers
+# ---------------------------------------------------------------------------
+
+def analyze_kick_tail(y: np.ndarray, sr: int, start_ms: float = 40.0, end_ms: float = 180.0) -> dict[str, Any]:
+    """v3.0: analyze the kick tail window [start_ms, end_ms] after the attack click.
+
+    Returns tail RMS (dBFS), dominant narrow peak in [35, 100] Hz (Hz + HNR dB) if any.
+    A resonant trap/EDM kick has a long sinusoidal tail there; a dry kick does not.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+    i0 = int(start_ms / 1000.0 * sr)
+    i1 = min(len(y), int(end_ms / 1000.0 * sr))
+    if i1 - i0 < 256:
+        return {"tail_rms_dbfs": -120.0, "peak_hz": None, "hnr_db": None, "tonal": False}
+    tail = y[i0:i1]
+    rms = float(np.sqrt(np.mean(tail ** 2))) + 1e-12
+    tail_rms_dbfs = round(20.0 * math.log10(rms), 2)
+    n_fft = 32768
+    win = tail * np.hanning(len(tail))
+    sp = np.abs(np.fft.rfft(win, n=n_fft))
+    fr = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    band = (fr >= 35.0) & (fr <= 100.0)
+    if not np.any(band):
+        return {"tail_rms_dbfs": tail_rms_dbfs, "peak_hz": None, "hnr_db": None, "tonal": False}
+    sb, fb = sp[band], fr[band]
+    pk = int(np.argmax(sb))
+    if float(sb[pk]) <= 1e-12:
+        return {"tail_rms_dbfs": tail_rms_dbfs, "peak_hz": None, "hnr_db": None, "tonal": False}
+    peak_hz = float(fb[pk])
+    floor = max(float(np.median(sb)), 1e-12)
+    hnr_db = round(10.0 * math.log10(float(sb[pk]) / floor), 2)
+    tonal = hnr_db > 4.0
+    return {"tail_rms_dbfs": tail_rms_dbfs, "peak_hz": round(peak_hz, 2), "hnr_db": hnr_db, "tonal": bool(tonal)}
+
+
+def kick_tuning_guard(y: np.ndarray, sr: int, tonic_pc: int, fifth_pc: int | None = None) -> dict[str, Any]:
+    """v3.0: tune a resonant kick to the consonant set {tonic, fifth} of the song key.
+
+    If the tail is loud (> -24 dBFS) and tonal (HNR > 4 dB) in [35, 100] Hz:
+      - distance <= 2 st to tonic/fifth -> action "fine_tune_ct" with the exact cents fix;
+      - distance > 2 st -> action "tail_gate_95ms" (soft gate at 95 ms) or "swap"
+        (a kick that rings a minor 2nd against the 808 is the wrong sample).
+    """
+    info = analyze_kick_tail(y, sr)
+    consonant_pcs = {int(tonic_pc) % 12}
+    if fifth_pc is not None:
+        consonant_pcs.add(int(fifth_pc) % 12)
+    else:
+        consonant_pcs.add((int(tonic_pc) + 7) % 12)
+    out = {**info, "action": "ok", "cents": 0, "consonant_pcs": sorted(consonant_pcs)}
+    if not info["tonal"] or info["tail_rms_dbfs"] <= -24.0 or info["peak_hz"] is None:
+        return out
+    f = info["peak_hz"]
+    best_f, best_st = None, 99
+    for pc in consonant_pcs:
+        for midi in range(24, 60):
+            if midi % 12 != pc:
+                continue
+            fc = 440.0 * 2.0 ** ((midi - 69) / 12.0)
+            if not (30.0 <= fc <= 200.0):
+                continue
+            st = 1200.0 * math.log2(f / fc) / 100.0
+            if abs(st) < abs(best_st):
+                best_f, best_st = fc, st
+    if best_f is None:
+        return out
+    cents = int(round(-best_st * 100.0))
+    dist_st = abs(best_st)
+    if dist_st <= 2.0:
+        out.update({"action": "fine_tune_ct", "cents": cents, "target_hz": round(best_f, 2), "dist_st": round(dist_st, 2)})
+    else:
+        out.update({"action": "tail_gate_95ms", "dist_st": round(dist_st, 2), "peak_hz": round(f, 2),
+                    "fix": "kick rings > 2 st away from {tonic, fifth}: apply tail gate at 95 ms or swap for a dry kick"})
+    return out
+
+
+def apply_tail_gate(y: np.ndarray, sr: int, gate_ms: float = 95.0, release_ms: float = 12.0) -> np.ndarray:
+    """v3.0: softly gate the tail of a resonant one-shot at `gate_ms` (short release)."""
+    y = np.array(y, dtype=np.float64, copy=True)
+    g0 = int(gate_ms / 1000.0 * sr)
+    r = max(1, int(release_ms / 1000.0 * sr))
+    if g0 >= len(y):
+        return y
+    tail = y[g0:]
+    env = np.ones(len(tail))
+    k = min(r, len(tail))
+    env[:k] = np.linspace(1.0, 0.0, k)
+    env[k:] = 0.0
+    y[g0:] = tail * env
+    return y
+
+
+def repitch_loop(y: np.ndarray, sr: int, delta_st: float, out_path: str | None = None) -> dict[str, Any]:
+    """v3.0: repitch a melodic loop by `delta_st` semitones (phase-vocoder when possible,
+    varispeed fallback), then stabilize the stereo low-mid. Optionally writes `out_path`."""
+    if abs(delta_st) < 1e-6:
+        return {"delta_st": 0.0, "out_path": out_path}
+    try:
+        y2 = librosa.effects.pitch_shift(np.asarray(y, dtype=np.float32), sr=sr, n_steps=float(delta_st))
+    except Exception:
+        y2 = varispeed_resample(np.asarray(y, dtype=np.float32), 2.0 ** (float(delta_st) / 12.0))
+    if out_path:
+        write_tmp_clean(y2, sr, out_path)
+        stabilize_stereo_low_mid(out_path, out_path, cutoff_hz=650.0, side_keep_low=0.18, side_keep_high=0.85)
+    return {"delta_st": float(delta_st), "out_path": out_path, "method": "pitch_shift"}

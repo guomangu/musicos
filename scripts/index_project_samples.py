@@ -42,6 +42,10 @@ from audio_metrics import (
     analyze_single_file,
     compute_comfort_score,
     compute_role_score,
+    estimate_inharmonicity,
+    loop_hpss_hnr,
+    mean_chroma_cqt,
+    validate_midi_root_octave,
 )
 from indexer import (
     AUDIO_EXTS,
@@ -53,6 +57,7 @@ from indexer import (
     load_semantic_anchors,
 )
 from sample_prep_lib import measure_fft_tuning
+from blueprint_safety import classify_loop_nature
 
 
 def _detect_isolable_slices(path: str, max_slices: int = 2) -> list[dict[str, Any]]:
@@ -234,6 +239,31 @@ def index_project_samples(
             dur = float(entry.get("duration_sec") or 0.0)
             category, _pack, is_loop = _infer_category_and_pack(rel_p, fn, dur)
 
+            # v3.0: octave sanity on midi_root + loop typing (HPSS/HNR) + CQT chroma + inharmonicity
+            midi_root = dsp.get("midi_root")
+            octave_corrected = False
+            loop_nature = None
+            chroma_cqt = None
+            harm_ratio = None
+            loop_hnr_db = None
+            inharmonicity = 0.0
+            try:
+                y_m, sr_m = librosa.load(abs_p, sr=22050, mono=True, duration=12.0)
+                spec_m = np.abs(librosa.stft(y_m, n_fft=2048, hop_length=512))
+                fr_m = librosa.fft_frequencies(sr=sr_m, n_fft=2048)
+                low_ratio = float(np.sum(spec_m[fr_m < 150.0])) / (float(np.sum(spec_m)) + 1e-12)
+                midi_root, octave_corrected = validate_midi_root_octave(
+                    midi_root, dsp.get("spectral_centroid_hz"), low_ratio
+                )
+                if is_loop:
+                    harm_ratio, loop_hnr_db, harm_comp = loop_hpss_hnr(y_m, sr_m)
+                    loop_nature = classify_loop_nature(harm_ratio, loop_hnr_db)
+                    if loop_nature == "melodic_loop":
+                        chroma_cqt = mean_chroma_cqt(harm_comp, sr_m)
+                inharmonicity = estimate_inharmonicity(y_m, sr_m, dsp.get("detected_f0_hz"))
+            except Exception:
+                pass
+
             # BPM : d'abord le nom de fichier, puis estimation librosa pour les boucles longues
             bpm_tag, _key_tag = _parse_metadata_from_name(f"{rel_p} {fn}")
             bpm_val = float(bpm_tag) if bpm_tag else None
@@ -308,7 +338,13 @@ def index_project_samples(
                 "playable_chromatically": playable,
                 "detected_note": dsp.get("detected_note"),
                 "f0_hz": dsp.get("detected_f0_hz"),
-                "midi_root": dsp.get("midi_root"),
+                "midi_root": midi_root,
+                "midi_root_octave_corrected": octave_corrected,
+                "loop_nature": loop_nature,
+                "harmonic_energy_ratio": harm_ratio,
+                "hnr_db": loop_hnr_db,
+                "chroma_cqt": chroma_cqt,
+                "inharmonicity": inharmonicity,
                 "recommended_gl_fine_tune_ct": gl_fine_tune,
                 "centroid_hz": dsp.get("spectral_centroid_hz"),
                 "attack_ms": dsp.get("attack_ms"),

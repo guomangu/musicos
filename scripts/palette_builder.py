@@ -32,7 +32,14 @@ for _d in (SCRIPTS_DIR, INDEX_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-from audio_metrics import VALID_ROLES, compute_masking_penalty, key_fit_penalty, parse_key_tonic_pc
+from audio_metrics import VALID_ROLES, compute_masking_penalty, key_fit_penalty, key_scale_pcs, parse_key_tonic_pc
+from blueprint_safety import (  # v3.0 loop guards
+    LOOP_KEY_MAX_OUT_OF_SCALE,
+    LOOP_REPITCH_MIN_OUT_OF_SCALE,
+    best_loop_transposition,
+    bpm_compatibility,
+    chroma_out_of_scale_ratio,
+)
 from gl_dsl import SYNTH_REGISTRY, synth_voice
 from indexer import (
     DEFAULT_ANCHORS_NPZ,
@@ -355,6 +362,7 @@ def _load_project_candidates(
     project_samples_dir: str,
     roles: list[str],
     target_key: str = "",
+    bpm: float | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Load candidates strictly from a user project directory (`samples_catalog.json` or live scan)."""
     abs_dir = os.path.abspath(os.path.expanduser(project_samples_dir))
@@ -382,12 +390,41 @@ def _load_project_candidates(
         for role in roles:
             if role in MELODIC_ROLES and not playable:
                 continue
-            # Key-fit: a melodic one-shot whose root is > 2 st outside the song scale will
-            # sound dissonant/"etrange" once played chromatically -> exclude (loops exempt).
-            if role in MELODIC_ROLES and not s.get("is_loop") and target_key:
-                pen = key_fit_penalty(s.get("midi_root"), target_key, role)
-                if pen >= 0.12:
-                    continue
+            # v3.0 key-fit: melodic one-shots AND melodic loops are checked against the song
+            # scale. Percussive loops stay exempt (pitch is irrelevant for them).
+            pcs = key_scale_pcs(target_key) if target_key else None
+            is_loop = bool(s.get("is_loop"))
+            loop_nature = str(s.get("loop_nature") or "")
+            melodic_loop = is_loop and loop_nature != "percussive_loop"
+            repitch_st = 0
+            if role in MELODIC_ROLES and target_key and pcs:
+                if melodic_loop:
+                    chroma = s.get("chroma_cqt")
+                    if chroma and len(chroma) == 12:
+                        r_out = chroma_out_of_scale_ratio(chroma, pcs)
+                        if r_out > LOOP_KEY_MAX_OUT_OF_SCALE:
+                            delta, r_after = best_loop_transposition(chroma, pcs)
+                            if r_after > LOOP_REPITCH_MIN_OUT_OF_SCALE:
+                                continue  # LOOP_KEY_MISMATCH: reject the loop
+                            repitch_st = int(delta)
+                    else:
+                        pen = key_fit_penalty(s.get("midi_root"), target_key, role)
+                        if pen >= 0.12:
+                            continue
+                elif not is_loop:
+                    pen = key_fit_penalty(s.get("midi_root"), target_key, role)
+                    if pen >= 0.12:
+                        continue
+            # v3.0 BPM lock for loops (half/same/double tempo only, r_eff in [0.88, 1.14])
+            needs_stretch = False
+            stretch_rate = None
+            if is_loop and bpm is not None and s.get("bpm") is not None:
+                comp = bpm_compatibility(float(bpm), float(s["bpm"]))
+                if not comp["ok"]:
+                    continue  # loop_bpm_incompatible
+                if comp["needs_stretch"]:
+                    needs_stretch = True
+                    stretch_rate = comp["r_eff"]
             r_sc = float(role_scores.get(role, 0.35))
             if role not in (s.get("compatible_roles") or []) and r_sc < 0.30:
                 continue
@@ -407,6 +444,12 @@ def _load_project_candidates(
                 "recommended_fine_tune_ct": int(s.get("recommended_gl_fine_tune_ct") or 0),
                 "bpm": s.get("bpm"),
                 "is_loop": bool(s.get("is_loop")),
+                "loop_nature": loop_nature or None,
+                "chroma_cqt": s.get("chroma_cqt"),
+                "inharmonicity": float(s.get("inharmonicity") or 0.0),
+                "needs_time_stretch": needs_stretch,
+                "stretch_rate": stretch_rate,
+                "recommended_transposition_st": repitch_st,
                 "playable_chromatically": playable,
                 "bark_24": s.get("bark_24"),
                 "timbre_card": s.get("timbre_card") or s["filename"],
@@ -433,6 +476,7 @@ def _load_sqlite_candidates(
     roles: list[str],
     target_key: str,
     per_role_limit: int = 8,
+    bpm: float | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Ultra-fast (< 25 ms) indexed SQLite candidate fetch across all roles (0 PyTorch)."""
     abs_db = os.path.abspath(os.path.expanduser(db_path))
@@ -534,6 +578,10 @@ def _load_sqlite_candidates(
                 b_sub, b_bass, b_lowmid, b_mid, b_harsh, b_air,
                 bark_js, bpm_f, loop_int,
             ) = r
+            # v3.0 BPM lock for loops from the SQLite bank
+            if loop_int and bpm is not None and bpm_f is not None:
+                if not bpm_compatibility(float(bpm), float(bpm_f))["ok"]:
+                    continue
             clap_v16, t_card = cards_by_id.get(int(sid), (None, None))
             dur_f = float(dur or 0.5)
             cent_f = float(d_cent if d_cent is not None else (s_cent or 1000.0))
@@ -685,23 +733,26 @@ def _score_palette(
 
 
 def loop_bpm_penalty(cand: dict[str, Any], target_bpm: float | None, tolerance: float = 6.0) -> float:
-    """Penalize loop candidates whose detected BPM is far from the project BPM.
+    """v3.0 BPM lock: penalize loop candidates whose tempo is incompatible with the project.
 
-    One-shots are never penalized (gl.sampler pitches them freely). Loops with unknown
-    BPM get no penalty (benefit of the doubt); loops beyond 2x tolerance are effectively
-    excluded so a 140 BPM loop is never dropped into a 90 BPM song.
+    One-shots are never penalized (gl.sampler pitches them freely). Loops with unknown BPM
+    get no penalty (benefit of the doubt). Only half/same/double tempo is allowed and the
+    effective stretch must stay in [0.88, 1.14]; a loop needing a stretch beyond that is
+    rejected outright (phase/transient artifacts), a small residual (> 0.05 BPM) only costs
+    a penalty because an exact `time_stretch_stereo` is applied at prep time.
     """
+    del tolerance  # superseded by the v3.0 ratio lock
     if target_bpm is None or not cand.get("is_loop"):
         return 0.0
     cb = cand.get("bpm")
     if cb is None:
         return 0.0
-    d = abs(float(cb) - float(target_bpm))
-    if d <= tolerance:
-        return 0.0
-    if d <= 2.0 * tolerance:
+    comp = bpm_compatibility(float(target_bpm), float(cb))
+    if not comp["ok"]:
+        return 10.0
+    if comp["needs_stretch"]:
         return 0.15
-    return 10.0
+    return 0.0
 
 
 def palette_slots_to_blueprint_tracks(chosen: list[dict[str, Any]], mixer_start: int = 1) -> list[dict[str, Any]]:
@@ -766,9 +817,9 @@ def propose_palettes(
 
     user_locked = bool(project_samples_dir and str(project_samples_dir).strip())
     if user_locked:
-        sample_pool = _load_project_candidates(str(project_samples_dir), eff_roles, target_key=target_key)
+        sample_pool = _load_project_candidates(str(project_samples_dir), eff_roles, target_key=target_key, bpm=bpm)
     else:
-        sample_pool = _load_sqlite_candidates(db_path, eff_roles, target_key=target_key)
+        sample_pool = _load_sqlite_candidates(db_path, eff_roles, target_key=target_key, bpm=bpm)
 
     synth_pool = _build_gl_synth_pool(eff_roles, valence=valence) if allow_gl_synths else {r: [] for r in eff_roles}
 

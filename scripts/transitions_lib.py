@@ -470,10 +470,19 @@ def apply_harmonic_anticipation(
     bar_boundaries: list[float],
     offset_beats: float = 0.5,
     ratio: float = 0.35,
+    lead_notes: list[dict[str, Any]] | None = None,
+    counter_notes: list[dict[str, Any]] | None = None,
+    allowed_pcs_by_pivot: dict[float, set[int]] | None = None,
+    cut_margin_beats: float = 0.05,
 ) -> dict[str, Any]:
     """
     Phase 8 Q5.1 — Anticipate chord/bass notes by one eighth on a deterministic fraction
     of phrase pivots, shortening the previous note so no overlap or negative start remains.
+
+    v3.0 synchronous anticipation: `lead_notes` / `counter_notes` crossing the anticipation
+    frontier [pivot - offset, pivot] are cleanly cut (margin `cut_margin_beats`) UNLESS their
+    pitch class belongs to the new chord (`allowed_pcs_by_pivot[pivot]`), so the lead never
+    rubs against the new chord for a full eighth.
     """
     pivots = sorted({round(float(b), 4) for b in bar_boundaries if float(b) > float(offset_beats) + 1e-4})
     if not pivots or not chords_notes and not bass_notes:
@@ -508,16 +517,43 @@ def apply_harmonic_anticipation(
                 moved += 1
         return moved
 
+    cut_lead = cut_counter = 0
+
+    def _cut_crossing(notes: list[dict[str, Any]], pivot: float) -> int:
+        frontier = pivot - float(offset_beats)
+        allowed = (allowed_pcs_by_pivot or {}).get(round(float(pivot), 4)) or (allowed_pcs_by_pivot or {}).get(pivot)
+        cut = 0
+        for ev in notes:
+            st = float(ev["start"])
+            en = st + _note_len(ev)
+            if st < frontier + 1e-4 and en > frontier + float(cut_margin_beats):
+                if allowed is not None and int(ev["pitch"]) % 12 in allowed:
+                    continue  # note already belongs to the new chord: keep it
+                new_len = round(max(0.05, frontier - float(cut_margin_beats) - st), 5)
+                _set_note_len(ev, new_len)
+                cut += 1
+        return cut
+
     for p in selected:
         moved_ch += _process(chords_notes, p)
         moved_bs += _process(bass_notes, p)
+        if lead_notes:
+            cut_lead += _cut_crossing(lead_notes, p)
+        if counter_notes:
+            cut_counter += _cut_crossing(counter_notes, p)
     chords_notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
     bass_notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+    if lead_notes:
+        lead_notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
+    if counter_notes:
+        counter_notes.sort(key=lambda ev: (float(ev["start"]), int(ev["pitch"])))
     return {
         "applied": len(selected),
         "pivots": selected,
         "moved_chords": moved_ch,
         "moved_bass": moved_bs,
+        "cut_lead": cut_lead,
+        "cut_counter": cut_counter,
         "offset_beats": float(offset_beats),
         "ratio": float(ratio),
     }

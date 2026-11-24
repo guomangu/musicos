@@ -1,6 +1,6 @@
 # AI-Studio Musical — Gridline + Zed + Antigravity
 
-Studio complet de production musicale assistée par IA sur **Fedora / Ultramarine 44 (PipeWire + Wayland)** dans `/home/gamo/Bureau/musicos` (accessible aussi via `~/Music/AI-Studio`).
+Studio complet de production musicale assistée par IA sur **Fedora / Ultramarine 44 (PipeWire + Wayland)** dans `$AI_STUDIO_DIR` (accessible aussi via `~/Music/AI-Studio`).
 
 ## Documentation (5 Facettes Universelles & Optimisées pour Agents IA)
 - **Règles normatives agents IA (Routeur + Machine à états 5 tours)** : [`.rules`](.rules) (liées par `GEMINI.md` et `AGENTS.md`)
@@ -36,8 +36,8 @@ Tests : `.venv/bin/python -m unittest discover -s tests -v` (les tests nécessit
 ## Démarrage rapide
 ```bash
 # Option A (recommandée) : ouvrir Gridline en direct puis lancer Antigravity ou Zed
-/home/gamo/Bureau/musicos/scripts/launch-gridline.sh
+$AI_STUDIO_DIR/scripts/launch-gridline.sh
 
 # Option B : générer sans ouvrir l'interface, puis ouvrir projects/active/projet.gridline
 ```
-Puis ouvre `/home/gamo/Bureau/musicos` dans **Antigravity** ou **Zed** et suis les tutoriels dans [`docs/01_SYSTEME_STACK_ET_GUIDE.md`](docs/01_SYSTEME_STACK_ET_GUIDE.md).
+Puis ouvre `$AI_STUDIO_DIR` dans **Antigravity** ou **Zed** et suis les tutoriels dans [`docs/01_SYSTEME_STACK_ET_GUIDE.md`](docs/01_SYSTEME_STACK_ET_GUIDE.md).

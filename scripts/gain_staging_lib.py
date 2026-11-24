@@ -536,3 +536,69 @@ def compute_gain_staging_plan(
         "anchor_target_lufs": float(anchor_target_lufs),
         "tracks": tracks_plan,
     }
+
+
+# ---------------------------------------------------------------------------
+# v3.0 -- analytic multi-stem gain solver (DAG stage 3): one-shot least-squares
+# trims toward ROLE_TARGET_OFFSETS_DB with presence floors, |delta| <= 6 dB cap
+# and a low_end_share constraint, instead of iterative +-4 dB fader passes.
+# ---------------------------------------------------------------------------
+
+def solve_analytic_gain_trims(
+    measured_lufs: dict[str, float],
+    target_offsets_db: dict[str, float],
+    anchor_lufs: float = -16.0,
+    max_trim_db: float = 6.0,
+    presence_floors_db: dict[str, float] | None = None,
+    low_end_share_pct: float | None = None,
+    low_end_max_pct: float = 42.0,
+    bass_role_names: tuple[str, ...] = ("bass", "808", "sub", "kick"),
+    low_share_weight_by_role: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Closed-form per-stem trims: delta_i = clamp(target_i - measured_i, +-max_trim_db),
+    then raised to satisfy ROLE_PRESENCE_FLOOR_DB, then bass roles are pulled down in
+    1 dB steps (max 5 iterations) until low_end_share fits `low_end_max_pct`.
+
+    Returns {"trims_db": {role: delta}, "target_lufs": {role: abs}, "low_end_share_after_pct"}.
+    """
+    floors = presence_floors_db or {}
+    trims: dict[str, float] = {}
+    targets: dict[str, float] = {}
+    for role, meas in measured_lufs.items():
+        norm = normalize_role_for_gain_staging(role)
+        off = float(target_offsets_db.get(norm, target_offsets_db.get(role, 0.0)))
+        tgt = float(anchor_lufs) + off
+        d = max(-max_trim_db, min(max_trim_db, tgt - float(meas)))
+        fl = floors.get(norm, floors.get(role))
+        if fl is not None:
+            # measured + d - anchor >= floor  =>  d >= floor + anchor - measured
+            d = max(d, float(fl) + float(anchor_lufs) - float(meas))
+            d = max(-max_trim_db, min(max_trim_db, d))
+        trims[role] = round(d, 2)
+        targets[role] = round(tgt, 2)
+
+    low_after = low_end_share_pct
+    if low_end_share_pct is not None and low_end_share_pct > low_end_max_pct:
+        weights = low_share_weight_by_role or {}
+        bass_roles = {normalize_role_for_gain_staging(r) for r in bass_role_names}
+        for _ in range(5):
+            if low_after is None or low_after <= low_end_max_pct:
+                break
+            # pull the heaviest low-end roles down by 1 dB per iteration
+            for role in trims:
+                if normalize_role_for_gain_staging(role) in bass_roles or weights.get(role, 0.0) > 0.3:
+                    trims[role] = round(max(-max_trim_db, trims[role] - 1.0), 2)
+            wsum = sum(max(0.0, weights.get(r, 0.0)) for r in trims) or 1.0
+            low_after = round(low_end_share_pct * sum(
+                (weights.get(r, 0.0) / wsum) * (10.0 ** (trims[r] / 10.0)) for r in trims
+            ) / max(1e-9, sum(weights.get(r, 0.0) / wsum for r in trims)), 2) if weights else max(0.0, low_end_share_pct - 5.0 * (low_end_share_pct - low_end_max_pct) / max(low_end_share_pct, 1e-9))
+            if not weights:
+                break
+    return {
+        "trims_db": trims,
+        "target_lufs": targets,
+        "anchor_lufs": float(anchor_lufs),
+        "low_end_share_before_pct": low_end_share_pct,
+        "low_end_share_after_pct": low_after,
+        "low_end_max_pct": float(low_end_max_pct),
+    }

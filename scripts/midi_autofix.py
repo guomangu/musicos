@@ -76,6 +76,30 @@ def _nearest_pitch_for_pcs(pitch: int, pcs: set[int], min_pitch: int, max_pitch:
     return best
 
 
+def contour_preserving_cost(
+    cand: int,
+    n_k: int,
+    n_prev: int | None,
+    b_k: int | None,
+    b_prev: int | None,
+    w: tuple[float, float, float, float] = (1.0, 3.0, 4.0, 5.0),
+) -> float:
+    """v3.0 contour-preserving autofix cost J(c) = w1|c-nk| + w2*I(sign change) + w3*I(c==n_prev)
+    + w4*I(parallel 5th/8ve with the bass). Minimizes -> keeps the melodic intention."""
+    j = w[0] * abs(cand - n_k)
+    if n_prev is not None:
+        if (cand - n_prev) * (n_k - n_prev) < 0:
+            j += w[1]
+        if cand == n_prev:
+            j += w[2]
+        if b_k is not None and b_prev is not None:
+            prev_iv = (n_prev - b_prev) % 12
+            cand_iv = (cand - b_k) % 12
+            if prev_iv in (7, 0) and cand_iv == prev_iv and (cand - n_prev) * ((b_k - b_prev)) > 0:
+                j += w[3]
+    return j
+
+
 def _fix_out_of_scale(
     pm: pretty_midi.PrettyMIDI,
     allowed_pcs: set[int],
@@ -307,14 +331,32 @@ def _fix_strong_beat_chord_tones(
         if not active_pcs or (note.pitch % 12) in active_pcs:
             continue
         valid_pcs = (active_pcs & allowed_pcs) or active_pcs
+        # v3.0: candidates in a +-5 st window, chosen by contour-preserving cost J(c)
+        # (not by raw distance) so an ascending phrase is not flattened into repeats.
         candidates = [
             note.pitch + d
-            for d in (-1, 1, -2, 2)
-            if min_pitch <= note.pitch + d <= max_pitch and ((note.pitch + d) % 12) in valid_pcs
+            for d in range(-5, 6)
+            if d != 0 and min_pitch <= note.pitch + d <= max_pitch and ((note.pitch + d) % 12) in valid_pcs
         ]
         if not candidates:
             continue
-        new_p = min(candidates, key=lambda p: abs(p - note.pitch))
+        topline_sorted = sorted(topline, key=lambda n: n.start)
+        idx_k = topline_sorted.index(note)
+        n_prev = int(topline_sorted[idx_k - 1].pitch) if idx_k > 0 else None
+        n_next = int(topline_sorted[idx_k + 1].pitch) if idx_k + 1 < len(topline_sorted) else None
+        del n_next  # reserved for future look-ahead terms
+        b_k = b_prev = None
+        if bass_notes:
+            bs = sorted(bass_notes, key=lambda n: n.start)
+            cur = [b for b in bs if b.start - 0.05 <= note.start <= b.end + 0.05]
+            if cur:
+                b_k = int(cur[0].pitch)
+                prev_b = [b for b in bs if b.end <= note.start + 0.05]
+                b_prev = int(prev_b[-1].pitch) if prev_b else None
+        new_p = min(
+            candidates,
+            key=lambda p: contour_preserving_cost(int(p), int(note.pitch), n_prev, b_k, b_prev),
+        )
         old_p = int(note.pitch)
         note.pitch = int(new_p)
         fixed += 1
