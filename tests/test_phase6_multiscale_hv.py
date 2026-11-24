@@ -12,11 +12,12 @@ import sys
 import tempfile
 import time
 import unittest
+import shutil
 
 import numpy as np
 import soundfile as sf
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(ROOT, "scripts")
 ANALYZER_DIR = os.path.join(ROOT, "mcp-servers", "audio-analyzer")
 for _p in (ROOT, SCRIPTS_DIR, ANALYZER_DIR):
@@ -845,6 +846,7 @@ class TestPhase6Sprint4MacroS4AndCatalogS5(unittest.TestCase):
 
 
 class TestPhase6Sprint5AutofixPipelineAndPerformance(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_multiscale_autofix_dispatcher_s1_to_s4_and_guardrails(self) -> None:
         import shutil
         import pretty_midi
@@ -959,6 +961,7 @@ class TestPhase6Sprint5AutofixPipelineAndPerformance(unittest.TestCase):
             self.assertEqual(lock_rep["applied_count"], 0)
             self.assertTrue(lock_rep["escalate_to_llm"])
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_mcp_tools_cli_contract_override_and_2min_cpu_benchmark(self) -> None:
         import shutil
         import subprocess

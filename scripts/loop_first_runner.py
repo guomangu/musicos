@@ -193,7 +193,7 @@ class LoopFirstStateMachine:
             self.state["next_mandatory_step"] = {
                 "tool": "swap_sample_and_soundcheck" if escalate else "audit_track_soundcheck",
                 "target_track": target,
-                "allowed_actions": ["SWAP_SAMPLE"] if escalate else ["ADJUST_FINE_TUNE", "APPLY_LPF", "ADD_NOTCH_EQ", "ADJUST_ADSR", "SWAP_SAMPLE"],
+                "allowed_actions": ["SWAP_SAMPLE"] if escalate else ["ADJUST_ROOT_NOTE", "ADJUST_FINE_TUNE", "APPLY_LPF", "ADD_NOTCH_EQ", "ADJUST_ADSR", "SWAP_SAMPLE"],
                 "forbidden_tracks": [t for t, info in sc.items() if info.get("status") == "PASS"],
             }
             return

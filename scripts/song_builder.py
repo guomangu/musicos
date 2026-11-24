@@ -24,7 +24,7 @@ from typing import Any, Callable
 import jsonschema
 import pretty_midi
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ANALYZER_DIR = os.path.join(ROOT, "mcp-servers", "audio-analyzer")
 for _d in (SCRIPTS_DIR, ANALYZER_DIR):
@@ -51,6 +51,7 @@ from gl_dsl import (  # noqa: F401 (re-exported for song scripts)
 from gain_staging_lib import compute_gain_staging_plan, normalize_role_for_gain_staging  # noqa: E402
 from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     apply_anti_machine_gun,
+    apply_swing,
     apply_haas_pocket,
     apply_micro_strum,
     enforce_frequency_inertia,
@@ -130,6 +131,7 @@ def load_blueprint(blueprint_path: str, validate: bool = True) -> tuple[dict[str
         "tension": float(ev.get("tension", 0.3)),
         "energy": float(ev.get("energy", 0.7)),
         "depth": float(ev.get("depth", 0.5)),
+        "swing": float(bp.get("swing", 0.0) or 0.0),
         "total_bars": sum(int(s["bars"]) for s in bp["structure"]),
     }
     return bp, meta
@@ -1384,6 +1386,12 @@ def _default_channels_for_plan(
                 spec.plugin = str(bp_tr["plugin"])
             if bp_tr.get("pan") is not None:
                 spec.pan = float(bp_tr["pan"])
+            # Root note / fine tune from palette detection: a sample not at C4 must not be
+            # played from the default C4 root (systematic dissonance otherwise).
+            if bp_tr.get("root_note") is not None:
+                spec.root_note = int(bp_tr["root_note"])
+            if bp_tr.get("fine_tune_ct") is not None:
+                spec.fine_tune = int(bp_tr["fine_tune_ct"])
         for k, v in ov.items():
             if hasattr(spec, k):
                 setattr(spec, k, v)
@@ -1487,9 +1495,15 @@ def compile_arrangement_plan(
             tracks[r_key] = enforce_frequency_inertia(r_notes, bpm=bpm)
         elif any(k in rl for k in ("chord", "pad", "keys")):
             tracks[r_key] = apply_micro_strum(r_notes, strum_ms=15.0, bpm=bpm)
-        elif any(k in rl for k in ("hat", "perc")):
-            tracks[r_key] = apply_anti_machine_gun(r_notes, beats_per_bar=float(bpb))
+        # Velocity humanization on every track (rapid subdivisions get accent+jitter,
+        # sparse notes get a gentle metric accent only -- avoids the "drum machine" feel).
+        tracks[r_key] = apply_anti_machine_gun(tracks[r_key], beats_per_bar=float(bpb), humanize_sparse=True)
     tracks = apply_haas_pocket(tracks, bpm=bpm, profile=meta["mix_profile"])
+    # Blueprint swing: delay off-beat 8ths (declared `swing` was previously never applied).
+    swing = float(meta.get("swing", 0.0) or 0.0)
+    if swing > 0.0:
+        for r_key in list(tracks):
+            tracks[r_key] = apply_swing(tracks[r_key], swing=swing, beats_per_bar=float(bpb))
 
     # Phase 7 P2 — Instrumental prosody (phrase velocity arc, LPF breathing, cadential ornaments, section pocket)
     if apply_prosody:

@@ -16,11 +16,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-import essentia
+try:
+    import essentia
 
-essentia.log.infoActive = False
-essentia.log.warningActive = False
-import essentia.standard as es
+    essentia.log.infoActive = False
+    essentia.log.warningActive = False
+    import essentia.standard as es
+
+    _HAS_ESSENTIA = True
+except Exception:  # pragma: no cover - depends on native build availability
+    es = None
+    _HAS_ESSENTIA = False
 import librosa
 import numpy as np
 import soundfile as sf
@@ -178,23 +184,47 @@ def init_db(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+def _fused_tokens(text: str) -> set[str]:
+    """Tokenize a path/filename into raw tokens + separator-fused compounds.
+
+    "open_hat 909.wav" -> {"open", "hat", "909", "wav", "openhat", ...} so multi-word
+    keywords ("open hat") and compounds ("hi-hat") match without ever matching inside
+    unrelated words ("chat" must NOT match "hat", "scalp" must NOT match "cp").
+    """
+    raw = re.findall(r"[a-z0-9]+", text.lower())
+    toks: set[str] = set(raw)
+    for w in raw:
+        if len(w) > 3 and w.endswith("s"):
+            toks.add(w[:-1])  # plural singularization: "kicks" -> "kick", "808s" -> "808"
+    toks.add(re.sub(r"[^a-z0-9]+", "", text.lower()))
+    for i in range(len(raw)):
+        for j in range(i + 1, min(i + 3, len(raw)) + 1):
+            toks.add("".join(raw[i : j + 1]))
+    return toks
+
+
+def _kw_fused(kw: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", kw.lower())
+
+
 def _infer_category_and_pack(rel_path: str, filename: str, duration_sec: float) -> tuple[str, str, bool]:
     parts = Path(rel_path).parts
     pack_name = parts[0] if len(parts) > 1 else "root"
     haystack = f"{rel_path} {filename}".lower()
 
-    is_loop = duration_sec >= 2.2 or any(
-        k in haystack for k in ("loop", "stem", "full", "drumless", "instrumental", "acapella")
-    )
-    if any(k in haystack for k in ("one shot", "oneshot", "one-shot", "hit", "drum kit", "808s", "kicks", "snares", "claps", "hi hats", "hi-hats")):
+    loop_kws = {"loop", "stem", "full", "drumless", "instrumental", "acapella"}
+    oneshot_kws = {"oneshot", "hit", "drumkit", "kicks", "snares", "claps", "hihats"}
+    is_loop = duration_sec >= 2.2 or bool(_fused_tokens(haystack) & loop_kws)
+    if _fused_tokens(haystack) & oneshot_kws:
         if duration_sec < 2.5:
             is_loop = False
 
     category = "other"
-    # Cherche d'abord dans le nom du fichier puis le chemin complet
+    # Cherche d'abord dans le nom du fichier puis le chemin complet (correspondance par tokens, jamais par sous-chaîne)
     for target in (filename.lower(), haystack):
+        toks = _fused_tokens(target)
         for cat, kws in CATEGORY_RULES:
-            if any(kw in target for kw in kws):
+            if any(_kw_fused(kw) in toks for kw in kws):
                 category = cat
                 break
         if category != "other":
@@ -321,8 +351,14 @@ def analyze_sample(path: str, rel_path: str) -> dict[str, Any]:
     peak_db = round(20.0 * np.log10(max(peak, 1e-7)), 2)
     rms_db = round(20.0 * np.log10(max(rms, 1e-7)), 2)
 
-    # Centroïde spectral via Essentia
-    centroid = float(es.SpectralCentroidTime(sampleRate=float(sr))(mono))
+    # Centroïde spectral via Essentia (repli librosa si Essentia absent)
+    if _HAS_ESSENTIA:
+        try:
+            centroid = float(es.SpectralCentroidTime(sampleRate=float(sr))(mono))
+        except Exception:
+            centroid = float(np.mean(librosa.feature.spectral_centroid(y=mono, sr=sr)))
+    else:
+        centroid = float(np.mean(librosa.feature.spectral_centroid(y=mono, sr=sr)))
     brightness = _brightness_band(centroid)
 
     # Profil d'attaque et decay
@@ -342,13 +378,14 @@ def analyze_sample(path: str, rel_path: str) -> dict[str, Any]:
     # Tonalité via Essentia KeyExtractor (si pas déjà fiable ou pour compléter)
     key_conf = 0.0
     musical_key = key_tag
-    try:
-        k, scale, strength = es.KeyExtractor(sampleRate=float(sr))(mono)
-        key_conf = round(float(strength), 3)
-        if not musical_key and strength >= 0.35:
-            musical_key = f"{k} {scale}"
-    except Exception:
-        pass
+    if _HAS_ESSENTIA:
+        try:
+            k, scale, strength = es.KeyExtractor(sampleRate=float(sr))(mono)
+            key_conf = round(float(strength), 3)
+            if not musical_key and strength >= 0.35:
+                musical_key = f"{k} {scale}"
+        except Exception:
+            pass
 
     # BPM pour les boucles (> 1.8s) si absent du nom
     bpm = bpm_tag

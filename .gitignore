@@ -17,7 +17,10 @@ golden_references/*
 !golden_references/external_masters/README.md
 .env
 *.wav
+*.WAV
 *.mp3
+.DS_Store
+__MACOSX/
 *.ogg
 *.flac
 *.aif

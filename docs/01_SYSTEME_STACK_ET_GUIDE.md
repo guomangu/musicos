@@ -11,6 +11,12 @@
 
 ## Chapitre 1 — Architecture Globale & Sobriété CPU (Linux / PipeWire)
 
+### 1.0 Portabilité du dépôt (clone universel)
+- **Racine du studio** : tous les scripts et tests résolvent la racine via la variable d'environnement **`AI_STUDIO_DIR`**, sinon le dossier parent de `scripts/` (déduit de `__file__`). Aucun chemin absolu machine n'est codé en dur : un clone GitHub ailleurs que `/home/gamo/Bureau/musicos` fonctionne tel quel (`export AI_STUDIO_DIR=/chemin/du/clone` si besoin).
+- **Template projet vide** : `studio_lib.resolve_empty_template()` prend le premier disponible parmi `$GRIDLINE_EMPTY_TEMPLATE`, `/usr/share/gridline/assets/templates/Basics/Empty with mixer tracks.gridline`, puis le **template embarqué `assets/empty_with_mixer_tracks.gridline`** (même repli dans `scripts/gridline-mcp.sh` / `launch-gridline.sh`).
+- **Dépendances** : `requirements.txt` est installable tel quel depuis PyPI (`essentia>=2.1b6.dev1389` = max publié ; les builds dev plus récents se font via conda/source). `essentia` et `onnxruntime` sont des imports **gardés** : sans eux, l'indexeur retombe sur librosa et seul l'outil de transcription Basic Pitch est indisponible (erreur explicite).
+- **Client MCP Gridline** (`studio_lib.GridlineMCP`) : lecture stdout avec **timeout** (`rpc_timeout_s`, défaut 180 s), thread de vidange du stderr (anti-deadlock), `close()` avec `kill()` si le processus ne meurt pas en 15 s.
+
 ```text
 Prompt Utilisateur → [0. Sommaire] docs/00_SOMMAIRE.md
    ├──▶ [1. Blueprint & Sons]  audio-index (samples.db) · reverse-engineer · vocaloid · gl_dsl

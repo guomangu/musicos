@@ -19,7 +19,7 @@
 
 ---
 
-## 2. Index des Fichiers Racine & Dossiers Config / Assets (`/home/gamo/Bureau/musicos/`)
+## 2. Index des Fichiers Racine & Dossiers Config / Assets (racine du dépôt = `AI_STUDIO_DIR`, ex. `/home/gamo/Bureau/musicos/`)
 
 | Chemin | Rôle & Fonctions | Ordre / Usage |
 | :--- | :--- | :--- |
@@ -27,6 +27,7 @@
 | `README.md` | Présentation générale de l'environnement AI-Studio, installation rapide et prérequis Linux. | **0** (référence humaine) |
 | `.env` / `.env.example` | Variables d'environnement API (`FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`). | **3** (requis par `fetch_samples_api.py` / `fetch_samples_online`) |
 | `.zed/settings.json` | Configuration éditeur Zed + déclaration des serveurs MCP locaux (`gridline`, `audio-index`, `audio-analyzer`, `reverse-engineer`, `vocaloid`). | **1** (config IDE/MCP) |
+| `assets/empty_with_mixer_tracks.gridline` | Template `.gridline` minimal embarqué (Master + Insert 1..16) : repli automatique si le template système Gridline est absent (ordre : `$GRIDLINE_EMPTY_TEMPLATE` > `/usr/share/gridline/...` > `assets/`). |
 | `install.sh` | Installeur Fedora idempotent (paquets audio PipeWire, `.venv`, plugins CLAP/VST3, modèles, rescan). Flags `--check-only`, `--skip-plugins`, `--skip-clap`, `--skip-zed`, `--no-sudo`, `--force-rescan`. | **1** (setup initial machine) |
 | `requirements.txt` | Dépendances Python du `.venv` (`mcp`, `numpy`, `scipy`, `soundfile`, `pyloudnorm`, `librosa`, `praat-parselmouth`, `essentia`, `mosqito`, `pyroomacoustics`, `matchering`, `music21`, `pretty_midi`, `onnxruntime`, `mido`, `transformers`, `audiobox_aesthetics`, `scikit-learn`). | **1** (setup `.venv`) |
 | `.gitignore` | Règles d'exclusion Git (`.venv`, `.env`, gros média, bases temporaires). | **—** (Git) |
@@ -144,6 +145,7 @@ Lire **just-in-time** uniquement la facette correspondant à l'étape courante :
 | `tests/test_phase4_expressivity.py` | `.venv/bin/python -m unittest tests/test_phase4_expressivity.py -v` | Phase 4 : `groove_lib.py` (`apply_micro_strum`, `apply_haas_pocket`, `apply_anti_machine_gun`, `enforce_frequency_inertia`) et `transitions_lib.py` (`beat4_dropout`, `filter_sweep`, `section_gain_arc`, `outro_fade`). |
 | `tests/test_phase5_loop_first.py` | `.venv/bin/python -m unittest tests/test_phase5_loop_first.py -v` | Phase 5 : Pipeline Loop-First complet — `semantic_anchors.npz` + `timbre_card` + `propose_palettes` (`< 50 ms`, 0 PyTorch, exclusivité `Samples/`), `audit_track_soundcheck` + `palette_preview.wav` + `ListenerBackend`, `vertical_tester` (`V1..V4` headless `trap_rap` & `classical_ambient`), `audit_horizontal_seam` et garde-fous `loop_first_runner.py`. |
 | `tests/test_phase8_balance_space_expressivity.py` | `.venv/bin/python -m unittest tests/test_phase8_balance_space_expressivity.py -v` | Phase 8 `Q1..Q7` : sonie active & gain staging, matrice stems bornée + `ADJUST_TRACK_FADER`, bus `17..22` (`Dry=0`), audits `stereo_balance_db` / `mid_high_side_to_mid_db`, références externes & garde `taste_memory`, fills/risers/anticipation, registres sombres, `synth_voice(expressive=True)` validé contre `gridline plugin-params`, budget CPU Phase 8 `< 1.5 s` et pyramide `<= 1500` chars. |
+| `tests/test_quality_improvements.py` | `.venv/bin/python -m unittest tests/test_quality_improvements.py -v` | Régressions qualité/portabilité : classification par tokens, filtrage BPM des boucles, propagation `root_note`, résonances notchables, swing/humanisation/pocket, template embarqué, pin `essentia`, verrou `auto_fetch`. |
 | `tests/regression_multi_genre.py` | `.venv/bin/python tests/regression_multi_genre.py -v` | CI bout-en-bout : génère, valide (MIDI Gate), compile 100 % headless (`gl.*` natifs) et audite (`--no-neural`) les 7 `mix_profile`s (`trap_rap`, `pop_rnb`, `edm_club`, `rock_metal`, `lofi_chill`, `jazz_acoustic`, `classical_ambient` sans batterie) en `< 3 min` CPU. |
 | `mcp-servers/audio-analyzer/test_musicality_metrics.py` | `PYTHONPATH=mcp-servers/audio-analyzer .venv/bin/python -m unittest test_musicality_metrics -v` | Métriques musicales de base, détection des frottements `b2` et `optimize_voice_leading`. |
 

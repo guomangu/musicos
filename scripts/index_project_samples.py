@@ -47,6 +47,7 @@ from indexer import (
     AUDIO_EXTS,
     DEFAULT_ANCHORS_NPZ,
     _infer_category_and_pack,
+    _parse_metadata_from_name,
     build_semantic_card_from_clap,
     build_timbre_card_from_dsp,
     load_semantic_anchors,
@@ -233,6 +234,20 @@ def index_project_samples(
             dur = float(entry.get("duration_sec") or 0.0)
             category, _pack, is_loop = _infer_category_and_pack(rel_p, fn, dur)
 
+            # BPM : d'abord le nom de fichier, puis estimation librosa pour les boucles longues
+            bpm_tag, _key_tag = _parse_metadata_from_name(f"{rel_p} {fn}")
+            bpm_val = float(bpm_tag) if bpm_tag else None
+            if bpm_val is None and (is_loop or dur >= 2.0):
+                try:
+                    y_mono, sr_m = librosa.load(abs_p, sr=22050, mono=True, duration=12.0)
+                    if len(y_mono) >= sr_m * 1.5:
+                        tempo, _ = librosa.beat.beat_track(y=y_mono, sr=sr_m)
+                        t_val = float(np.atleast_1d(tempo)[0])
+                        if 55.0 <= t_val <= 210.0:
+                            bpm_val = round(float(t_val), 1)
+                except Exception:
+                    pass
+
             role_scores = {
                 role: compute_role_score(dsp, dur, role)
                 for role in VALID_ROLES
@@ -284,6 +299,7 @@ def index_project_samples(
                 "source_origin": origin,
                 "category": category,
                 "is_loop": bool(is_loop),
+                "bpm": bpm_val,
                 "duration_sec": round(dur, 3),
                 "compatible_roles": compatible_roles,
                 "role_scores": role_scores,

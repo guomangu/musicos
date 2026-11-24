@@ -398,6 +398,8 @@ def _load_project_candidates(
                 "detected_note": s.get("detected_note"),
                 "midi_root": s.get("midi_root"),
                 "recommended_fine_tune_ct": int(s.get("recommended_gl_fine_tune_ct") or 0),
+                "bpm": s.get("bpm"),
+                "is_loop": bool(s.get("is_loop")),
                 "playable_chromatically": playable,
                 "bark_24": s.get("bark_24"),
                 "timbre_card": s.get("timbre_card") or s["filename"],
@@ -474,7 +476,7 @@ def _load_sqlite_candidates(
                     d.peak_harsh_db, d.roughness, d.sfm, d.r_harm, d.spectral_flux,
                     d.low_mid_corr, d.phase_corr, d.crest_factor_db, d.attack_ms, d.needs_fade,
                     d.band_sub, d.band_bass, d.band_lowmid, d.band_mid, d.band_harsh, d.band_air,
-                    d.bark_24_json
+                    d.bark_24_json, s.bpm, s.is_loop
                 FROM samples s
                 JOIN sample_dsp_metrics d ON d.sample_id = s.id
                 WHERE {' AND '.join(clauses)}
@@ -492,7 +494,7 @@ def _load_sqlite_candidates(
                     d.peak_harsh_db, d.roughness, d.sfm, d.r_harm, d.spectral_flux,
                     d.low_mid_corr, d.phase_corr, d.crest_factor_db, d.attack_ms, d.needs_fade,
                     d.band_sub, d.band_bass, d.band_lowmid, d.band_mid, d.band_harsh, d.band_air,
-                    d.bark_24_json
+                    d.bark_24_json, s.bpm, s.is_loop
                 FROM samples s
                 JOIN sample_dsp_metrics d ON d.sample_id = s.id
                 WHERE {' AND '.join(base_clauses)}
@@ -523,7 +525,7 @@ def _load_sqlite_candidates(
                 pk_h, rough, sfm, r_harm, flux,
                 lm_corr, phase_corr, cf_db, att_ms, needs_fade_int,
                 b_sub, b_bass, b_lowmid, b_mid, b_harsh, b_air,
-                bark_js,
+                bark_js, bpm_f, loop_int,
             ) = r
             clap_v16, t_card = cards_by_id.get(int(sid), (None, None))
             dur_f = float(dur or 0.5)
@@ -606,6 +608,8 @@ def _load_sqlite_candidates(
                 "recommended_fine_tune_ct": int(ft_ct or 0),
                 "playable_chromatically": bool(play_int),
                 "bark_24": bark_24,
+                "bpm": float(bpm_f) if bpm_f is not None else None,
+                "is_loop": bool(loop_int),
                 "timbre_card": t_card,
                 "_clap_vec": cvec,
             })
@@ -671,6 +675,55 @@ def _score_palette(
     }
 
 
+def loop_bpm_penalty(cand: dict[str, Any], target_bpm: float | None, tolerance: float = 6.0) -> float:
+    """Penalize loop candidates whose detected BPM is far from the project BPM.
+
+    One-shots are never penalized (gl.sampler pitches them freely). Loops with unknown
+    BPM get no penalty (benefit of the doubt); loops beyond 2x tolerance are effectively
+    excluded so a 140 BPM loop is never dropped into a 90 BPM song.
+    """
+    if target_bpm is None or not cand.get("is_loop"):
+        return 0.0
+    cb = cand.get("bpm")
+    if cb is None:
+        return 0.0
+    d = abs(float(cb) - float(target_bpm))
+    if d <= tolerance:
+        return 0.0
+    if d <= 2.0 * tolerance:
+        return 0.15
+    return 10.0
+
+
+def palette_slots_to_blueprint_tracks(chosen: list[dict[str, Any]], mixer_start: int = 1) -> list[dict[str, Any]]:
+    """Materialize palette slots as `song_blueprint.json` `tracks[]` entries, carrying
+    `root_note` (from detected `midi_root`) and `fine_tune_ct` so `gl.sampler` is never
+    played from a wrong C4 assumption (systematic dissonance otherwise)."""
+    tracks: list[dict[str, Any]] = []
+    for i, it in enumerate(chosen):
+        src = it.get("source_type")
+        is_sample = src in ("sample", "project_sample") or bool(it.get("filepath"))
+        fp = it.get("filepath")
+        tr: dict[str, Any] = {
+            "name": os.path.basename(str(fp)) if fp else f"{it['role']}:{it.get('plugin', 'gl')}",
+            "role": it["role"],
+            "source_type": "sample" if is_sample else "gridline_native",
+            "mixer_track": mixer_start + i,
+        }
+        if is_sample and fp:
+            tr["sample_path"] = str(fp)
+        if it.get("plugin"):
+            tr["plugin"] = str(it["plugin"])
+        mr = it.get("midi_root")
+        if is_sample and mr is not None:
+            tr["root_note"] = int(mr)
+        ft = it.get("recommended_fine_tune_ct")
+        if is_sample and ft:
+            tr["fine_tune_ct"] = int(ft)
+        tracks.append(tr)
+    return tracks
+
+
 def propose_palettes(
     *,
     mix_profile: str = "trap_rap",
@@ -682,6 +735,8 @@ def propose_palettes(
     num_palettes: int = 3,
     db_path: str = DEFAULT_DB_PATH,
     anchors_path: str = DEFAULT_ANCHORS_NPZ,
+    bpm: float | None = None,
+    bpm_tolerance: float = 6.0,
 ) -> dict[str, Any]:
     """
     Build `num_palettes` (default 3) complementary, conflict-free sound palettes.
@@ -745,6 +800,7 @@ def propose_palettes(
                 missing_roles.append(role)
                 continue
 
+            target_bpm = float(bpm) if bpm else None
             best_cand = None
             best_val = -1e9
             for cand in cands:
@@ -761,7 +817,7 @@ def propose_palettes(
 
                 trial_items = chosen + [cand]
                 trial_score, _ = _score_palette(trial_items, ev, mood_vec)
-                val = trial_score + theme_bonus - div_pen
+                val = trial_score + theme_bonus - div_pen - loop_bpm_penalty(cand, target_bpm, bpm_tolerance)
                 if val > best_val:
                     best_val = val
                     best_cand = cand
@@ -787,6 +843,8 @@ def propose_palettes(
                 "detected_note": it.get("detected_note"),
                 "midi_root": it.get("midi_root"),
                 "recommended_fine_tune_ct": int(it.get("recommended_fine_tune_ct") or 0),
+                "bpm": it.get("bpm"),
+                "is_loop": bool(it.get("is_loop", False)),
                 "playable_chromatically": bool(it.get("playable_chromatically", True)),
                 "role_score": it["role_score"],
                 "comfort_score": it["comfort_score"],
@@ -806,6 +864,7 @@ def propose_palettes(
             "complementarity_reason": " ; ".join(reason_parts),
             "missing_roles": missing_roles,
             "slots": slots,
+            "blueprint_tracks": palette_slots_to_blueprint_tracks(chosen),
         })
 
     palettes_out.sort(key=lambda p: p["score"], reverse=True)
@@ -827,6 +886,7 @@ def propose_palettes(
         "user_samples_locked": user_locked,
         "mix_profile": mix_profile,
         "target_key": target_key,
+        "bpm": (float(bpm) if bpm else None),
         "human_diagnosis": diag[:3],
         "next_action": {
             "code": "SELECT_PALETTE_AND_SOUNDCHECK",
@@ -851,6 +911,8 @@ def main() -> None:
     ap.add_argument("--project-samples-dir", default=None)
     ap.add_argument("--no-gl-synths", action="store_true")
     ap.add_argument("--num-palettes", type=int, default=3)
+    ap.add_argument("--bpm", type=float, default=0.0, help="BPM du morceau : pénalise les boucles dont le BPM détecté s'écarte (> 2x tolérance = exclues).")
+    ap.add_argument("--bpm-tolerance", type=float, default=6.0)
     ap.add_argument("--db", default=DEFAULT_DB_PATH)
     args = ap.parse_args()
 
@@ -868,6 +930,8 @@ def main() -> None:
         project_samples_dir=args.project_samples_dir,
         allow_gl_synths=not args.no_gl_synths,
         num_palettes=args.num_palettes,
+        bpm=(float(args.bpm) if args.bpm else None),
+        bpm_tolerance=float(args.bpm_tolerance),
         db_path=args.db,
     )
     print(json.dumps(res, indent=2, ensure_ascii=False))

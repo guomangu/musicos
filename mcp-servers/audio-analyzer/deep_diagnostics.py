@@ -68,16 +68,50 @@ def _third_octave_profile(mono: np.ndarray, sr: int) -> list[dict[str, float]]:
         bands.append({"freq_hz": fc, "db": round(10.0 * math.log10(max(energy, 1e-12)), 2)})
 
     dbs = np.array([b["db"] for b in bands], dtype=np.float64)
+    excess = np.zeros(len(dbs), dtype=np.float64)
     for i, b in enumerate(bands):
         w_lo = max(0, i - 3)
         w_hi = min(len(dbs), i + 4)
         neighbors = np.delete(dbs[w_lo:w_hi], i - w_lo)
         baseline = float(np.median(neighbors)) if len(neighbors) else dbs[i]
         b["local_excess_db"] = round(float(dbs[i] - baseline), 2)
+        excess[i] = dbs[i] - baseline
         left_ok = i == 0 or dbs[i] >= dbs[i - 1] - 0.5
         right_ok = i == len(dbs) - 1 or dbs[i] >= dbs[i + 1] - 0.5
         b["is_local_peak"] = bool(left_ok and right_ok)
+    # Peak width: how many consecutive bands around i stay >= +3 dB over baseline.
+    # Narrow peaks (<= 2 bands) are candidate notches; wide plateaus are tonal color.
+    for i, b in enumerate(bands):
+        w = 1
+        j = i - 1
+        while j >= 0 and excess[j] >= 3.0:
+            w += 1
+            j -= 1
+        j = i + 1
+        while j < len(dbs) and excess[j] >= 3.0:
+            w += 1
+            j += 1
+        b["peak_width_bands"] = w
     return bands
+
+
+def classify_resonances(
+    third_oct: list[dict[str, Any]],
+    min_excess_db: float = 6.0,
+    max_width_bands: int = 2,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split 1/3-octave peaks into (notchable resonances, all candidates).
+
+    A peak is only `notchable` when it is narrow (`peak_width_bands <= max_width_bands`)
+    AND strong (`local_excess_db >= min_excess_db`): wide plateaus are musical tonal
+    color (formants, pads) and must NOT be notched out of the mix.
+    """
+    all_peaks = [b for b in third_oct if b.get("local_excess_db", 0.0) >= 5.0 and b.get("is_local_peak", True)]
+    notchable = [
+        b for b in all_peaks
+        if b["local_excess_db"] >= min_excess_db and b.get("peak_width_bands", 99) <= max_width_bands
+    ]
+    return notchable, all_peaks
 
 
 def _analyze_transients_and_roominess(data: np.ndarray, mono: np.ndarray, sr: int) -> dict[str, Any]:
@@ -471,7 +505,7 @@ def run_deep_audit(
     """Assemble le diagnostic complet multi-domaines d'un rendu audio."""
     mono = np.mean(data, axis=1).astype(np.float32)
     third_oct = _third_octave_profile(mono, sr)
-    resonances = [b for b in third_oct if b["local_excess_db"] >= 5.0 and b.get("is_local_peak", True)]
+    resonances, resonance_candidates = classify_resonances(third_oct)
     notches = [b for b in third_oct if b["local_excess_db"] <= -6.0]
     room = _analyze_transients_and_roominess(data, mono, sr)
     glitches = _scan_glitches_and_crackle(mono, sr)
@@ -569,6 +603,7 @@ def run_deep_audit(
         "room_and_transients": room,
         "glitches_and_artifacts": glitches,
         "third_octave_resonances": resonances,
+        "third_octave_resonance_candidates": resonance_candidates,
         "third_octave_notches": notches,
         "headphone_translation": hp_sim,
         "stereo_image": stereo_image,

@@ -9,7 +9,7 @@ import tempfile
 import unittest
 import warnings
 
-ROOT = "/home/gamo/Bureau/musicos"
+ROOT = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 import gl_dsl  # noqa: E402
@@ -201,6 +201,7 @@ class TestSongBuilderCompatAndIntegration(unittest.TestCase):
         self.assertIsInstance(leg, list)
         self.assertEqual(dict(leg)["mixer/4/slot/1/Band 2 width"], 0.45)
 
+    @unittest.skipUnless(shutil.which("gridline"), "binaire gridline requis")
     def test_headless_build_with_synth_voice_auto_insert_eq(self):
         with tempfile.TemporaryDirectory() as td:
             proj = os.path.join(td, "test_dsl.gridline")

@@ -35,6 +35,27 @@ STUDIO_DIR = os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(
 DEFAULT_OUT_DIR = os.path.join(STUDIO_DIR, "pack", "fetched")
 DEFAULT_ENV_PATH = os.path.join(STUDIO_DIR, ".env")
 
+MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024  # 25 Mo max par fichier téléchargé
+
+
+def _safe_download_bytes(url: str, timeout: float = 30.0) -> tuple[bytes, str]:
+    """Téléchargement HTTPS uniquement, plafonné à MAX_DOWNLOAD_BYTES (streaming).
+
+    Retourne `(contenu, content-type)`. Refuse toute URL non-https (SSRF/schème file:).
+    """
+    if not str(url).lower().startswith("https://"):
+        raise ValueError(f"Refus de télécharger une URL non-HTTPS : {url}")
+    with requests.get(url, timeout=timeout, stream=True) as resp:
+        resp.raise_for_status()
+        ct = resp.headers.get("content-type", "")
+        buf = bytearray()
+        for chunk in resp.iter_content(chunk_size=65536):
+            if chunk:
+                buf.extend(chunk)
+            if len(buf) > MAX_DOWNLOAD_BYTES:
+                raise ValueError(f"Téléchargement trop volumineux (> {MAX_DOWNLOAD_BYTES} o) : {url}")
+    return bytes(buf), ct
+
 
 def load_studio_env(env_path: str = DEFAULT_ENV_PATH) -> dict[str, str]:
     """Load key=value secrets from .env without overriding already-set env vars."""
@@ -302,20 +323,18 @@ def fetch_and_filter_samples(
 
         try:
             if not os.path.isfile(out_wav):
-                dl = requests.get(item["download_url"], timeout=30)
-                dl.raise_for_status()
-                if "application/json" in (dl.headers.get("content-type") or "").lower():
-                    j = dl.json()
+                content, ct = _safe_download_bytes(item["download_url"], timeout=30)
+                if "application/json" in ct.lower():
+                    j = json.loads(content.decode("utf-8", "replace"))
                     real_url = (j.get("data") or {}).get("download_url") or (j.get("data") or {}).get("stream_url") or j.get("download_url") or j.get("stream_url")
                     if not real_url:
                         raise RuntimeError(f"JSON without audio URL: {j}")
-                    dl = requests.get(real_url, timeout=30)
-                    dl.raise_for_status()
+                    content, ct = _safe_download_bytes(real_url, timeout=30)
                     ext = ".ogg" if ".ogg" in real_url.lower() else ".mp3"
                 else:
                     ext = ".ogg" if ".ogg" in item["download_url"].lower() else ".mp3"
                 with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
-                    tf.write(dl.content)
+                    tf.write(content)
                     tmp_raw = tf.name
                 try:
                     item_dur = float(item.get("duration") or 3.0)
