@@ -301,6 +301,12 @@ def render_and_evaluate(
         c_cos = round(float(np.dot(b_meas, b_targ) / denom), 4) if denom > 1e-12 else 0.0
         spectral_match["contract_bark24_cosine"] = c_cos
         spectral_match["reference_source"] = "multi_scale_contract"
+    # v3.1 REF-04 : toujours renseigner le tier de référence utilisé (1=user audio, 2=corridor
+    # versionné, 3=baseline psychoacoustique) dans le rapport final.
+    if contract_obj:
+        for _k in ("reference_tier", "reference_provenance"):
+            if contract_obj.get(_k) is not None:
+                spectral_match[_k] = contract_obj.get(_k)
 
     sec_lufs = {}
     if sections and not range_bars:

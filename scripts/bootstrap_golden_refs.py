@@ -34,6 +34,38 @@ from audio_metrics import BARK_EDGES_HZ
 from deep_diagnostics import compute_pink_slope_db_per_oct
 
 DEFAULT_PROFILES_PATH = os.path.join(ROOT, "golden_references", "spectral_profiles.json")
+DEFAULT_CORRIDORS_PATH = os.path.join(ROOT, "golden_references", "spectral_corridors.json")
+CORRIDOR_METRICS = (
+    "lufs",
+    "lra_lu",
+    "pink_slope_db_per_oct",
+    "crest_factor_db",
+    "low_end_share",
+    "low_mids_share",
+    "air_share",
+    "mid_high_side_to_mid_db",
+)
+CORRIDOR_ALPHA = 2.0
+
+# Ancres par profil calibrées psychoacoustiquement (pentes roses + cibles mix_profiles.json
+# + morceaux validés PQ >= 7.8) — utilisées pour la version initiale hors-ligne versionnée.
+_CORRIDOR_LUFS = {"trap_rap": -11.0, "pop_rnb": -10.5, "edm_club": -9.0, "rock_metal": -10.0,
+                  "lofi_chill": -14.0, "jazz_acoustic": -12.5, "classical_ambient": -16.0}
+_CORRIDOR_LRA = {"trap_rap": 4.5, "pop_rnb": 4.0, "edm_club": 3.5, "rock_metal": 5.0,
+                 "lofi_chill": 7.0, "jazz_acoustic": 6.0, "classical_ambient": 9.0}
+_CORRIDOR_CREST = {"trap_rap": (7.5, 13.5), "pop_rnb": (7.0, 12.5), "edm_club": (6.5, 11.5),
+                   "rock_metal": (6.5, 12.0), "lofi_chill": (9.0, 16.0), "jazz_acoustic": (8.0, 14.0),
+                   "classical_ambient": (10.0, 18.0)}
+_CORRIDOR_LOW_END = {"trap_rap": 0.34, "pop_rnb": 0.32, "edm_club": 0.38, "rock_metal": 0.30,
+                     "lofi_chill": 0.26, "jazz_acoustic": 0.22, "classical_ambient": 0.20}
+_CORRIDOR_LOW_MIDS = {"trap_rap": 0.18, "pop_rnb": 0.20, "edm_club": 0.18, "rock_metal": 0.22,
+                      "lofi_chill": 0.26, "jazz_acoustic": 0.20, "classical_ambient": 0.16}
+_CORRIDOR_AIR = {"trap_rap": 0.055, "pop_rnb": 0.055, "edm_club": 0.060, "rock_metal": 0.048,
+                 "lofi_chill": 0.018, "jazz_acoustic": 0.045, "classical_ambient": 0.040}
+_CORRIDOR_DARK_AIR = {"trap_rap": 0.022, "pop_rnb": 0.026, "edm_club": 0.030, "rock_metal": 0.022,
+                      "lofi_chill": 0.008, "jazz_acoustic": 0.018, "classical_ambient": 0.015}
+_CORRIDOR_MHS = {"trap_rap": -7.5, "pop_rnb": -6.5, "edm_club": -5.5, "rock_metal": -6.0,
+                 "lofi_chill": -9.0, "jazz_acoustic": -8.0, "classical_ambient": -10.0}
 DEFAULT_EXTERNAL_DIR = os.path.join(ROOT, "golden_references", "external_masters")
 PROFILES = (
     "trap_rap",
@@ -387,6 +419,124 @@ def build_spectral_profiles(
     }
 
 
+def corridor_dead_zone_loss(x: float, p10: float, p90: float, epsilon: float = 1e-6) -> float:
+    """v3.1 REF-04 — perte à zone morte d'un corridor [P10, P90] de demi-largeur w :
+    d(x) = 0 dans le corridor, linéaire hors corridor (normalisée par w)."""
+    p10, p90, x = float(p10), float(p90), float(x)
+    w = max((p90 - p10) / 2.0, float(epsilon))
+    if p10 <= x <= p90:
+        return 0.0
+    if x < p10:
+        return (p10 - x) / w
+    return (x - p90) / w
+
+
+def evaluate_against_corridors(
+    measurements: dict[str, float],
+    corridors_entry: dict[str, Any],
+    valence: float = 0.0,
+    alpha: float = CORRIDOR_ALPHA,
+) -> dict[str, Any]:
+    """v3.1 REF-04 — score par corridor à zone morte : `corridor_score = exp(-alpha * d_bar)`.
+    Un mix dans l'enveloppe naturelle du genre obtient 0 pénalité (jamais sur-corrigé).
+    Applique `dark_valence_overrides` si valence < -0.2."""
+    metrics = corridors_entry.get("metrics") or {}
+    overrides = (corridors_entry.get("dark_valence_overrides") or {}) if float(valence) < -0.2 else {}
+    ds: list[float] = []
+    per: dict[str, float] = {}
+    for key, corr in metrics.items():
+        if key not in measurements or not isinstance(corr, dict):
+            continue
+        use = overrides.get(key) if isinstance(overrides.get(key), dict) else corr
+        d = corridor_dead_zone_loss(measurements[key], use.get("p10", 0.0), use.get("p90", 0.0))
+        per[key] = round(d, 5)
+        ds.append(d)
+    d_bar = sum(ds) / len(ds) if ds else 0.0
+    return {
+        "corridor_score": round(float(math.exp(-float(alpha) * d_bar)), 5),
+        "spectral_corridor_loss": round(d_bar, 5),
+        "per_metric_loss": per,
+        "n_metrics": len(ds),
+    }
+
+
+def load_spectral_corridor_entry(mix_profile: str, corridors_path: str = DEFAULT_CORRIDORS_PATH) -> dict[str, Any] | None:
+    """Charge l'entrée de `golden_references/spectral_corridors.json` pour un profil (None si absent/corrompu)."""
+    if not corridors_path or not os.path.isfile(corridors_path):
+        return None
+    try:
+        with open(corridors_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        entry = (data.get("profiles") or {}).get(mix_profile)
+        if isinstance(entry, dict) and isinstance(entry.get("metrics"), dict) and entry["metrics"]:
+            return entry
+    except Exception:
+        return None
+    return None
+
+
+def _corridor_triplet(p50: float, lo_spread: float, hi_spread: float) -> dict[str, float]:
+    return {"p10": round(float(p50) - lo_spread, 4), "p50": round(float(p50), 4), "p90": round(float(p50) + hi_spread, 4)}
+
+
+def build_spectral_corridors(output_path: str = DEFAULT_CORRIDORS_PATH) -> dict[str, Any]:
+    """v3.1 REF-04 — génère `golden_references/spectral_corridors.json` (versionné Git, ~15 Ko)
+    pour les 7 mix_profiles : bark24 p10/p50/p90 + corridors [p10,p50,p90] des 8 métriques +
+    `dark_valence_overrides`, provenance `calibrated_psychoacoustic_prior`. 100 % hors-ligne."""
+    profiles_out: dict[str, Any] = {}
+    for prof in PROFILES:
+        hints = _ANALYTIC_GENRE_HINTS.get(prof, {"target_slope": -3.9, "sub_boost": 1.0, "air_scale": 1.0})
+        slope = float(hints["target_slope"])
+        ana = _analytic_bark24_profile(prof)
+        p50_bark = np.asarray(ana["bark_24_mean"], dtype=np.float64)
+        p50_bark /= max(1e-18, float(np.sum(p50_bark)))
+        spread = 0.22
+        p10 = np.clip(p50_bark * (1.0 - spread), 5e-4, None)
+        p90 = np.clip(p50_bark * (1.0 + spread), 5e-4, None)
+        p10 /= float(np.sum(p10))
+        p90 /= float(np.sum(p90))
+        lufs = _CORRIDOR_LUFS.get(prof, -11.0)
+        lra = _CORRIDOR_LRA.get(prof, 4.5)
+        crest_lo, crest_hi = _CORRIDOR_CREST.get(prof, (7.5, 13.5))
+        le = _CORRIDOR_LOW_END.get(prof, 0.30)
+        lm = _CORRIDOR_LOW_MIDS.get(prof, 0.20)
+        air = _CORRIDOR_AIR.get(prof, 0.05)
+        dark_air = _CORRIDOR_DARK_AIR.get(prof, 0.02)
+        mhs = _CORRIDOR_MHS.get(prof, -7.5)
+        profiles_out[prof] = {
+            "provenance": "calibrated_psychoacoustic_prior",
+            "sample_count": 4,
+            "bark24": {
+                "p10": [round(float(x), 6) for x in p10],
+                "p50": [round(float(x), 6) for x in p50_bark],
+                "p90": [round(float(x), 6) for x in p90],
+            },
+            "metrics": {
+                "lufs": _corridor_triplet(lufs, 1.2, 1.2),
+                "lra_lu": _corridor_triplet(lra, 1.7, 3.0),
+                "pink_slope_db_per_oct": _corridor_triplet(slope, 1.1, 1.0),
+                "crest_factor_db": {"p10": round(crest_lo, 2), "p50": round((crest_lo + crest_hi) / 2.0, 2), "p90": round(crest_hi, 2)},
+                "low_end_share": _corridor_triplet(le, 0.10, 0.08),
+                "low_mids_share": _corridor_triplet(lm, 0.06, 0.06),
+                "air_share": {"p10": round(air * 0.55, 4), "p50": round(air, 4), "p90": round(air * 1.8, 4)},
+                "mid_high_side_to_mid_db": _corridor_triplet(mhs, 4.5, 4.5),
+            },
+            "dark_valence_overrides": {
+                "air_share": {"p10": round(dark_air * 0.8, 4), "p50": round(dark_air * 1.4, 4), "p90": round(dark_air * 2.6, 4)},
+                "pink_slope_db_per_oct": _corridor_triplet(slope - 0.5, 1.1, 0.7),
+            },
+        }
+    payload = {
+        "schema_version": "3.1",
+        "generated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "profiles": profiles_out,
+    }
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+    return {"output_path": output_path, "profiles": sorted(profiles_out.keys()), "size_bytes": os.path.getsize(output_path)}
+
+
 def compute_spectral_match(
     mono: np.ndarray,
     sr: int,
@@ -394,6 +544,9 @@ def compute_spectral_match(
     profiles_path: str = DEFAULT_PROFILES_PATH,
     bark_24: list[float] | None = None,
     pink_slope: float | None = None,
+    corridors_path: str = "",
+    valence: float = 0.0,
+    extra_metrics: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """
     Fast zero-PyTorch spectral distance comparison between a mix and `spectral_profiles.json`.
@@ -427,7 +580,7 @@ def compute_spectral_match(
     slope_sim = max(0.0, 1.0 - abs(cur_slope - ref_slope) / 4.0)
     match_score = round(max(0.0, min(1.0, 0.45 * cosine_sim + 0.35 * l1_sim + 0.20 * slope_sim)), 4)
 
-    return {
+    result: dict[str, Any] = {
         "spectral_match_score": match_score,
         "cosine_similarity": round(cosine_sim, 4),
         "l1_similarity": round(l1_sim, 4),
@@ -436,6 +589,18 @@ def compute_spectral_match(
         "reference_source": ref_entry.get("source_type", "analytic_default"),
         "reference_count": int(ref_entry.get("source_count", 0)),
     }
+    # v3.1 REF-04 — dead-zone corridor loss contre `spectral_corridors.json` (si présent)
+    corridors_path = corridors_path or DEFAULT_CORRIDORS_PATH
+    corr_entry = load_spectral_corridor_entry(profile, corridors_path)
+    if corr_entry is not None:
+        meas: dict[str, float] = {"pink_slope_db_per_oct": cur_slope}
+        for k, v in (extra_metrics or {}).items():
+            if v is not None and k in CORRIDOR_METRICS:
+                meas[k] = float(v)
+        corr = evaluate_against_corridors(meas, corr_entry, valence=valence)
+        result.update(corr)
+        result["reference_corridor_provenance"] = corr_entry.get("provenance", "calibrated_psychoacoustic_prior")
+    return result
 
 
 def main() -> None:
