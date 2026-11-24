@@ -47,6 +47,7 @@ from macro_structure_audit import analyze_macro_structure
 from studio_lib import GridlineMCP
 from target_fingerprint import load_multi_scale_contract
 from taste_memory import record_validated_taste
+from blueprint_safety import summarize_musical_safety
 
 
 def _should_record_taste(proj_dir: str, taste_memory_path: str = "", approve_taste: bool = False) -> bool:
@@ -309,6 +310,26 @@ def render_and_evaluate(
     low_end_max = float(gate_cfg.get("low_end_max", 42.0)) if not no_drums_ambient else 55.0
     low_end_share = sub_bass_pct
     gate_failures: list[str] = []
+    # Project-wide musical safety audit of the blueprint (root_note presence/correctness,
+    # non-playable samples in melodic roles, key-fit): error-severity issues block the gate
+    # so a dissonant/"etrange" track can never ship in a render silently.
+    musical_safety: dict[str, Any] = {"checked": False, "issues": [], "errors": 0, "warnings": 0, "ok": True}
+    bp_safety_path = blueprint_used or os.path.join(proj_dir, "song_blueprint.json")
+    if bp_safety_path and os.path.isfile(bp_safety_path):
+        try:
+            with open(bp_safety_path, encoding="utf-8") as fh:
+                bp_safety_obj = json.load(fh)
+            cat_path = os.path.join(proj_dir, "samples_catalog.json")
+            musical_safety = summarize_musical_safety(
+                bp_safety_obj if isinstance(bp_safety_obj, dict) else {},
+                catalog_path=cat_path if os.path.isfile(cat_path) else None,
+            )
+            musical_safety["blueprint"] = bp_safety_path
+        except Exception as exc:
+            musical_safety = {"checked": False, "error": str(exc), "issues": [], "errors": 0, "warnings": 0, "ok": True}
+    for _iss in musical_safety.get("issues") or []:
+        if _iss.get("severity") == "error":
+            gate_failures.append(f"musical_safety[{_iss.get('code')}] track={_iss.get('track')} role={_iss.get('role')}")
     if base["clipped_samples"] > 0:
         gate_failures.append(f"clipped_samples={base['clipped_samples']} > 0")
     if base["true_peak_dbtp"] > -1.0:
@@ -481,6 +502,7 @@ def render_and_evaluate(
         "dark_mode": is_dark,
         "valence": valence,
         "blueprint_used": blueprint_used,
+        "musical_safety": musical_safety,
         "contract_used": bool(contract_obj is not None),
         "effective_thresholds": {
             "air_min": air_min,

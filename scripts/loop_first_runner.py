@@ -29,6 +29,7 @@ for _d in (SCRIPTS_DIR, INDEX_DIR, ANALYZER_DIR):
         sys.path.insert(0, _d)
 
 from deep_diagnostics import VERTICAL_STAGES
+from blueprint_safety import summarize_musical_safety
 from indexer import AUDIO_EXTS
 
 PIPELINE_STAGES = (
@@ -339,10 +340,13 @@ class LoopFirstStateMachine:
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(bp, fh, indent=2, ensure_ascii=False)
         os.replace(tmp, bp_path)
+        cat_path = os.path.join(os.path.dirname(bp_path), "samples_catalog.json")
+        safety = summarize_musical_safety(bp, catalog_path=cat_path if os.path.isfile(cat_path) else None)
         self.state["palette_blueprint_written"] = True
         self.state["palette_blueprint_tracks"] = merged
+        self.state["musical_safety"] = safety
         self.save()
-        return {"blueprint_path": bp_path, "tracks_merged": merged}
+        return {"blueprint_path": bp_path, "tracks_merged": merged, "musical_safety": safety}
 
     def select_palette(
         self,

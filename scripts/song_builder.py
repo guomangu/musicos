@@ -58,6 +58,7 @@ from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     ms_to_beats,
 )
 from musicality_metrics import optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
+from blueprint_safety import summarize_musical_safety  # noqa: E402
 from phrasing_engine import apply_instrumental_prosody  # noqa: F401 (re-exported for song scripts)
 from studio_lib import (
     TEMPLATE_EMPTY_MIXER,
@@ -134,6 +135,8 @@ def load_blueprint(blueprint_path: str, validate: bool = True) -> tuple[dict[str
         "swing": float(bp.get("swing", 0.0) or 0.0),
         "total_bars": sum(int(s["bars"]) for s in bp["structure"]),
     }
+    _cat = os.path.join(os.path.dirname(os.path.abspath(blueprint_path)), "samples_catalog.json")
+    meta["musical_safety"] = summarize_musical_safety(bp, catalog_path=_cat if os.path.isfile(_cat) else None)
     return bp, meta
 
 
@@ -937,6 +940,9 @@ def run_song_cli(
 
     bp_path = os.path.join(proj_dir, "song_blueprint.json")
     _bp, meta = load_blueprint(bp_path, validate=True)
+    for _iss in (meta.get("musical_safety") or {}).get("issues") or []:
+        if _iss.get("severity") == "error":
+            print(f"[musical_safety] ERROR {_iss.get('code')} track={_iss.get('track')}: {_iss.get('fix')}", file=sys.stderr)
 
     tracks, markers = generate_fn(meta)
     sketch_path = os.path.join(proj_dir, "master_sketch.mid")

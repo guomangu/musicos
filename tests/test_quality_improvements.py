@@ -491,5 +491,152 @@ class TestPresenceFloorsAndBlueprintWiring(unittest.TestCase):
         jsonschema.validate(base, schema)  # example blueprint valid
 
 
+class TestBlueprintMusicalSafety(unittest.TestCase):
+    """Project-wide blueprint audit: root_note contract, catalog cross-check, key-fit."""
+
+    @staticmethod
+    def _bp(tracks, key="C major", mode="ionian", hc_key="C"):
+        return {
+            "key": key,
+            "harmonic_core": {"key": hc_key, "mode": mode},
+            "tracks": tracks,
+        }
+
+    def _sample_track(self, **kw):
+        t = {"name": "Lead", "role": "lead", "source_type": "sample",
+             "sample_path": "samples/lead.wav", "mixer_track": 3, "root_note": 60}
+        t.update(kw)
+        return t
+
+    def test_key_scale_pcs_mode_aware(self):
+        from blueprint_safety import blueprint_key_scale_pcs, key_str_scale_pcs
+
+        self.assertEqual(key_str_scale_pcs("F minor"), {5, 7, 8, 10, 0, 1, 3})
+        self.assertEqual(key_str_scale_pcs("C"), {0, 2, 4, 5, 7, 9, 11})
+        # top-level key without quality -> harmonic_core.mode decides
+        self.assertEqual(blueprint_key_scale_pcs(self._bp([], key="F", hc_key="F", mode="aeolian")), {5, 7, 8, 10, 0, 1, 3})
+        self.assertEqual(blueprint_key_scale_pcs(self._bp([], key="C", hc_key="C", mode="dorian")), {0, 2, 3, 5, 7, 9, 10})
+        # explicit quality in top-level key wins over mode
+        self.assertEqual(blueprint_key_scale_pcs(self._bp([], key="C minor", hc_key="C", mode="dorian")), {0, 2, 3, 5, 7, 8, 10})
+
+    def test_missing_root_note_and_path_are_errors(self):
+        from blueprint_safety import blueprint_musical_safety_issues
+
+        bp = self._bp([{"name": "ChordKey", "role": "chords", "source_type": "sample", "mixer_track": 4}])
+        codes = {i["code"] for i in blueprint_musical_safety_issues(bp)}
+        self.assertIn("sample_missing_path", codes)
+        self.assertIn("sample_missing_root_note", codes)
+        self.assertTrue(all(i["severity"] == "error" for i in blueprint_musical_safety_issues(bp)))
+
+    def test_in_scale_sample_track_is_clean(self):
+        from blueprint_safety import blueprint_musical_safety_issues
+
+        bp = self._bp([self._sample_track(root_note=60)])  # C in C major
+        self.assertEqual(blueprint_musical_safety_issues(bp), [])
+
+    def test_percussive_and_loop_roles_exempt_from_key_fit(self):
+        from blueprint_safety import blueprint_musical_safety_issues
+
+        bp = self._bp([
+            self._sample_track(name="Kick", role="kick", root_note=36, sample_path="samples/kick.wav"),
+            self._sample_track(name="Loop", role="pad", root_note=61, sample_path="samples/loop.wav", is_loop=True),
+        ])
+        self.assertEqual(blueprint_musical_safety_issues(bp), [])
+
+    def test_root_note_pc_mismatch_against_catalog_is_error_with_fix(self):
+        import json as _json
+        from blueprint_safety import blueprint_musical_safety_issues
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cat = {"samples": [{
+                "filepath": os.path.join(tmp, "samples", "bell_a4.wav"),
+                "filename": "bell_a4.wav",
+                "midi_root": 69,
+                "playable_chromatically": True,
+                "sample_nature": "mono_oneshot",
+                "is_loop": False,
+                "hard_reject": False,
+            }]}
+            cat_path = os.path.join(tmp, "samples_catalog.json")
+            with open(cat_path, "w", encoding="utf-8") as fh:
+                _json.dump(cat, fh)
+            # blueprint declares root_note=60 (C4 default) but the sample is really A4 (69)
+            bp = self._bp([self._sample_track(name="LeadBell", role="lead", root_note=60,
+                                              sample_path="samples/bell_a4.wav")])
+            issues = blueprint_musical_safety_issues(bp, catalog_path=cat_path)
+            mism = [i for i in issues if i["code"] == "root_note_pc_mismatch"]
+            self.assertEqual(len(mism), 1)
+            self.assertEqual(mism[0]["severity"], "error")
+            self.assertEqual(mism[0]["detected_midi_root"], 69)
+            self.assertEqual(mism[0]["recommended_root_note"], 57)  # closest octave of 69 to 60 (57, not 69)
+            # same pitch class (octave error only) -> no mismatch
+            bp2 = self._bp([self._sample_track(root_note=81, sample_path="samples/bell_a4.wav")])  # same pc as 69 (octave)
+            self.assertNotIn("root_note_pc_mismatch", {i["code"] for i in blueprint_musical_safety_issues(bp2, catalog_path=cat_path)})
+
+    def test_non_playable_chord_sample_in_melodic_role_is_error(self):
+        import json as _json
+        from blueprint_safety import blueprint_musical_safety_issues
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cat = {"samples": [{
+                "filepath": os.path.join(tmp, "samples", "chord.wav"),
+                "filename": "chord.wav",
+                "midi_root": 60,
+                "playable_chromatically": False,
+                "sample_nature": "poly_chord_or_dyad",
+                "is_loop": False,
+                "hard_reject": False,
+            }]}
+            cat_path = os.path.join(tmp, "samples_catalog.json")
+            with open(cat_path, "w", encoding="utf-8") as fh:
+                _json.dump(cat, fh)
+            bp = self._bp([self._sample_track(name="ChordKey", role="chords", root_note=60,
+                                              sample_path="samples/chord.wav")])
+            codes = {i["code"] for i in blueprint_musical_safety_issues(bp, catalog_path=cat_path)}
+            self.assertIn("non_playable_sample_in_melodic_role", codes)
+            # same chord sample on a percussive role is fine
+            bp2 = self._bp([self._sample_track(name="Kick", role="kick", root_note=36,
+                                               sample_path="samples/chord.wav")])
+            self.assertNotIn("non_playable_sample_in_melodic_role",
+                             {i["code"] for i in blueprint_musical_safety_issues(bp2, catalog_path=cat_path)})
+
+    def test_summarize_and_runner_wiring(self):
+        import json as _json
+        from blueprint_safety import summarize_musical_safety
+        from loop_first_runner import LoopFirstStateMachine
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bp = self._bp([self._sample_track(name="Lead", role="lead", root_note=60)])
+            with open(os.path.join(tmp, "song_blueprint.json"), "w", encoding="utf-8") as fh:
+                _json.dump(bp, fh)
+            sm = LoopFirstStateMachine(tmp)
+            palette = {"blueprint_tracks": [
+                {"name": "Lead", "role": "lead", "source_type": "sample",
+                 "sample_path": "samples/lead.wav", "mixer_track": 3, "root_note": 60},
+            ]}
+            res = sm.apply_palette_to_blueprint(palette)
+            self.assertIn("musical_safety", res)
+            self.assertTrue(res["musical_safety"]["ok"])
+            self.assertEqual(res["musical_safety"]["errors"], 0)
+            # a dissonant root (pc mismatch vs catalog) surfaces as errors > 0
+            cat = {"samples": [{"filepath": os.path.join(tmp, "samples", "lead.wav"), "filename": "lead.wav",
+                                "midi_root": 63, "playable_chromatically": True, "sample_nature": "mono_oneshot",
+                                "is_loop": False, "hard_reject": False}]}
+            with open(os.path.join(tmp, "samples_catalog.json"), "w", encoding="utf-8") as fh:
+                _json.dump(cat, fh)
+            summ = summarize_musical_safety(bp, catalog_path=os.path.join(tmp, "samples_catalog.json"))
+            self.assertFalse(summ["ok"])
+            self.assertGreater(summ["errors"], 0)
+            self.assertIn("root_note_pc_mismatch", {i["code"] for i in summ["issues"]})
+
+    def test_load_blueprint_exposes_musical_safety(self):
+        from song_builder import load_blueprint
+
+        bp_path = os.path.join(ROOT, "projects", "validation_fm_dark", "song_blueprint.json")
+        _bp, meta = load_blueprint(bp_path, validate=True)
+        self.assertIn("musical_safety", meta)
+        self.assertTrue(meta["musical_safety"]["checked"])
+
+
 if __name__ == "__main__":
     unittest.main()
