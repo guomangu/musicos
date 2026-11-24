@@ -58,6 +58,7 @@ from indexer import (
 )
 from sample_prep_lib import measure_fft_tuning
 from blueprint_safety import classify_loop_nature
+from asset_hygiene import check_folder_license_safety
 
 
 def _detect_isolable_slices(path: str, max_slices: int = 2) -> list[dict[str, Any]]:
@@ -171,10 +172,17 @@ def _suggest_prep_recipes(
     return recipes
 
 
-def _scan_project_audio(project_dir: str) -> list[tuple[str, str, str]]:
-    """Return list of `(abs_path, rel_path, source_origin)` inside `<proj>/Samples/` and `<proj>/samples/`."""
+def _scan_project_audio(project_dir: str) -> tuple[list[tuple[str, str, str]], list[dict[str, str]]]:
+    """Return (found [(abs, rel, origin)], skipped [{path, reason}]) inside `<proj>/Samples/` and `<proj>/samples/`.
+
+    v3.1 ASSET-05: filtre `asset_hygiene.is_audio_file_safe` (whitelist d'extensions, taille,
+    magic bytes) — les fichiers pièges (.wav.zpa, __MACOSX/._*, .DS_Store, Icon\r, < 1 Ko)
+    sont rejetés proprement avec une raison, sans stacktrace.
+    """
+    from asset_hygiene import is_audio_file_safe
     abs_proj = os.path.abspath(os.path.expanduser(project_dir))
     found: list[tuple[str, str, str]] = []
+    skipped: list[dict[str, str]] = []
     seen_real: set[str] = set()
 
     for sub, origin in (("Samples", "user_original"), ("samples", "derived")):
@@ -185,18 +193,20 @@ def _scan_project_audio(project_dir: str) -> list[tuple[str, str, str]]:
             dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d != "__MACOSX")
             for fn in sorted(fns):
                 if fn.startswith("."):
-                    continue
-                ext = os.path.splitext(fn)[1].lower()
-                if ext not in AUDIO_EXTS:
+                    skipped.append({"path": os.path.join(root, fn), "reason": "dotfile"})
                     continue
                 full = os.path.join(root, fn)
+                ok, reason = is_audio_file_safe(full)
+                if not ok:
+                    skipped.append({"path": full, "reason": reason})
+                    continue
                 real = os.path.realpath(full)
                 if real in seen_real:
                     continue
                 seen_real.add(real)
                 rel = os.path.relpath(full, abs_proj)
                 found.append((full, rel, origin))
-    return found
+    return found, skipped
 
 
 def index_project_samples(
@@ -215,7 +225,7 @@ def index_project_samples(
     if not os.path.isdir(abs_proj):
         raise FileNotFoundError(f"Project directory not found: {abs_proj}")
 
-    files = _scan_project_audio(abs_proj)
+    files, skipped_files = _scan_project_audio(abs_proj)
     use_clap_eff = bool(with_clap and 0 < len(files) < 40)
     anchors = load_semantic_anchors(anchors_path) if use_clap_eff else None
     embedder = None
@@ -322,7 +332,10 @@ def index_project_samples(
                 )
 
             recipes = _suggest_prep_recipes(fn, abs_p, dsp, bool(entry.get("needs_fade")), best_role)
+            lic = check_folder_license_safety(os.path.dirname(abs_p))
             entries.append({
+                "license_status": lic["license_status"],
+                "license_evidence": lic["evidence"][:2],
                 "filepath": abs_p,
                 "rel_path": rel_p,
                 "filename": fn,
@@ -371,6 +384,8 @@ def index_project_samples(
         "used_clap": bool(embedder is not None),
         "sample_count": len(entries),
         "error_count": len(errors),
+        "skipped_files": skipped_files,
+        "skipped_count": len(skipped_files),
         "samples": entries,
         "errors": errors,
     }

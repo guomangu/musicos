@@ -112,6 +112,20 @@ def _analyze_long_loop(mono: np.ndarray, sr: int) -> dict[str, Any]:
 
 
 def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, Any]:
+    # v3.1 ASSET-05: rapport d'hygiène des assets (fichiers pièges exclus proprement)
+    asset_hygiene: dict[str, Any] = {"scanned": 0, "safe_audio": 0, "skipped_count": 0, "skipped": []}
+    if prepare_dir and os.path.isdir(os.path.expanduser(prepare_dir)):
+        try:
+            from asset_hygiene import scan_audio_tree
+            found, skipped = scan_audio_tree(os.path.expanduser(prepare_dir))
+            asset_hygiene = {
+                "scanned": len(found) + len(skipped),
+                "safe_audio": len(found),
+                "skipped_count": len(skipped),
+                "skipped": skipped[:20],
+            }
+        except Exception as exc:
+            asset_hygiene = {"error": str(exc)}
     d = json.load(open(proj_path, encoding="utf-8"))
     mixer_by_id = {m.get("id"): m for m in d.get("mixer", [])}
     mixer_warnings: list[str] = []
@@ -317,6 +331,7 @@ def audit_gridline_sources(proj_path: str, prepare_dir: str = "") -> dict[str, A
                 report["prepared_samples"].append(prep)
         report["channels"].append(entry)
 
+    report["asset_hygiene"] = asset_hygiene
     return report
 
 

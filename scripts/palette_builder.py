@@ -363,6 +363,7 @@ def _load_project_candidates(
     roles: list[str],
     target_key: str = "",
     bpm: float | None = None,
+    allow_restricted: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """Load candidates strictly from a user project directory (`samples_catalog.json` or live scan)."""
     abs_dir = os.path.abspath(os.path.expanduser(project_samples_dir))
@@ -384,6 +385,15 @@ def _load_project_candidates(
     by_role: dict[str, list[dict[str, Any]]] = {r: [] for r in roles}
     for s in catalog.get("samples", []):
         if s.get("hard_reject"):
+            continue
+        # v3.1 ASSET-05: les samples tagués "NOT ROYALTY FREE" sont exclus par défaut,
+        # SAUF si fournis par l'utilisateur lui-même (scénario B, source_origin=user_original)
+        # ou avec allow_restricted=True explicite.
+        if (
+            not allow_restricted
+            and s.get("license_status") == "restricted_non_royalty_free"
+            and s.get("source_origin") != "user_original"
+        ):
             continue
         playable = bool(s.get("playable_chromatically"))
         role_scores = s.get("role_scores") or {}
@@ -477,6 +487,7 @@ def _load_sqlite_candidates(
     target_key: str,
     per_role_limit: int = 8,
     bpm: float | None = None,
+    allow_restricted: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """Ultra-fast (< 25 ms) indexed SQLite candidate fetch across all roles (0 PyTorch)."""
     abs_db = os.path.abspath(os.path.expanduser(db_path))
@@ -485,6 +496,14 @@ def _load_sqlite_candidates(
 
     conn = sqlite3.connect(abs_db)
     has_dsp = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_dsp_metrics'").fetchone() is not None
+    # v3.1 ASSET-05: license_status column (idempotent migration if present in schema)
+    license_map: dict[int, str] = {}
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(samples)").fetchall()]
+        if "license_status" in cols:
+            license_map = {int(r[0]): str(r[1]) for r in conn.execute("SELECT id, license_status FROM samples").fetchall()}
+    except Exception:
+        license_map = {}
     has_cards = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sample_semantic_cards'").fetchone() is not None
     target_pc = parse_key_tonic_pc(target_key) if target_key else None
 
@@ -582,6 +601,9 @@ def _load_sqlite_candidates(
             if loop_int and bpm is not None and bpm_f is not None:
                 if not bpm_compatibility(float(bpm), float(bpm_f))["ok"]:
                     continue
+            # v3.1 ASSET-05: banque globale -> samples non royalty-free exclus par défaut
+            if not allow_restricted and license_map.get(int(sid)) == "restricted_non_royalty_free":
+                continue
             clap_v16, t_card = cards_by_id.get(int(sid), (None, None))
             dur_f = float(dur or 0.5)
             cent_f = float(d_cent if d_cent is not None else (s_cent or 1000.0))
@@ -797,6 +819,7 @@ def propose_palettes(
     anchors_path: str = DEFAULT_ANCHORS_NPZ,
     bpm: float | None = None,
     bpm_tolerance: float = 6.0,
+    allow_restricted: bool = False,
 ) -> dict[str, Any]:
     """
     Build `num_palettes` (default 3) complementary, conflict-free sound palettes.
@@ -817,11 +840,19 @@ def propose_palettes(
 
     user_locked = bool(project_samples_dir and str(project_samples_dir).strip())
     if user_locked:
-        sample_pool = _load_project_candidates(str(project_samples_dir), eff_roles, target_key=target_key, bpm=bpm)
+        sample_pool = _load_project_candidates(str(project_samples_dir), eff_roles, target_key=target_key, bpm=bpm, allow_restricted=allow_restricted)
     else:
-        sample_pool = _load_sqlite_candidates(db_path, eff_roles, target_key=target_key, bpm=bpm)
+        sample_pool = _load_sqlite_candidates(db_path, eff_roles, target_key=target_key, bpm=bpm, allow_restricted=allow_restricted)
 
     synth_pool = _build_gl_synth_pool(eff_roles, valence=valence) if allow_gl_synths else {r: [] for r in eff_roles}
+
+    # v3.1 ASSET-05: diagnostic de couverture — si un rôle critique a < 3 samples propres,
+    # basculer sur un synthé natif gl.* vérifié au lieu d'un sample douteux.
+    fallback_synth_reason: dict[str, str] = {}
+    for role in ("kick", "bass_sub", "snare_clap", "hihat_perc"):
+        clean = [c for c in sample_pool.get(role, [])]
+        if len(clean) < 3 and synth_pool.get(role):
+            fallback_synth_reason[role] = "insufficient_clean_samples"
 
     # Merge pools per role; keep samples & gl.* synths clearly distinguishable
     combined_pool: dict[str, list[dict[str, Any]]] = {}
@@ -918,6 +949,7 @@ def propose_palettes(
         palettes_out.append({
             "palette_id": pid,
             "label": label,
+            "fallback_synth_reason": dict(fallback_synth_reason) if fallback_synth_reason else None,
             "theme": pref_theme,
             "score": pal_score,
             "score_breakdown": breakdown,
