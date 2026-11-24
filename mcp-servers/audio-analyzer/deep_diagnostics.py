@@ -97,8 +97,8 @@ def _third_octave_profile(mono: np.ndarray, sr: int) -> list[dict[str, float]]:
 
 def classify_resonances(
     third_oct: list[dict[str, Any]],
-    min_excess_db: float = 6.0,
-    max_width_bands: int = 2,
+    min_excess_db: float | None = None,
+    max_width_bands: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split 1/3-octave peaks into (notchable resonances, all candidates).
 
@@ -106,6 +106,22 @@ def classify_resonances(
     AND strong (`local_excess_db >= min_excess_db`): wide plateaus are musical tonal
     color (formants, pads) and must NOT be notched out of the mix.
     """
+    # v3.1 SSOT-01: defaults come from config notch_budget
+    if min_excess_db is None or max_width_bands is None:
+        try:
+            import sys as _sys, os as _os
+            _sd = _os.path.join(_os.environ.get("AI_STUDIO_DIR") or _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "scripts")
+            if _sd not in _sys.path:
+                _sys.path.insert(0, _sd)
+            from mix_config import notch_budget
+            _nb = notch_budget()
+            if min_excess_db is None:
+                min_excess_db = _nb["min_excess_db"]
+            if max_width_bands is None:
+                max_width_bands = _nb["max_width_bands"]
+        except Exception:
+            min_excess_db = 6.0 if min_excess_db is None else min_excess_db
+            max_width_bands = 2 if max_width_bands is None else max_width_bands
     all_peaks = [b for b in third_oct if b.get("local_excess_db", 0.0) >= 5.0 and b.get("is_local_peak", True)]
     notchable = [
         b for b in all_peaks

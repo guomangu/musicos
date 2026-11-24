@@ -974,7 +974,12 @@ def _fix_adjust_track_fader(
     role_hint = str(params.get("target_role") or params.get("role") or "").strip()
     insert_idx = params.get("insert_idx") if params.get("insert_idx") is not None else params.get("mixer")
     raw_delta = float(params.get("delta_db", 0.0))
-    step_req = clamp(raw_delta, -4.0, 4.0)
+    try:
+        from mix_config import autofix_step_bounds
+        _step_cap = autofix_step_bounds()["max_step_db"]
+    except Exception:
+        _step_cap = 4.0
+    step_req = clamp(raw_delta, -_step_cap, _step_cap)
     if abs(step_req) < 0.05:
         return {"applied": False, "code": "ADJUST_TRACK_FADER", "reason": "delta_db too small"}
 
@@ -1237,6 +1242,55 @@ def _fix_sync_vocal_arrangement(
     }
 
 
+def _fix_track_root_note(p_dir: str, params: dict[str, Any], gridline_path: str = "") -> dict[str, Any]:
+    """v3.1 HARM-03 : patch le `root_note` d'une piste du blueprint (delta en demi-tons),
+    ex. après `FIX_TRACK_ROOT_NOTE(track, delta_semitones=-k)` émis par
+    `evaluate_barwise_harmonic_alignment` (biais de hauteur constant détecté sur l'audio)."""
+    track = str(params.get("track") or params.get("track_name") or "")
+    delta = int(params.get("delta_semitones") or params.get("delta") or 0)
+    if not track or delta == 0:
+        return {"applied": False, "code": "FIX_TRACK_ROOT_NOTE", "reason": "track ou delta manquant"}
+    changed: list[dict[str, Any]] = []
+    bp_path = os.path.join(p_dir, "song_blueprint.json")
+    if os.path.isfile(bp_path):
+        try:
+            with open(bp_path, encoding="utf-8") as fh:
+                bp = json.load(fh)
+            tl = track.lower()
+            for tr in bp.get("tracks") or []:
+                name = str(tr.get("name") or tr.get("role") or "")
+                if name and (tl in name.lower() or name.lower() in tl):
+                    if tr.get("root_note") is not None:
+                        old = int(tr["root_note"])
+                        tr["root_note"] = old + delta
+                        changed.append({"track": name, "root_note": tr["root_note"], "delta": delta})
+                    if tr.get("midi_root") is not None:
+                        tr["midi_root"] = int(tr["midi_root"]) + delta
+            if changed:
+                with open(bp_path, "w", encoding="utf-8") as fh:
+                    json.dump(bp, fh, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            return {"applied": False, "code": "FIX_TRACK_ROOT_NOTE", "reason": str(exc)}
+    plan_path = _arrangement_plan_path(p_dir)
+    if os.path.isfile(plan_path) and changed:
+        try:
+            with open(plan_path, encoding="utf-8") as fh:
+                plan = json.load(fh)
+            tl = track.lower()
+            for ch in plan.get("channels") or []:
+                if not isinstance(ch, dict):
+                    continue
+                name = str(ch.get("track_key") or ch.get("name") or "")
+                if name and (tl in name.lower() or name.lower() in tl) and ch.get("root_note") is not None:
+                    ch["root_note"] = int(ch["root_note"]) + delta
+            with open(plan_path, "w", encoding="utf-8") as fh:
+                json.dump(plan, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return {"applied": bool(changed), "code": "FIX_TRACK_ROOT_NOTE", "track": track,
+            "delta_semitones": delta, "changed": changed}
+
+
 def dispatch_multiscale_autofix(
     project_dir: str,
     deviations: list[dict[str, Any]] | dict[str, Any],
@@ -1341,6 +1395,10 @@ def dispatch_multiscale_autofix(
                 res = {"applied": False, "code": code, "reason": ".gridline not found"}
         elif code == "SYNC_VOCAL_ARRANGEMENT":
             res = _fix_sync_vocal_arrangement(p_dir, params, gridline_path=gridline_path)
+        elif code == "FIX_TRACK_ROOT_NOTE":
+            res = _fix_track_root_note(p_dir, params, gridline_path=gridline_path)
+        elif code == "TIGHTEN_HARMONIC_CLAMP_OR_VOICING":
+            res = _fix_mutate_block_density_or_lpf(p_dir, params, gridline_path=gridline_path)
         elif code == "ADJUST_TRACK_FADER":
             res = _fix_adjust_track_fader(p_dir, params, gridline_path=gridline_path)
         elif code in ("EQ_RESONANCE_NOTCH", "ADJUST_MASTER_GAIN"):

@@ -58,7 +58,16 @@ from groove_lib import (  # noqa: F401 (re-exported for song scripts)
     ms_to_beats,
     sanitize_note_overlaps,
 )
-from musicality_metrics import optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
+from score_ir import (  # v3.1 IR-02 — ScoreIR + clamp de frontière harmonique
+    apply_groove_to_score_ir,
+    build_score_ir,
+    clamp_flat_tracks_at_boundaries,
+    compile_score_ir_to_notes,
+    classify_role,
+    harmonic_grid_from_core,
+    segment_index_for_beat,
+)
+from musicality_metrics import adapt_voicing_to_timbre, optimize_voice_leading  # noqa: F401 (re-exported for song scripts)
 from blueprint_safety import summarize_musical_safety  # noqa: E402
 from phrasing_engine import apply_instrumental_prosody  # noqa: F401 (re-exported for song scripts)
 from studio_lib import (
@@ -1416,6 +1425,87 @@ def _default_channels_for_plan(
     return channels
 
 
+def _timbre_features_for_channel(ch: Any, proj_dir: str) -> dict[str, Any]:
+    """v3.1 HARM-03 : features timbre d'un canal (synthé gl.* ou sample du catalogue)."""
+    plugin = str(getattr(ch, "plugin", "") or "")
+    fam = plugin.replace("gl.", "").lower()
+    feats: dict[str, Any] = {"plugin": plugin, "family": fam}
+    if fam in ("fm", "matrixfm"):
+        feats.update(inharmonicity=0.35, spectral_centroid_hz=2600.0, family="fm")
+    elif fam in ("sawswarm", "wavetable", "analog", "dcosynth"):
+        feats.update(spectral_centroid_hz=2400.0, family="saw")
+    elif fam in ("bell", "pluck"):
+        feats.update(inharmonicity=0.2, spectral_centroid_hz=2800.0, family="bell")
+    sf = str(getattr(ch, "sample_file", "") or "")
+    if sf:
+        cat_path = os.path.join(proj_dir, "samples_catalog.json")
+        if os.path.isfile(cat_path):
+            try:
+                with open(cat_path, encoding="utf-8") as fh:
+                    cat = json.load(fh)
+                base = os.path.basename(sf)
+                entries = cat.get("samples") if isinstance(cat, dict) else cat
+                if isinstance(entries, dict):
+                    entries = list(entries.values())
+                for e in entries or []:
+                    if not isinstance(e, dict):
+                        continue
+                    p = str(e.get("path") or e.get("file") or e.get("sample_path") or "")
+                    if p and (p.endswith(sf) or os.path.basename(p) == base):
+                        feats.update({
+                            "inharmonicity": float(e.get("inharmonicity", 0.0) or 0.0),
+                            "spectral_centroid_hz": float(e.get("spectral_centroid_hz", 0.0) or 0.0),
+                            "family": str(e.get("timbre_card") or feats.get("family", "")),
+                        })
+                        break
+            except Exception:
+                pass
+    return feats
+
+
+def _adapt_voicings_to_timbre(
+    tracks: dict[str, list[dict[str, Any]]],
+    channels: list[ChannelSpec],
+    grid: list[dict[str, Any]],
+    valence: float,
+    proj_dir: str,
+) -> dict[str, Any]:
+    """v3.1 HARM-03 : allège les voicings d'accords selon le timbre (drop-2/shell,
+    confinement {1,5,8} sur timbre inharmonique, LIL) avant construction du ScoreIR."""
+    ch_by_key = {ch.track_key: ch for ch in channels}
+    report: dict[str, Any] = {"tracks": {}}
+    for tkey, notes in tracks.items():
+        if classify_role(tkey) != "chords" or not notes:
+            continue
+        ch = ch_by_key.get(tkey)
+        feats = _timbre_features_for_channel(ch, proj_dir) if ch is not None else {}
+        groups: dict[float, list[dict[str, Any]]] = {}
+        for ev in notes:
+            groups.setdefault(round(float(ev.get("start", 0.0)), 4), []).append(ev)
+        n_changed = 0
+        for beat, evs in groups.items():
+            if len(evs) < 2:
+                continue
+            cidx = segment_index_for_beat(grid, beat)
+            seg = grid[cidx] if 0 <= cidx < len(grid) else (grid[0] if grid else {"root_pc": 0})
+            voicing = sorted({int(e["pitch"]) for e in evs})
+            new_v, _rep = adapt_voicing_to_timbre(voicing, feats, valence=valence, chord_root_pc=int(seg.get("root_pc", 0)))
+            if new_v != voicing:
+                evs_sorted = sorted(evs, key=lambda e: int(e["pitch"]))
+                for e, p in zip(evs_sorted, new_v):
+                    e["pitch"] = int(p)
+                if len(new_v) < len(evs_sorted):
+                    for e in evs_sorted[len(new_v):]:
+                        notes.remove(e)
+                n_changed += 1
+        if n_changed:
+            report["tracks"][tkey] = {
+                "voicings_changed": n_changed,
+                "timbre": {k: feats.get(k) for k in ("family", "inharmonicity", "spectral_centroid_hz")},
+            }
+    return report
+
+
 def compile_arrangement_plan(
     plan_path: str | dict[str, Any],
     proj_dir: str,
@@ -1503,26 +1593,29 @@ def compile_arrangement_plan(
             if mod.get("gain_db") is not None:
                 role_gains.setdefault(role, []).append((sec_start_beat, sec_end_beat, float(mod["gain_db"])))
 
-    # Expressive groove humanization
+    # v3.1 HARM-03 — couplage timbre <-> voicing avant le ScoreIR (allège les accords denses
+    # sur timbre riche/inharmonique : drop-2/shell, confinement {1,5,8}, LIL).
+    hc_plan = plan.get("harmonic_core") or {"key": meta["tonic"], "mode": meta["mode"]}
+    _grid0 = harmonic_grid_from_core(hc_plan, bpm=bpm, beats_per_bar=bpb, total_bars=int(meta["total_bars"]))
+    voicing_report = _adapt_voicings_to_timbre(tracks, eff_channels, _grid0, valence, abs_proj)
+
+    # v3.1 IR-02 — ScoreIR : l'inertie de fréquence reste structurelle (fusion de sub),
+    # puis tout le groove (strum/AMG/haas/swing) s'accumule dans `expression` sans toucher
+    # grid_beat/pitch, et compile_score_ir_to_notes applique le clamp de frontière harmonique
+    # (guard 20 ms) + sanitize_note_overlaps (garde 10 ms) en étape finale.
     for r_key, r_notes in list(tracks.items()):
         rl = r_key.lower()
         if any(k in rl for k in ("bass", "808", "sub")):
             tracks[r_key] = enforce_frequency_inertia(r_notes, bpm=bpm)
-        elif any(k in rl for k in ("chord", "pad", "keys")):
-            tracks[r_key] = apply_micro_strum(r_notes, strum_ms=15.0, bpm=bpm)
-        # Velocity humanization on every track (rapid subdivisions get accent+jitter,
-        # sparse notes get a gentle metric accent only -- avoids the "drum machine" feel).
-        tracks[r_key] = apply_anti_machine_gun(tracks[r_key], beats_per_bar=float(bpb), humanize_sparse=True)
-    tracks = apply_haas_pocket(tracks, bpm=bpm, profile=meta["mix_profile"])
-    # Blueprint swing: delay off-beat 8ths (declared `swing` was previously never applied).
-    swing = float(meta.get("swing", 0.0) or 0.0)
-    if swing > 0.0:
-        for r_key in list(tracks):
-            tracks[r_key] = apply_swing(tracks[r_key], swing=swing, beats_per_bar=float(bpb))
-    # v3.0 canonical pipeline, final step: sanitize note overlaps (mono note-stealing guard)
-    # AFTER all groove passes (swing/strum/AMG/haas/inertia) so the guard sees final timings.
     _voices_by_role = {str(ch.track_key).lower(): int(getattr(ch, "voices", 4) or 4) for ch in eff_channels}
-    tracks = sanitize_note_overlaps(tracks, bpm=bpm, voices_by_role=_voices_by_role)
+    score_ir = build_score_ir(hc_plan, meta, tracks, channels=eff_channels, voices_by_role=_voices_by_role)
+    swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
+    groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb))
+    tracks, score_ir_report = compile_score_ir_to_notes(score_ir)
+    try:
+        score_ir.save(os.path.join(abs_proj, "score_ir.json"))
+    except Exception:
+        pass
 
     # Phase 7 P2 — Instrumental prosody (phrase velocity arc, LPF breathing, cadential ornaments, section pocket)
     if apply_prosody:
@@ -1782,6 +1875,24 @@ def compile_arrangement_plan(
             outro_fade(autos, master_or_bus_idx=0, start_beat=f_start, end_beat=f_end, track_idx=min(31, auto_track_cursor))
             auto_track_cursor = min(31, auto_track_cursor + 1)
 
+    # v3.1 IR-02 — clamp de frontière harmonique final (post-groove / post-transitions) :
+    # aucune note chords/pad/bass/counter ne bave sur un accord suivant incompatible,
+    # puis sanitize final (vérification post-groove < 5 ms : 0 clash b2, 0 chevauchement 808).
+    _roles_map = {
+        ch.track_key: (str(ch.role) if getattr(ch, "role", None) else classify_role(ch.track_key))
+        for ch in eff_channels
+    }
+    tracks, _n_boundary_clamped = clamp_flat_tracks_at_boundaries(
+        tracks, score_ir.harmonic_grid, bpm, roles_map=_roles_map
+    )
+    tracks = sanitize_note_overlaps(tracks, bpm=bpm, voices_by_role=_voices_by_role)
+    post_groove_check = {
+        "boundary_clamps_applied": _n_boundary_clamped,
+        "groove_counts": groove_counts,
+        "score_ir_report": score_ir_report,
+        "voicing_adaptation": voicing_report,
+    }
+
     # Export master_sketch.mid and verify MIDI gate
     bass_keys = [r for r in roles_ordered if any(k in r.lower() for k in ("bass", "808", "sub"))]
     chords_key = next((r for r in roles_ordered if any(k in r.lower() for k in ("chord", "pad"))), "chords")
@@ -1840,6 +1951,7 @@ def compile_arrangement_plan(
             "midi_gate": gate_res,
             "transitions": transition_reports,
             "register_split": register_split,
+            "post_groove_check": post_groove_check,
         }
 
     build_gridline_project(
@@ -1868,4 +1980,5 @@ def compile_arrangement_plan(
         "midi_gate": gate_res,
         "transitions": transition_reports,
         "register_split": register_split,
+        "post_groove_check": post_groove_check,
     }

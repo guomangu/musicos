@@ -33,7 +33,7 @@ for _d in (SCRIPTS_DIR, ANALYZER_DIR):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
-from bootstrap_golden_refs import DEFAULT_PROFILES_PATH, compute_bark24_distribution
+from bootstrap_golden_refs import DEFAULT_CORRIDORS_PATH, DEFAULT_PROFILES_PATH, compute_bark24_distribution, load_spectral_corridor_entry
 from deep_diagnostics import compute_pink_slope_db_per_oct
 from groove_lib import HAAS_POCKET_MS_PROFILES
 from taste_memory import query_taste_prior
@@ -422,6 +422,7 @@ def extract_target_fingerprint(
     out_contract_path: str = "",
     out_profile_path: str = "",
     profiles_path: str = DEFAULT_PROFILES_PATH,
+    corridors_path: str = DEFAULT_CORRIDORS_PATH,
     subgenre_tag: str = "",
     has_drums: bool | None = None,
     taste_memory_path: str | None = None,
@@ -475,6 +476,8 @@ def extract_target_fingerprint(
 
     if ref_analyses:
         source_mode = "reference_audio"
+        reference_tier = 1  # user_reference_audio
+        reference_provenance = "user_reference_audio"
         bark_mat = np.asarray([r["bark24"] for r in ref_analyses], dtype=np.float64)
         med_bark = np.median(bark_mat, axis=0)
         med_bark /= max(1e-18, float(np.sum(med_bark)))
@@ -506,9 +509,25 @@ def extract_target_fingerprint(
         sharp_max = float(p_def["dark_sharp_max"] if is_dark else p_def["sharp_max"])
         ref_paths_resolved = [r["path"] for r in ref_analyses]
     else:
+        # v3.1 REF-04 — chaîne de repli à 3 niveaux :
+        #   Niveau 2 = `golden_references/spectral_corridors.json` versionné (+ taste_memory <= 30 %)
+        #   Niveau 3 = baseline psychoacoustique analytique si aucun JSON disponible.
         taste_prior = query_taste_prior(eff_profile, ev_norm, top_k=3, taste_path=taste_memory_path)
-        base_bark, base_slope, base_slope_std = _load_fallback_spectral_profile(eff_profile, profiles_path)
+        corridor_entry = load_spectral_corridor_entry(eff_profile, corridors_path)
         profile_entry = _load_spectral_profile_entry(eff_profile, profiles_path)
+        if corridor_entry is not None or profile_entry is not None:
+            reference_tier = 2  # versioned_genre_corridor
+            reference_provenance = (corridor_entry or {}).get("provenance") or profile_entry.get("provenance", "internal_bootstrap")
+        else:
+            reference_tier = 3  # psychoacoustic_baseline
+            reference_provenance = "psychoacoustic_baseline"
+        base_bark, base_slope, base_slope_std = _load_fallback_spectral_profile(eff_profile, profiles_path)
+        if corridor_entry is not None:
+            cb = (corridor_entry.get("bark24") or {}).get("p50")
+            if isinstance(cb, list) and len(cb) == 24:
+                base_bark = [float(x) for x in cb]
+                base_slope = float((corridor_entry["metrics"].get("pink_slope_db_per_oct") or {}).get("p50", base_slope))
+                base_slope_std = 0.6
         is_external_anchor = bool(profile_entry and profile_entry.get("provenance") == "external_pro_reference")
         if taste_prior is not None:
             source_mode = "user_taste_memory"
@@ -521,8 +540,9 @@ def extract_target_fingerprint(
                     taste_bark = list(b_arr / b_sum)
             tol = max(0.85, base_slope_std * 1.8)
             if taste_bark is not None and is_external_anchor:
-                # Q4.2 bounded merge: external pro anchor dominates automatic memory (>=70% / >=40% if approved)
-                w_taste = 0.60 if approve_taste else 0.30
+                # Q4.2 bounded merge: external pro anchor dominates automatic memory.
+                # v3.1 REF-04 : la fusion taste_memory est plafonnée à 30 % (approve_taste ignoré).
+                w_taste = 0.30
                 w_ext = 1.0 - w_taste
                 ext_bark = np.maximum(0.0, np.asarray(base_bark, dtype=np.float64))
                 ext_bark = ext_bark / max(1e-18, float(np.sum(ext_bark)))
@@ -592,6 +612,8 @@ def extract_target_fingerprint(
         "version": 1,
         "source": source_mode,
         "source_mode": source_mode,
+        "reference_tier": reference_tier,
+        "reference_provenance": reference_provenance,
         "mix_profile": eff_profile,
         "subgenre_tag": eff_subgenre,
         "has_drums": eff_has_drums,
@@ -610,6 +632,8 @@ def extract_target_fingerprint(
     contract_payload: dict[str, Any] = {
         "version": "1.0",
         "source": source_mode,
+        "reference_tier": reference_tier,
+        "reference_provenance": reference_provenance,
         "mix_profile": eff_profile,
         "has_drums": eff_has_drums,
         "emotion_vector": ev_norm,
@@ -670,6 +694,8 @@ def extract_target_fingerprint(
 
     return {
         "source_mode": source_mode,
+        "reference_tier": reference_tier,
+        "reference_provenance": reference_provenance,
         "reference_count": len(ref_paths_resolved),
         "mix_profile": eff_profile,
         "has_drums": eff_has_drums,

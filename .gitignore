@@ -15,6 +15,7 @@ golden_references/*
 !golden_references/README.md
 !golden_references/external_masters/
 !golden_references/external_masters/README.md
+!golden_references/spectral_corridors.json
 .env
 *.wav
 *.WAV

@@ -823,6 +823,14 @@ def propose_palettes(
 
     synth_pool = _build_gl_synth_pool(eff_roles, valence=valence) if allow_gl_synths else {r: [] for r in eff_roles}
 
+    # v3.1 ASSET-05: diagnostic de couverture — si un rôle critique a < 3 samples propres,
+    # basculer sur un synthé natif gl.* vérifié au lieu d'un sample douteux.
+    fallback_synth_reason: dict[str, str] = {}
+    for role in ("kick", "bass_sub", "snare_clap", "hihat_perc"):
+        clean = [c for c in sample_pool.get(role, [])]
+        if len(clean) < 3 and synth_pool.get(role):
+            fallback_synth_reason[role] = "insufficient_clean_samples"
+
     # Merge pools per role; keep samples & gl.* synths clearly distinguishable
     combined_pool: dict[str, list[dict[str, Any]]] = {}
     for role in eff_roles:
@@ -918,6 +926,7 @@ def propose_palettes(
         palettes_out.append({
             "palette_id": pid,
             "label": label,
+            "fallback_synth_reason": dict(fallback_synth_reason) if fallback_synth_reason else None,
             "theme": pref_theme,
             "score": pal_score,
             "score_breakdown": breakdown,

@@ -1437,3 +1437,167 @@ def chord_melody_tension_alignment(
         return {"ok": bool(tension), "apex_pitch": apex.pitch, "apex_time_s": round(float(apex.start), 3),
                 "chord": sym or None}
     return {"ok": True, "apex_pitch": apex.pitch, "apex_time_s": round(float(apex.start), 3), "chord": None}
+
+
+# ---------------------------------------------------------------------------
+# v3.1 IR-02 — entrée directe sur ScoreIR (court-circuite `_infer_roles`) :
+# les rôles, la grille d'accords et les `chord_idx` viennent du compilateur.
+# ---------------------------------------------------------------------------
+
+def _scripts_dir() -> str:
+    import os as _os
+    d = _os.path.dirname(_os.path.abspath(__file__))
+    for _ in range(4):
+        cand = _os.path.join(d, "scripts")
+        if _os.path.isdir(cand):
+            return cand
+        d = _os.path.dirname(d)
+    return _os.path.join(d, "scripts")
+
+
+def evaluate_score_ir(score_ir: Any, thresholds: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """v3.1 IR-02 : évalue un `ScoreIR` directement (rôles explicites, grille harmonique
+    immuable, `chord_idx` par note — y compris les anticipations). Ne passe jamais par
+    `_infer_roles()`."""
+    import sys as _sys
+    sd = _scripts_dir()
+    if sd not in _sys.path:
+        _sys.path.insert(0, sd)
+    from score_ir import evaluate_score_ir as _eval_ir
+    return _eval_ir(score_ir, thresholds)
+
+
+def infer_score_ir_from_midi(midi_path: str, expected_key: str = "", bpm: Optional[float] = None) -> Any:
+    """v3.1 IR-02 (compat ascendante) : construit un ScoreIR inféré depuis un MIDI externe
+    (rôles via `_infer_roles`, grille à segment unique depuis la tonalité attendue/détectée)."""
+    import sys as _sys
+    sd = _scripts_dir()
+    if sd not in _sys.path:
+        _sys.path.insert(0, sd)
+    import pretty_midi as _pm
+    from score_ir import build_score_ir
+    pm = _pm.PrettyMIDI(midi_path)
+    tempo = float(bpm) if bpm else float(pm.get_tempo_changes()[1][0]) if len(pm.get_tempo_changes()[1]) else 120.0
+    b2s = 60.0 / max(40.0, tempo)
+    roles = _infer_roles(pm)
+    tracks: Dict[str, List[Dict[str, Any]]] = {}
+    for role_name, insts in roles.items():
+        for inst in insts:
+            tracks.setdefault(role_name, [])
+            for n in inst.notes:
+                tracks[role_name].append({
+                    "start": round(float(n.start) / b2s, 5),
+                    "length": round(max(0.02, float(n.end - n.start)) / b2s, 5),
+                    "pitch": int(n.pitch),
+                    "velocity": int(n.velocity),
+                })
+    total_beats = max(8.0, round(float(pm.get_end_time()) / b2s / 4.0) * 4.0)
+    meta = {"bpm": tempo, "beats_per_bar": 4, "denominator": 4, "valence": 0.0,
+            "total_bars": max(1, int(round(total_beats / 4.0))), "tonic": expected_key or "C", "key": expected_key or "C"}
+    hc = {"key": expected_key or "C", "mode": "minor" if "minor" in (expected_key or "").lower() else "major"}
+    return build_score_ir(hc, meta, tracks)
+
+
+# ---------------------------------------------------------------------------
+# v3.1 HARM-03 — couplage Timbre <-> Voicing (rugosité psychoacoustique).
+# ---------------------------------------------------------------------------
+
+def _lil_violations(voicing: List[int]) -> List[tuple]:
+    out = []
+    for i in range(len(voicing) - 1):
+        iv = voicing[i + 1] - voicing[i]
+        lim = LOW_INTERVAL_LIMIT.get(iv)
+        if lim is not None and voicing[i] < lim:
+            out.append((i, iv, voicing[i], lim))
+    return out
+
+
+def _enforce_lil(voicing: List[int], high: int = 88) -> List[int]:
+    """Low Interval Limit : aucune seconde sous G3, aucune tierce sous C3, etc."""
+    v = sorted(set(int(p) for p in voicing))
+    for _ in range(10):
+        viols = _lil_violations(v)
+        if not viols:
+            break
+        i, _iv, low, _lim = viols[0]
+        if low + 12 <= high and (low + 12) not in v:
+            v[i] = low + 12
+            v = sorted(set(v))
+        else:
+            del v[i + 1]
+            if len(v) < 2:
+                break
+    return v
+
+
+def adapt_voicing_to_timbre(
+    voicing: List[int],
+    timbre_features: Optional[Dict[str, Any]] = None,
+    valence: float = 0.0,
+    chord_root_pc: int = 0,
+) -> Tuple[List[int], Dict[str, Any]]:
+    """v3.1 HARM-03 : adapte un voicing d'accord au timbre qui le joue.
+
+    - Timbre **inharmonique** (`inharmonicity > 0.15` ou famille bell/metallic/fm) :
+      2 à 3 notes max, confinement `{1, 5, 8}` (offsets {0, 7, 12} vs racine d'accord),
+      espacement minimal >= 5 st dans le médium-grave (< MIDI 60).
+    - Timbre **riche/brillant** (`centroid > 2200 Hz` ou saw/fm/wavetable) avec >= 4 notes :
+      drop-2 (2e note la plus haute abaissée d'une octave) si la LIL le permet, sinon
+      shell voicing (quinte redondante retirée quand 7e/9e présentes).
+    - La **Low Interval Limit** est toujours respectée en sortie.
+    Retourne `(voicing, report)`.
+    """
+    v = sorted(set(int(p) for p in voicing))
+    if len(v) < 2:
+        return v, {"changes": [], "inharmonic": False, "bright": False}
+    feats = dict(timbre_features or {})
+    inhar = float(feats.get("inharmonicity", 0.0) or 0.0)
+    family = str(feats.get("family") or feats.get("timbre_class") or feats.get("plugin") or "").lower()
+    centroid = float(feats.get("spectral_centroid_hz", feats.get("centroid_hz", 0.0)) or 0.0)
+    inharmonic = inhar > 0.15 or any(k in family for k in ("bell", "metallic", "fm", "matrixfm"))
+    bright = centroid > 2200.0 or any(k in family for k in ("saw", "fm", "matrixfm", "supersaw", "wavetable"))
+    root = int(chord_root_pc) % 12
+    changes: List[str] = []
+
+    if inharmonic and len(v) > 3:
+        sel = [v[0]]
+        for p in v[1:]:
+            if len(sel) >= 3:
+                break
+            if (p - root) % 12 not in (0, 7):
+                continue
+            if p < 60 and p - sel[-1] < 5:
+                continue
+            if p - sel[-1] < 1:
+                continue
+            sel.append(p)
+        if len(sel) < 2:
+            sel = v[:3]
+        v = sorted(sel)
+        changes.append("inharmonic_confinement_2_3_notes")
+
+    if bright and len(v) >= 4:
+        pcs = {p % 12 for p in v}
+        fifth = (root + 7) % 12
+        has_ext = any((root + iv) % 12 in pcs for iv in (10, 11, 2, 3))
+        if has_ext and any(p % 12 == fifth for p in v):
+            v = [p for p in v if p % 12 != fifth]
+            changes.append("shell_remove_fifth")
+        else:
+            v2 = list(v)
+            v2[-2] -= 12
+            v2 = sorted(set(v2))
+            if not _lil_violations(v2):
+                v = v2
+                changes.append("drop2")
+            elif any(p % 12 == fifth for p in v):
+                v = [p for p in v if p % 12 != fifth]
+                changes.append("shell_remove_fifth")
+            else:
+                v = v[:-1]
+                changes.append("drop_top_note")
+
+    v = _enforce_lil(v)
+    if v != sorted(set(int(p) for p in voicing)) and not changes:
+        changes.append("lil_enforced")
+    return v, {"changes": changes, "inharmonic": inharmonic, "bright": bright}

@@ -18,7 +18,8 @@ Retour JSON <= 1 500 cars.
   (R_out > 0,22) ou hors tempo (r_eff hors [0,88 ; 1,14]), cloche inharmonique non confinée {1,5,8}.
 - Compilation 100 % déclarative : `python3 scripts/compile_song.py <projet> --core-only`
   (ordre canonique MIDI immuable : voice-leading LIL -> phrasing -> transitions -> midi gate
-  contour-preserving -> groove -> `sanitize_note_overlaps`). Si gridline dispo : 1 rendu stems
+  contour-preserving -> ScoreIR (`score_ir.py` : groove en `expression` + clamp frontière
+  harmonique 20 ms) -> `sanitize_note_overlaps`). Si gridline dispo : 1 rendu stems
   8 mesures + évaluation V1..V4 en NumPy pur (`stem_matrix_evaluator`).
 
 ## Tour 3 — `audio-analyzer:studio_render_final_master(project_dir, export_mp3)`
@@ -47,3 +48,11 @@ Retour JSON <= 1 500 cars.
 ## Budget visé par morceau
 3 tours LLM, <= 8 000 tokens totaux, 0 ligne de `build_song.py` écrite, <= 2 rendus Gridline,
 audit NumPy §1+§2+gains < 1,5 s. Source unique des constantes de mix : `config/mix_profiles.json`.
+
+## v3.1 (6 chantiers)
+Seuils 100 % via `config/mix_profiles.json` + `mix_config.py` ; autofix transactionnel avec
+rollback (`autofix_transaction.py`, journal `renders/autofix_history.json`) ; ScoreIR +
+clamp frontière harmonique ; `adapt_voicing_to_timbre` + audit chroma-vs-grille
+(`FIX_TRACK_ROOT_NOTE` câblé) ; corridors spectraux versionnés `golden_references/spectral_corridors.json`
+(repli 3 niveaux, `reference_tier`/`reference_provenance`) ; hygiène banques `asset_hygiene.py`
+(pas de détection de licence — responsabilité utilisateur).

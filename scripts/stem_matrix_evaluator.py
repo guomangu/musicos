@@ -224,3 +224,209 @@ def load_stems_dir(stems_dir: str) -> tuple[dict[str, np.ndarray], int]:
         stems[os.path.splitext(fn)[0]] = y
         sr0 = sr
     return stems, sr0
+
+
+# ---------------------------------------------------------------------------
+# v3.1 HARM-03 — audit audio bar-synchronisé Chroma-vs-Grille (contrat §4.3).
+# ---------------------------------------------------------------------------
+
+def _segment_chroma(y: np.ndarray, sr: int) -> np.ndarray:
+    """Chroma 12 pcs pondéré par l'énergie du segment (FFT NumPy replié sur 12 classes de
+    hauteur, équivalent CQT 36 bins/octave agrégé — déterministe, sans dépendance librosa)."""
+    y = _mono(np.asarray(y, dtype=np.float64))
+    if len(y) < 256 or sr <= 0:
+        return np.zeros(12)
+    sp = np.abs(np.fft.rfft(y * np.hanning(len(y))))
+    fr = np.fft.rfftfreq(len(y), 1.0 / sr)
+    chroma = np.zeros(12)
+    for f, m in zip(fr, sp):
+        if f < 27.0 or f > 6000.0:
+            continue
+        midi = 69.0 + 12.0 * np.log2(f / 440.0)
+        chroma[int(round(midi)) % 12] += float(m) ** 2
+    return chroma / max(1e-12, float(chroma.sum()))
+
+
+def _estimate_root_st(y: np.ndarray, sr: int, lo_hz: float = 30.0, hi_hz: float = 300.0) -> float | None:
+    """Estimation haute résolution (interpolation parabolique FFT) du pitch dominant en demi-tons
+    relatifs au La440 — permet un `bass_root_match` à ±0.35 st."""
+    y = _mono(np.asarray(y, dtype=np.float64))
+    if len(y) < 1024 or sr <= 0:
+        return None
+    sp = np.abs(np.fft.rfft(y * np.hanning(len(y))))
+    fr = np.fft.rfftfreq(len(y), 1.0 / sr)
+    band = (fr >= lo_hz) & (fr <= hi_hz)
+    if not np.any(band):
+        return None
+    idx = np.argmax(sp[band])
+    k = int(np.where(band)[0][idx])
+    if 0 < k < len(sp) - 1:
+        a, b, c = sp[k - 1], sp[k], sp[k + 1]
+        denom = (a - 2.0 * b + c)
+        delta = 0.5 * (a - c) / denom if abs(denom) > 1e-12 else 0.0
+        delta = float(np.clip(delta, -0.5, 0.5))
+    else:
+        delta = 0.0
+    f = fr[k] + delta * (fr[1] - fr[0])
+    if f <= 0:
+        return None
+    return 69.0 + 12.0 * np.log2(f / 440.0)
+
+
+def evaluate_barwise_harmonic_alignment(
+    stems_audio: dict[str, tuple[np.ndarray, int]],
+    harmonic_grid: list[dict[str, Any]],
+    bpm: float,
+    valence: float = 0.0,
+    sr_fallback: int = 44100,
+) -> dict[str, Any]:
+    """v3.1 HARM-03 (contrat §4.3) : découpe les stems bass/chords/lead par segment de la
+    grille harmonique (marge 50 ms), calcule chroma CQT pondéré par énergie, puis :
+      - `bass_root_match` (±0.35 st), `chords_in_chord_energy_ratio` (≥0.72, 0.65 si V<-0.2),
+        `cross_stem_clash_score` (b2 non modal entre stems) ;
+      - `harmonic_audio_clash_ratio` (Palier 1 ≤ 0.08), `per_track_pitch_bias_st`,
+        `problematic_bars`, `recommended_actions` (FIX_TRACK_ROOT_NOTE /
+        TIGHTEN_HARMONIC_CLAMP_OR_VOICING / SWAP_SAMPLE).
+    """
+    beat_s = 60.0 / max(40.0, float(bpm))
+    margin_s = 0.05
+    tonic_pc = int(harmonic_grid[0].get("root_pc", 0)) % 12 if harmonic_grid else 0
+    role_stems: dict[str, list[str]] = {"bass": [], "chords": [], "lead": []}
+    for name in stems_audio:
+        r = _role_of(name)
+        if r == "bass":
+            role_stems["bass"].append(name)
+        elif r == "harmony":
+            role_stems["chords"].append(name)
+        elif r == "lead":
+            role_stems["lead"].append(name)
+
+    per_seg: list[dict[str, Any]] = []
+    bias_samples: dict[str, list[float]] = {"bass": [], "chords": [], "lead": []}
+    problematic_bars: list[int] = []
+    clash_segments = 0
+    active_segments = 0
+
+    for seg in harmonic_grid or []:
+        s0 = float(seg.get("start_beat", 0.0)) * beat_s + margin_s
+        s1 = float(seg.get("end_beat", 0.0)) * beat_s - margin_s
+        if s1 - s0 < 0.1:
+            continue
+        chord_pcs = set(int(p) for p in seg.get("chord_pcs", []))
+        scale_pcs = set(int(p) for p in seg.get("scale_pcs", []))
+        tension_pcs = set(int(p) for p in seg.get("modal_tension_pcs", []))
+        bass_pc = int(seg.get("bass_pc", seg.get("root_pc", 0))) % 12
+        seg_res: dict[str, Any] = {"chord_idx": int(seg.get("chord_idx", 0)), "bar": int(seg.get("start_beat", 0.0)) // max(1, 4) + 1,
+                                   "bass_root_match": None, "chords_in_chord_energy_ratio": None, "cross_stem_clash_score": 0.0}
+        chromas: dict[str, np.ndarray] = {}
+        seg_active = False
+        for role, names in role_stems.items():
+            for name in names:
+                if name not in stems_audio:
+                    continue
+                y, sr = stems_audio[name]
+                sr = int(sr) if sr else sr_fallback
+                a, b = int(s0 * sr), min(len(_mono(np.asarray(y))), int(s1 * sr))
+                if b - a < 256:
+                    continue
+                seg_y = np.asarray(y)[a:b]
+                rms = float(np.sqrt(np.mean(_mono(seg_y) ** 2))) if seg_y.size else 0.0
+                if 20.0 * np.log10(rms + 1e-12) <= -40.0:
+                    continue
+                seg_active = True
+                chroma = _segment_chroma(seg_y, sr)
+                chromas.setdefault(role, np.zeros(12))
+                chromas[role] = chromas[role] + chroma
+                if role == "bass":
+                    est = _estimate_root_st(seg_y, sr)
+                    if est is not None:
+                        expected = 36.0 + bass_pc + 12.0 * round((est - 36.0 - bass_pc) / 12.0)
+                        d = (est - expected) % 12.0
+                        if d > 6.0:
+                            d -= 12.0
+                        seg_res["bass_root_match"] = abs(d) <= 0.35
+                        bias_samples["bass"].append(d)
+                else:
+                    est_pc = int(np.argmax(chroma))
+                    if chord_pcs:
+                        near = min(chord_pcs, key=lambda q: min((est_pc - q) % 12, (q - est_pc) % 12))
+                        d = (est_pc - near) % 12
+                        if d > 6:
+                            d -= 12
+                        bias_samples[role].append(d)
+        if not seg_active:
+            per_seg.append(seg_res)
+            continue
+        active_segments += 1
+        if "chords" in chromas and chord_pcs:
+            ratio = float(np.sum(chromas["chords"][list(chord_pcs)]) / max(1e-12, float(chromas["chords"].sum())))
+            seg_res["chords_in_chord_energy_ratio"] = round(ratio, 4)
+        clash = 0.0
+        for other in ("chords", "lead"):
+            if "bass" in chromas and other in chromas:
+                for q in range(12):
+                    nxt = (q + 1) % 12
+                    if nxt in chord_pcs:
+                        continue  #音色 d'accord : b9/bII modal autorisé
+                    if q == tonic_pc and nxt in tension_pcs:
+                        continue  # b2 contre la TONIQUE en mode phrygien-like : couleur modale licite
+                    clash += float(min(chromas["bass"][q], chromas[other][nxt]))
+        denom = max(1e-12, float(sum(c.sum() for c in chromas.values())))
+        seg_res["cross_stem_clash_score"] = round(clash / denom, 5)
+        if seg_res["cross_stem_clash_score"] > 0.05:
+            clash_segments += 1
+        bad = (seg_res["bass_root_match"] is False) or (
+            seg_res["chords_in_chord_energy_ratio"] is not None
+            and seg_res["chords_in_chord_energy_ratio"] < (0.65 if valence < -0.2 else 0.72)
+        ) or seg_res["cross_stem_clash_score"] > 0.05
+        if bad:
+            problematic_bars.append(int(seg_res["bar"]))
+        per_seg.append(seg_res)
+
+    harmonic_audio_clash_ratio = (clash_segments / active_segments) if active_segments else 0.0
+    per_track_bias = {r: (round(float(np.median(v)), 3) if v else 0.0) for r, v in bias_samples.items()}
+
+    recommended_actions: list[dict[str, Any]] = []
+    for role, names in role_stems.items():
+        bias = per_track_bias.get(role, 0.0)
+        if abs(bias) >= 1.0 and bias_samples.get(role):
+            k = int(round(bias))
+            for name in names:
+                recommended_actions.append({
+                    "code": "FIX_TRACK_ROOT_NOTE",
+                    "track": name,
+                    "params": {"delta_semitones": -k},
+                })
+    if problematic_bars:
+        n_bad = len(problematic_bars)
+        if n_bad <= 2 and active_segments:
+            for role in ("chords", "lead"):
+                for name in role_stems.get(role, []):
+                    recommended_actions.append({
+                        "code": "TIGHTEN_HARMONIC_CLAMP_OR_VOICING",
+                        "track": name,
+                        "params": {"bars": sorted(set(problematic_bars))},
+                    })
+        elif harmonic_audio_clash_ratio > 0.08:
+            for role in ("chords", "lead"):
+                for name in role_stems.get(role, []):
+                    recommended_actions.append({
+                        "code": "SWAP_SAMPLE",
+                        "track": name,
+                        "params": {"reason": "audio_harmonic_clash"},
+                    })
+
+    passed = harmonic_audio_clash_ratio <= 0.08 and all(
+        seg.get("bass_root_match") is not False
+        and (seg.get("chords_in_chord_energy_ratio") is None or seg["chords_in_chord_energy_ratio"] >= (0.65 if valence < -0.2 else 0.72))
+        and seg.get("cross_stem_clash_score", 0.0) <= 0.05
+        for seg in per_seg
+    )
+    return {
+        "passed": bool(passed),
+        "harmonic_audio_clash_ratio": round(harmonic_audio_clash_ratio, 4),
+        "per_track_pitch_bias_st": per_track_bias,
+        "problematic_bars": sorted(set(problematic_bars)),
+        "recommended_actions": recommended_actions,
+        "per_segment": per_seg,
+    }

@@ -455,6 +455,15 @@ def _iter_media_files(samples_dir: str) -> list[tuple[str, str]]:
             if ext not in AUDIO_EXTS and ext not in MIDI_EXTS:
                 continue
             full = os.path.join(dirpath, fname)
+            if ext in AUDIO_EXTS:
+                # v3.1 ASSET-05: extension whitelist + taille + magic bytes (jamais ".wav" in name)
+                try:
+                    from asset_hygiene import is_audio_file_safe
+                    ok, _reason = is_audio_file_safe(full)
+                except Exception:
+                    ok = True
+                if not ok:
+                    continue
             real = os.path.realpath(full)
             if real in seen_real:
                 continue

@@ -778,3 +778,23 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# ---------------------------------------------------------------------------
+# v3.1 IR-02 — autofix direct sur ScoreIR (court-circuite `_infer_roles`) +
+# construction d'un ScoreIR inféré depuis un MIDI externe (compat ascendante).
+# ---------------------------------------------------------------------------
+
+def autofix_score_ir(score_ir: Any, thresholds: dict[str, Any] | None = None,
+                     guard_ms: float = 20.0) -> tuple[Any, dict[str, Any]]:
+    """v3.1 IR-02 : réparations déterministes sur le ScoreIR (snap gamme, clamp de
+    frontière harmonique, trim des chevauchements mono)."""
+    from score_ir import autofix_score_ir as _af
+    return _af(score_ir, thresholds, guard_ms=guard_ms)
+
+
+def score_ir_from_midi(midi_path: str, expected_key: str = "", bpm: float | None = None) -> Any:
+    """v3.1 IR-02 : ScoreIR inféré depuis un MIDI importé (soundbanks/) — délègue à
+    `musicality_metrics.infer_score_ir_from_midi` qui utilise `_infer_roles`."""
+    from musicality_metrics import infer_score_ir_from_midi
+    return infer_score_ir_from_midi(midi_path, expected_key=expected_key, bpm=bpm)
