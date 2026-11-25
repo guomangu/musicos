@@ -693,6 +693,31 @@ PY
   ok "Configurations Gridline, Zed et Antigravity synchronisées sur $STUDIO_DIR."
 }
 
+# Résumé humain d'un rapport d'indexation (lit stdin : JSON ou dict Python, affiche 1 ligne).
+# v3.3 hotfix : rend explicite "nouveaux / déjà à jour / rejetés (raisons)" pour ne plus
+# laisser croire que la phase d'indexation "n'a rien fait" quand tout est déjà en base.
+summarize_index_report() {
+  local kind="$1"
+  "$STUDIO_DIR/.venv/bin/python" - "$kind" << 'PYEOF'
+import ast, json, sys
+kind = sys.argv[1]
+raw = sys.stdin.read()
+try:
+    r = json.loads(raw)
+except Exception:
+    r = ast.literal_eval(raw)
+if kind == "presets":
+    keys = ("total_presets", "indexed", "skipped", "errors", "clap_embedded")
+    print("[AI-Studio] Résumé presets gl.* : {total_presets} au total, {indexed} nouveaux, {skipped} déjà à jour (incrémental), {errors} erreurs, CLAP {clap_embedded}".format(**{k: r.get(k, 0) for k in keys}))
+else:
+    rr = r.get("rejected_reasons") or {}
+    det = " (" + ", ".join(f"{k}: {v}" for k, v in sorted(rr.items())) + ")" if rr else ""
+    err = f", {r.get('errors', 0)} erreurs" if r.get("errors") else ""
+    keys = ("scanned", "total", "indexed", "skipped", "rejected", "dsp_total", "clap_embedded", "cards_total")
+    print("[AI-Studio] Résumé samples : {scanned} scannés, {total} en base, {indexed} nouveaux, {skipped} déjà à jour (incrémental), {rejected} rejetés{d}{e}, DSP {dsp_total}, CLAP {clap_embedded}, cartes {cards_total}".format(d=det, e=err, **{k: r.get(k, 0) for k in keys}))
+PYEOF
+}
+
 index_samples_and_verify() {
   log "8/8 Indexation des samples & validation finale..."
   local venv_py="$STUDIO_DIR/.venv/bin/python"
@@ -703,15 +728,21 @@ index_samples_and_verify() {
   fi
 
   local sample_count
-  sample_count="$(find -L "$STUDIO_DIR/samples" -type f \( -iname "*.wav" -o -iname "*.mp3" -o -iname "*.ogg" -o -iname "*.flac" -o -iname "*.mid" \) 2>/dev/null | wc -l)"
+  # Même périmètre que l'indexeur (AUDIO_EXTS + MIDI_EXTS, hors sfz/ __MACOSX/ répertoires cachés)
+  sample_count="$(find -L "$STUDIO_DIR/samples" -type d \( -name sfz -o -name __MACOSX -o -name '.*' \) -prune -o -type f ! -name '.*' \( -iname '*.wav' -o -iname '*.ogg' -o -iname '*.flac' -o -iname '*.mp3' -o -iname '*.aiff' -o -iname '*.aif' -o -iname '*.mid' -o -iname '*.midi' \) -print 2>/dev/null | wc -l)"
   if [[ "$sample_count" -gt 0 ]]; then
     log "Indexation incrémentale de $sample_count fichiers dans samples/..."
+    local out
     if [[ $SKIP_CLAP -eq 0 ]]; then
-      HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/indexer.py" --with-clap
-      HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/scripts/index_samples.py" --input-dir "$STUDIO_DIR/samples"
+      out="$(HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/indexer.py" --with-clap)"
+      printf '%s\n' "$out"; printf '%s' "$out" | summarize_index_report samples
+      out="$(HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/scripts/index_samples.py" --input-dir "$STUDIO_DIR/samples")"
+      printf '%s\n' "$out"; printf '%s' "$out" | summarize_index_report samples
     else
-      "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/indexer.py"
-      "$venv_py" "$STUDIO_DIR/scripts/index_samples.py" --input-dir "$STUDIO_DIR/samples" --no-clap
+      out="$("$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/indexer.py")"
+      printf '%s\n' "$out"; printf '%s' "$out" | summarize_index_report samples
+      out="$("$venv_py" "$STUDIO_DIR/scripts/index_samples.py" --input-dir "$STUDIO_DIR/samples" --no-clap)"
+      printf '%s\n' "$out"; printf '%s' "$out" | summarize_index_report samples
     fi
   else
     warn "Aucun sample audio détecté dans $STUDIO_DIR/samples/ (dépose tes packs ici puis relance install.sh ou indexer.py)."
@@ -719,53 +750,18 @@ index_samples_and_verify() {
 
   if have gridline; then
     log "Indexation spectrale des presets synthés natifs Gridline (gl.*)..."
+    local pout
     if [[ $SKIP_CLAP -eq 0 ]]; then
-      HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/preset_indexer.py" --with-clap
+      pout="$(HF_HUB_OFFLINE=1 TRANSFORMERS_VERBOSITY=error "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/preset_indexer.py" --with-clap)"
     else
-      "$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/preset_indexer.py"
+      pout="$("$venv_py" "$STUDIO_DIR/mcp-servers/audio-index/preset_indexer.py")"
     fi
+    printf '%s\n' "$pout"; printf '%s' "$pout" | summarize_index_report presets
   fi
 
-  "$venv_py" - << PY
-import json, jsonschema, os, subprocess
-
-studio = "$STUDIO_DIR"
-with open(os.path.join(studio, "schemas/song_blueprint.schema.json")) as f:
-    schema = json.load(f)
-with open(os.path.join(studio, "projects/active/song_blueprint.json")) as f:
-    bp = json.load(f)
-jsonschema.validate(bp, schema)
-
-# Test rapide initialize + tools/list JSON-RPC sur les 5 serveurs MCP
-servers = [
-    [os.path.join(studio, "scripts/gridline-mcp.sh")],
-    [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/audio-index/audio_index_server.py")],
-    [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/audio-analyzer/audio_analyzer_server.py")],
-    [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/vocaloid/vocaloid_server.py")],
-    [os.path.join(studio, ".venv/bin/python"), os.path.join(studio, "mcp-servers/reverse-engineer/reverse_engineer_server.py")],
-]
-init_msg = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "install-check", "version": "1.0"}}}) + "\n"
-notif_msg = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
-tools_msg = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}) + "\n"
-
-for cmd in servers:
-    env = os.environ.copy()
-    env["AI_STUDIO_DIR"] = studio
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, text=True, bufsize=1)
-    proc.stdin.write(init_msg)
-    proc.stdin.flush()
-    r1 = json.loads(proc.stdout.readline())
-    assert "result" in r1, f"Echec initialize sur {cmd}: {r1}"
-    proc.stdin.write(notif_msg + tools_msg)
-    proc.stdin.flush()
-    r2 = json.loads(proc.stdout.readline())
-    t_count = len(r2.get("result", {}).get("tools", []))
-    assert t_count > 0, f"Aucun outil sur {cmd}: {r2}"
-    print(f"MCP OK: {os.path.basename(cmd[-1])} ({r1['result'].get('serverInfo', {}).get('name')}, tools={t_count})")
-    proc.stdin.close()
-    proc.wait(timeout=10)
-print("Validation JSON Schema + handshake & tools/list des 5 serveurs MCP : OK")
-PY
+  # v3.3 hotfix : verify_install.py ignore proprement l'absence de projects/active/song_blueprint.json
+  # (installation fraîche) au lieu de planter avec FileNotFoundError sous `set -euo pipefail`.
+  "$venv_py" "$STUDIO_DIR/scripts/verify_install.py" --studio "$STUDIO_DIR"
 
   ok "Installation et vérification complète terminées !"
   echo ""

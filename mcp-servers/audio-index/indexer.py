@@ -440,37 +440,60 @@ def analyze_sample(path: str, rel_path: str) -> dict[str, Any]:
     }
 
 
-def _iter_media_files(samples_dir: str) -> list[tuple[str, str]]:
+def _iter_media_files(samples_dir: str) -> tuple[list[tuple[str, str]], list[dict[str, str]]]:
+    """Scanne `samples_dir`. Retourne (acceptés [(abs, rel)], rejetés [{path, reason}]).
+
+    v3.3 hotfix : les rejets (dotfiles, extensions composites type `.wav.zpa`, hygiène
+    ASSET-05 : magic bytes / taille < 1 Ko, doublons de symlinks) sont désormais
+    **comptés et remontés avec leur raison** au lieu d'être silencieux — le rapport
+    d'indexation distingue `scanned` / `rejected` / `skipped` (déjà en base).
+    """
     root_abs = os.path.abspath(samples_dir)
     results: list[tuple[str, str]] = []
+    rejected: list[dict[str, str]] = []
     seen_real: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(root_abs, followlinks=True):
         dirnames[:] = sorted(
             d for d in dirnames if d not in ("__MACOSX", "sfz") and not d.startswith(".")
         )
         for fname in sorted(filenames):
+            full = os.path.join(dirpath, fname)
             if fname.startswith("."):
+                rejected.append({"path": full, "reason": "dotfile"})
                 continue
             ext = os.path.splitext(fname)[1].lower()
-            if ext not in AUDIO_EXTS and ext not in MIDI_EXTS:
-                continue
-            full = os.path.join(dirpath, fname)
-            if ext in AUDIO_EXTS:
+            if ext in MIDI_EXTS:
+                pass  # MIDI accepté tel quel (pas de métriques DSP audio)
+            elif ext in AUDIO_EXTS:
                 # v3.1 ASSET-05: extension whitelist + taille + magic bytes (jamais ".wav" in name)
                 try:
                     from asset_hygiene import is_audio_file_safe
-                    ok, _reason = is_audio_file_safe(full)
+                    ok, reason = is_audio_file_safe(full)
                 except Exception:
-                    ok = True
+                    ok, reason = True, "ok"
                 if not ok:
+                    rejected.append({"path": full, "reason": reason})
                     continue
+            else:
+                # Suffixe non média : ne remonter que si le nom contient une extension audio
+                # trompeuse (ex. `pack.wav.zpa`, `loop.flac.fst`) — jamais `".wav" in name` seul.
+                low = fname.lower()
+                if any(f".{e}" in low for e in ("wav", "ogg", "flac", "mp3", "aiff", "aif")):
+                    try:
+                        from asset_hygiene import is_decodable_audio_file
+                        _ok, reason = is_decodable_audio_file(full)
+                    except Exception:
+                        reason = "unknown"
+                    rejected.append({"path": full, "reason": reason or "unknown"})
+                continue
             real = os.path.realpath(full)
             if real in seen_real:
+                rejected.append({"path": full, "reason": "symlink_duplicate"})
                 continue
             seen_real.add(real)
             rel = os.path.relpath(full, root_abs)
             results.append((full, rel))
-    return results
+    return results, rejected
 
 
 def _compute_dsp_worker(task: tuple[int, str, float | None]) -> tuple[int, dict[str, Any] | None]:
@@ -1008,12 +1031,15 @@ def index_directory(
         r["path"]: (r["file_mtime"], r["file_size"])
         for r in conn.execute("SELECT path, file_mtime, file_size FROM samples")
     }
-    files = _iter_media_files(samples_dir)
+    files, rejected = _iter_media_files(samples_dir)
     if limit > 0:
         files = files[:limit]
     indexed = 0
     skipped = 0
     errors = 0
+    rejected_reasons: dict[str, int] = {}
+    for _r in rejected:
+        rejected_reasons[_r.get("reason", "unknown")] = rejected_reasons.get(_r.get("reason", "unknown"), 0) + 1
 
     for full, rel in files:
         try:
@@ -1050,6 +1076,9 @@ def index_directory(
         "indexed": indexed,
         "skipped": skipped,
         "errors": errors,
+        "scanned": len(files) + len(rejected),
+        "rejected": len(rejected),
+        "rejected_reasons": rejected_reasons,
         "dsp_indexed": dsp_stats["dsp_indexed"],
         "dsp_errors": dsp_stats["dsp_errors"],
         "dsp_total": dsp_total,
