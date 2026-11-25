@@ -26,14 +26,11 @@
 
 | Chemin | Rôle & Fonctions | Ordre / Usage |
 | :--- | :--- | :--- |
-| **`docs/AGENT_RUNBOOK.md`** | **Production (Tours 1–3)** | Runbook compact ($\le 1\,500$ tokens) pilotant les 3 macro-tours MCP. |
-| **`docs/REFERENCE_ARCHIVE.md`** | **Dev / Débogage** | Archive technique v3.0/v3.1, playbook des pièges et journal PQ. |
-| **`docs/AUDIT_CARENCES_ET_SOLUTIONS_V3_2.md`** | **Roadmap / Amélioration continue** | Les 5 carences musicales & structurelles majeures post-v3.1 et leurs solutions cibles v3.2. |
 | `.rules` *(symlinks `AGENTS.md`, `GEMINI.md`)* | Règles normatives globales : routeur de scénario `A/B/C/D`, routage documentaire just-in-time, pipeline en 5 tours et 14 invariants non-négociables. | **0** (lu automatiquement par l'agent) |
 | `README.md` | Présentation générale de l'environnement AI-Studio, installation rapide et prérequis Linux. | **0** (référence humaine) |
 | `.env` / `.env.example` | Variables d'environnement API (`FREESOUND_API_KEY`, `LOTSOFSOUNDS_API_KEY`). | **3** (requis par `fetch_samples_api.py` / `fetch_samples_online`) |
 | `.zed/settings.json` | Configuration éditeur Zed + déclaration des serveurs MCP locaux (`gridline`, `audio-index`, `audio-analyzer`, `reverse-engineer`, `vocaloid`). | **1** (config IDE/MCP) |
-| `assets/empty_with_mixer_tracks.gridline` | Template `.gridline` minimal embarqué (Master + Insert 1..16) : repli automatique si le template système Gridline est absent (ordre : `$GRIDLINE_EMPTY_TEMPLATE` > `/usr/share/gridline/...` > `assets/`). |
+| `assets/empty_with_mixer_tracks.gridline` | Template `.gridline` minimal embarqué (Master + Insert 1..16) : repli automatique si le template système Gridline est absent (ordre : `$GRIDLINE_EMPTY_TEMPLATE` > `/usr/share/gridline/...` > `assets/`). | **2** (template nouveau projet) |
 | `install.sh` | Installeur Fedora idempotent (paquets audio PipeWire, `.venv`, plugins CLAP/VST3, modèles, rescan). Flags `--check-only`, `--skip-plugins`, `--skip-clap`, `--skip-zed`, `--no-sudo`, `--force-rescan`. | **1** (setup initial machine) |
 | `requirements.txt` | Dépendances Python du `.venv` (`mcp`, `numpy`, `scipy`, `soundfile`, `pyloudnorm`, `librosa`, `praat-parselmouth`, `essentia`, `mosqito`, `pyroomacoustics`, `matchering`, `music21`, `pretty_midi`, `onnxruntime`, `mido`, `transformers`, `audiobox_aesthetics`, `scikit-learn`). | **1** (setup `.venv`) |
 | `.gitignore` | Règles d'exclusion Git (`.venv`, `.env`, gros média, bases temporaires). | **—** (Git) |
@@ -57,6 +54,9 @@ Lire **just-in-time** uniquement la facette correspondant à l'étape courante :
 | Fichier | Quand la Consulter | Résumé du Contenu |
 | :--- | :--- | :--- |
 | **`docs/00_SOMMAIRE.md`** *(ce fichier)* | **Tour 0** (Orientation) | Carte complète des dossiers/fichiers, fonctions clés, outils MCP et ordre exact d'utilisation. |
+| **`docs/AGENT_RUNBOOK.md`** | **Production (Tours 1–3)** — seul fichier lu en session | Runbook compact ($\le 1\,500$ tokens) pilotant les 3 macro-tours MCP (v3.3 : `--probe`, `ScoreIR`, `NarrativeHarmony`, articulations, tournoi `MelodicAppealIndex`). |
+| **`docs/REFERENCE_ARCHIVE.md`** | **Dev / Débogage** (jamais lu en production) | Archive technique v3.0–v3.3, playbook des pièges et journal PQ. |
+| **`docs/AUDIT_CARENCES_ET_SOLUTIONS_V3_2.md`** | **Roadmap / Amélioration continue** | Les 5 carences majeures post-v3.1 et leurs solutions, avec état d'implémentation P1–P5 (commits). |
 | **`docs/01_SYSTEME_STACK_ET_GUIDE.md`** | **Tour 0 / 3** (Outils & DSL) | Stack Linux/PipeWire, budget DSP strict, inventaire des 5 MCP, catalogue vérifié des synthés/effets `gl.*`, DSL `gl_dsl.py`, conversion d'unités beats/ticks/s et syntaxe MCP/Lua. |
 | **`docs/02_COMPOSITION_EMOTIONNELLE_ET_THEORIE.md`** | **Tour 1 / 2** (Musique) | Table MIDI & `SCALES`, modèle `(V, T, E, D)`, modes & verrouillage par valence, formules d'accords & `optimize_voice_leading`, 14 progressions, recette mélodie (`A-A'-A''-B` et sombre), humanisation `groove_lib.py`, 11 matrices rythmiques, palettes multi-genres. |
 | **`docs/03_ARCHITECTURE_BLUEPRINT_ET_COHESION.md`** | **Tour 1 / 2 / 3** (Structure) | Contrat `song_blueprint.json`, templates multi-genres, matrice d'arrangement par section, grille 4/8/16 & `transitions_lib.py`, plafond cognitif (5–8 pistes simultanées vs isolation `1 sonorité = 1 piste`), `master_sketch.mid`, seuils `audit_midi_harmony`, table `_infer_roles()`, correction `midi_autofix.py`, patron `build_song.py`. |
@@ -184,7 +184,7 @@ Lire **just-in-time** uniquement la facette correspondant à l'étape courante :
 | **Acoustique S1/S2 & Syntaxe S3** | `deep_diagnostics.py`, `musicality_metrics.py`, `scripts/midi_autofix.py`, `scripts/sample_prep_lib.py` | Phase Kick/808 (`INVERT_808_POLARITY`, `SHIFT_BASS_MICRO_MS`), flux spectral soutenu, alignement pocket audio (`TRIM_SAMPLE_START_MS`), collisions transitoires 1–4 kHz (`STAGGER_ATTACK_OR_STRUM`), cohésion motivique A/A'/B, tension harmonique et interlocking (`fix_motif_clone`, `fix_chords_lead_overlap`). |
 | **Macro-Structure S4 & Catalogue S5/H** | `scripts/macro_structure_audit.py`, `scripts/catalog_coherence.py` | SSM `Chroma(0.35)+MFCC(0.40)+Rythme(0.25)` (détection clones 8 mes. `> 0.94`), nouveauté Checkerboard (`±1` mes.), Arc 5D (compatible `has_drums=false`), plafond cognitif par mesure (`-28 dBFS`), cohérence EP/Album/DJ Set via `master_fingerprint.json` + roue de Camelot. |
 | **Pyramide & Auto-Fix Local** | `scripts/multiscale_pyramid.py`, `scripts/multiscale_autofix.py` | Agrégation Bottom-Up $S1 \rightarrow S5$ avec blocage en cascade, top-3 déviations strictement borné à `<= 1 500` caractères (`<= 400` tokens), diagnostic complet écrit sur disque (`renders/diagnostics/`), correction mécanique sans LLM (max 2 passes). |
-| **Orchestrateur CLI & MCP** | `scripts/run_autonomous_pipeline.py`, MCP `audio-analyzer:audit_multiscale_hv` | Point d'entrée unique (`--stage E1|E2|E3|E4|ALL --auto-fix --checkpoint-e2 --resume-from-checkpoint --json-compact`) et outil MCP agrégé respectant la limite `<= 400` tokens. |
+| **Orchestrateur CLI & MCP** | `scripts/run_autonomous_pipeline.py`, MCP `audio-analyzer:audit_multiscale_hv` | Point d'entrée unique (`--stage E1\|E2\|E3\|E4\|ALL --auto-fix --checkpoint-e2 --resume-from-checkpoint --json-compact`) et outil MCP agrégé respectant la limite `<= 400` tokens. |
 | **Tests Phase 6** | `.venv/bin/python -m unittest tests/test_phase6_multiscale_hv.py -v` | Suite déterministe couvrant $S1..S5$, cache hit (`< 5 ms`), blocage en cascade, budget `<= 1 500` chars, auto-fix E2E et benchmark CPU `< 4 s` sur 2 minutes. |
 
 ---
