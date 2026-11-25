@@ -1726,6 +1726,33 @@ def compile_arrangement_plan(
         except Exception as exc:
             motif_selection_report = {"error": str(exc)[:120]}
     swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
+    # v3.3 #2 — OrchestrationEngine : bass_mode (inversions/pédales), comping par section,
+    # revoicing des accords conscient du Lead (anti-croisement soprano/Lead).
+    orch_report: dict[str, Any] = {}
+    try:
+        from orchestration_engine import apply_bass_motion, apply_comping_to_score_ir, default_comping_arc, revoice_chords_with_lead
+        from score_ir import parse_key_tonic_pc
+        _hc_plan = plan.get("harmonic_core") or {}
+        _bass_modes: dict[str, str] = {}
+        for _k, _v in (_hc_plan.get("section_progressions") or {}).items():
+            if isinstance(_v, dict) and _v.get("bass_mode"):
+                _bass_modes[_k] = str(_v["bass_mode"])
+        if not _bass_modes:
+            _bass_modes = {"intro": "tonic_pedal", "pre_chorus": "dominant_pedal", "pre_refrain": "dominant_pedal"}
+        _tonic_pc = parse_key_tonic_pc(str(meta.get("key") or meta.get("tonic") or "C")) or 0
+        orch_report["bass"] = apply_bass_motion(score_ir, mode="stepwise_inversions", section_spans=sections_tuples,
+                                                section_modes=_bass_modes, tonic_pc=int(_tonic_pc), beats_per_bar=int(bpb))
+        _styles: dict[str, str] = {}
+        for _sec in plan.get("sections") or []:
+            if isinstance(_sec, dict) and _sec.get("comping_style"):
+                _styles[str(_sec.get("name") or _sec.get("kind") or "")] = str(_sec["comping_style"])
+        if not _styles:
+            _styles = default_comping_arc(plan.get("sections") or [])
+        orch_report["comping"] = apply_comping_to_score_ir(score_ir, sections_tuples, _styles, beats_per_bar=int(bpb))
+        orch_report["voice_leading"] = revoice_chords_with_lead(score_ir)
+    except Exception as exc:
+        orch_report = {"error": str(exc)[:120]}
+
     # v3.3 #1 — enricher : glides 808 subtils au Climax si expression_defaults (jamais d'écrasement)
     try:
         from blueprint_enricher import inject_climax_glides
@@ -2059,6 +2086,7 @@ def compile_arrangement_plan(
         "wetness_sends": wetness_report,
         "motif_selection": motif_selection_report,
         "groove_bank": groove_bank_report,
+        "orchestration": orch_report,
     }
 
     # Export master_sketch.mid and verify MIDI gate

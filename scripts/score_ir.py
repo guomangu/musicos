@@ -159,8 +159,11 @@ def _section_progression_for(section_spans: list[Any] | None, section_progressio
                     if k in name.lower().replace("-", "_").replace(" ", "_"):
                         key = k
                         break
-            if key and isinstance(section_progressions.get(key), list) and section_progressions[key]:
-                return [str(x) for x in section_progressions[key]], sb
+            _entry = section_progressions.get(key)
+            if isinstance(_entry, dict):
+                _entry = _entry.get("degrees") or []
+            if key and isinstance(_entry, list) and _entry:
+                return [str(x) for x in _entry], sb
             return None
     return None
 

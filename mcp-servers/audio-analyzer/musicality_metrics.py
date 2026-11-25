@@ -78,6 +78,68 @@ def optimize_voice_leading(
     return chosen
 
 
+def _voicing_candidates(pcs: list[int], low_midi: int, high_midi: int) -> list[list[int]]:
+    """Candidats de voicing d'un accord (mêmes filtres que optimize_voice_leading)."""
+    pools = [[m for m in range(low_midi, high_midi + 1) if m % 12 == pc] for pc in pcs]
+    res = []
+    for combo in product(*pools):
+        sv = sorted(combo)
+        if sv[-1] - sv[0] <= 16 and len(set(sv)) == len(pcs):
+            tight_low = any((sv[k + 1] - sv[k] <= 1 and sv[k] < 57) for k in range(len(sv) - 1))
+            lil_bad = any(low_interval_violation(sv[i], sv[j]) for i in range(len(sv)) for j in range(i + 1, len(sv)))
+            if not tight_low and not lil_bad:
+                res.append(sv)
+    return res
+
+
+def optimize_voice_leading_with_lead(
+    chord_pcs_list: list[list[int]],
+    lead_contour: list[int | None],
+    low_midi: int = 48,
+    high_midi: int = 72,
+    pad_filtered: bool = False,
+) -> list[list[int]]:
+    """v3.3 #2 — voice-leading avec terme de coût conscient du contour du Lead :
+    pénalise le croisement soprano >= lead_bar_min - 2 (sauf pad très filtré en arrière-plan),
+    les octaves/quintes parallèles entre la voix supérieure des accords et le Lead, et
+    favorise le mouvement contraire. `lead_contour[i]` = pitch min du Lead sur l'accord i
+    (None si silence). Repli sur `optimize_voice_leading` si un accord n'a aucun candidat."""
+    all_cands = [_voicing_candidates(pcs, low_midi, high_midi) for pcs in chord_pcs_list]
+    if any(not c for c in all_cands):
+        return optimize_voice_leading(chord_pcs_list, low_midi=low_midi, high_midi=high_midi)
+
+    def lead_cost(i: int, c: list[int], prev: list[int] | None) -> float:
+        lm = lead_contour[i] if i < len(lead_contour) else None
+        if lm is None:
+            return 0.0
+        sop = max(c)
+        cost = 0.0
+        if not pad_filtered and sop > int(lm) - 3:
+            cost += 10.0 * (sop - (int(lm) - 3))  # croisement soprano/Lead (strict : sop > lead-3)
+        if i > 0 and prev is not None and i - 1 < len(lead_contour) and lead_contour[i - 1] is not None:
+            iv_now = (sop - int(lm)) % 12
+            iv_prev = (max(prev) - int(lead_contour[i - 1])) % 12
+            if iv_now == iv_prev and iv_now in (0, 7):
+                cost += 8.0  # octave/quinte parallèle soprano <-> Lead
+            # bonus mouvement contraire
+            d_sop = sop - max(prev)
+            d_lead = int(lm) - int(lead_contour[i - 1])
+            if d_sop * d_lead < 0:
+                cost -= 2.0
+        return cost
+
+    mid = (low_midi + high_midi) / 2.0
+    chosen = [min(all_cands[0], key=lambda c: abs(sum(c) / len(c) - mid) + lead_cost(0, c, None))]
+    for i in range(1, len(all_cands)):
+        prev = chosen[-1]
+        best = min(
+            all_cands[i],
+            key=lambda c: sum(min(abs(n - p) for p in prev) for n in c) / len(c) + lead_cost(i, c, prev),
+        )
+        chosen.append(best)
+    return chosen
+
+
 def _infer_roles(pm: pretty_midi.PrettyMIDI) -> Dict[str, List[pretty_midi.Instrument]]:
     """Classe automatiquement les pistes non-percussives par rôle (bass, chords, lead, counter)."""
     melodic_insts = [
