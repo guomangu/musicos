@@ -1570,6 +1570,7 @@ def compile_arrangement_plan(
     limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.30,
     auto_gain_stage: bool = True,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     """
     Phase 7 P1 compiler: validate `arrangement_plan.json`, expand motifs & `role_modifiers`,
@@ -1579,6 +1580,18 @@ def compile_arrangement_plan(
     abs_proj = os.path.abspath(os.path.expanduser(proj_dir))
     os.makedirs(abs_proj, exist_ok=True)
     plan, meta = load_arrangement_plan(plan_path, validate=True)
+
+    # v3.3 #5 — déterminisme strict : seed du blueprint (ou dérivé SHA-256), propagé au groove
+    _bp_raw: dict[str, Any] = {}
+    try:
+        with open(os.path.join(abs_proj, "song_blueprint.json"), encoding="utf-8") as _fh:
+            _bp_raw = json.load(_fh)
+    except Exception:
+        _bp_raw = {}
+    if seed is None:
+        from determinism import resolve_seed
+        seed = resolve_seed(_bp_raw if isinstance(_bp_raw, dict) and _bp_raw else meta)
+    seed = int(seed)
 
     bpm = float(meta["bpm"])
     bpb = int(meta["beats_per_bar"])
@@ -1713,7 +1726,41 @@ def compile_arrangement_plan(
         except Exception as exc:
             motif_selection_report = {"error": str(exc)[:120]}
     swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
-    groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb))
+    # v3.3 #2 — OrchestrationEngine : bass_mode (inversions/pédales), comping par section,
+    # revoicing des accords conscient du Lead (anti-croisement soprano/Lead).
+    orch_report: dict[str, Any] = {}
+    try:
+        from orchestration_engine import apply_bass_motion, apply_comping_to_score_ir, default_comping_arc, revoice_chords_with_lead
+        from score_ir import parse_key_tonic_pc
+        _hc_plan = plan.get("harmonic_core") or {}
+        _bass_modes: dict[str, str] = {}
+        for _k, _v in (_hc_plan.get("section_progressions") or {}).items():
+            if isinstance(_v, dict) and _v.get("bass_mode"):
+                _bass_modes[_k] = str(_v["bass_mode"])
+        if not _bass_modes:
+            _bass_modes = {"intro": "tonic_pedal", "pre_chorus": "dominant_pedal", "pre_refrain": "dominant_pedal"}
+        _tonic_pc = parse_key_tonic_pc(str(meta.get("key") or meta.get("tonic") or "C")) or 0
+        orch_report["bass"] = apply_bass_motion(score_ir, mode="stepwise_inversions", section_spans=sections_tuples,
+                                                section_modes=_bass_modes, tonic_pc=int(_tonic_pc), beats_per_bar=int(bpb))
+        _styles: dict[str, str] = {}
+        for _sec in plan.get("sections") or []:
+            if isinstance(_sec, dict) and _sec.get("comping_style"):
+                _styles[str(_sec.get("name") or _sec.get("kind") or "")] = str(_sec["comping_style"])
+        if not _styles:
+            _styles = default_comping_arc(plan.get("sections") or [])
+        orch_report["comping"] = apply_comping_to_score_ir(score_ir, sections_tuples, _styles, beats_per_bar=int(bpb))
+        orch_report["voice_leading"] = revoice_chords_with_lead(score_ir)
+    except Exception as exc:
+        orch_report = {"error": str(exc)[:120]}
+
+    # v3.3 #1 — enricher : glides 808 subtils au Climax si expression_defaults (jamais d'écrasement)
+    try:
+        from blueprint_enricher import inject_climax_glides
+        if isinstance(_bp_raw, dict) and _bp_raw.get("expression_defaults"):
+            inject_climax_glides(score_ir, _bp_raw, sections_tuples)
+    except Exception:
+        pass
+    groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb), seed=seed)
     tracks, score_ir_report = compile_score_ir_to_notes(score_ir)
     try:
         score_ir.save(os.path.join(abs_proj, "score_ir.json"))
@@ -1986,10 +2033,18 @@ def compile_arrangement_plan(
     rit_cfg = plan.get("outro_ritardando") or {}
     if isinstance(rit_cfg, dict) and rit_cfg.get("enabled", str(meta["mix_profile"]) in organic_profiles):
         from transitions_lib import apply_outro_ritardando
+        _loop_meta = [
+            {"track": k, "is_audio_loop": ("loop" in k.lower()) or (
+                role_to_ch.get(k) is not None
+                and getattr(role_to_ch[k], "plugin", "") == "gl.sampler"
+                and "loop" in str(getattr(role_to_ch[k], "sample_file", "") or "").lower())}
+            for k in tracks
+        ]
         ritardando_report = apply_outro_ritardando(
             tracks, bpm,
             bars=int(rit_cfg.get("bars", 2)),
             amount=float(rit_cfg.get("amount", 0.06)),
+            tracks_meta=_loop_meta,
         )
     expr_layers = plan.get("expression_layers") or {}
     vel_cutoff_report: dict[str, Any] = {}
@@ -2031,6 +2086,7 @@ def compile_arrangement_plan(
         "wetness_sends": wetness_report,
         "motif_selection": motif_selection_report,
         "groove_bank": groove_bank_report,
+        "orchestration": orch_report,
     }
 
     # Export master_sketch.mid and verify MIDI gate

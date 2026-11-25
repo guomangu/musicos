@@ -132,3 +132,82 @@ class TestDocsCoherenceCI(unittest.TestCase):
         self.assertIn("6.5 khz", t)
         self.assertIn("9 khz", t)
         self.assertIn("config/mix_profiles.json", t)
+
+
+class TestDocsCoherenceCIv33(unittest.TestCase):
+    """v3.3 J0 — CI documentaire renforcée (doc audit v3.3 §0) :
+    0 divergence numérique dans TOUS les tableaux de docs/05_*, runbook aligné v3.3,
+    0 numérotation dupliquée / non croissante, 0 tableau à colonnes décalées."""
+
+    def _docs_files(self):
+        base = os.path.join(ROOT, "docs")
+        return [os.path.join(base, fn) for fn in sorted(os.listdir(base)) if fn.endswith(".md")]
+
+    def test_no_numeric_divergence_in_all_05_tables(self):
+        forbidden = [
+            "soft `8 %`", "saturation douce `10 %`",
+            ">= +2 db", "[+2.5,+9.5]", "[+2.5, +9.5]",
+            "lpf synthé `5–7 khz`", "lpf synthé `5-7 khz`",
+        ]
+        bad = []
+        for p in self._docs_files():
+            if not os.path.basename(p).startswith("05_"):
+                continue
+            with open(p, encoding="utf-8") as fh:
+                for i, ln in enumerate(fh, 1):
+                    if not ln.strip().startswith("|"):
+                        continue
+                    low = ln.replace(",", ".").lower()
+                    for f in forbidden:
+                        if f.replace(",", ".").lower() in low:
+                            bad.append(f"{os.path.basename(p)}:{i}: {f}")
+        self.assertEqual(bad, [], f"valeurs divergentes dans les tableaux docs/05_* : {bad}")
+
+    def test_runbook_synced_with_v33(self):
+        p = os.path.join(ROOT, "docs", "AGENT_RUNBOOK.md")
+        with open(p, encoding="utf-8") as fh:
+            t = fh.read()
+        self.assertIn("# AGENT RUNBOOK v3.3", t, "en-tête du runbook doit être v3.3")
+        for tok in ("--probe", "ScoreIR", "section_progressions", "NarrativeHarmony", "OrchestrationEngine",
+                    "glide_to_next", "config/timbre_archetypes.json", "midi_groove_bank",
+                    "MelodicAppealIndex", "FullCoverageCoreValidator", "blueprint_enricher",
+                    "studio_refine_track", "preview_highlights.wav", "seed", "4->3"):
+            self.assertIn(tok, t, f"runbook v3.3 ne mentionne pas {tok!r}")
+        self.assertLessEqual(len(t), 6000, f"runbook = {len(t)} cars > 6000")
+
+    def test_no_duplicated_numbering_or_misaligned_tables(self):
+        import re as _re
+        num_re = _re.compile(r"^\s*(\d+)[.)]\s+\S")
+        pipe_re = _re.compile(r"(?<!\\)\|")
+        problems = []
+        for p in self._docs_files():
+            with open(p, encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            run: list[tuple[int, int]] = []
+            tbl: list[tuple[int, int]] = []
+
+            def flush_run():
+                if run:
+                    nums = [n for _, n in run]
+                    if len(set(nums)) != len(nums) or nums != sorted(nums):
+                        problems.append(f"{os.path.basename(p)}: numérotation {nums} lignes {[i for i, _ in run]}")
+
+            def flush_tbl():
+                if tbl:
+                    counts = {c for _, c in tbl}
+                    if len(counts) > 1:
+                        problems.append(f"{os.path.basename(p)}: tableau lignes {[i for i, _ in tbl]} pipes={sorted(counts)}")
+
+            for i, ln in enumerate(lines, 1):
+                m = num_re.match(ln)
+                if m:
+                    flush_tbl(); tbl = []
+                    run.append((i, int(m.group(1))))
+                elif ln.strip().startswith("|"):
+                    flush_run(); run = []
+                    tbl.append((i, len(pipe_re.findall(ln))))
+                else:
+                    flush_run(); run = []
+                    flush_tbl(); tbl = []
+            flush_run(); flush_tbl()
+        self.assertEqual(problems, [], f"problèmes de structure Markdown dans docs/ : {problems}")

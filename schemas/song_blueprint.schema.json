@@ -14,6 +14,11 @@
     "tracks"
   ],
   "properties": {
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v3.3 : graine de reproductibilité bit-à-bit (défaut dérivé SHA-256(title|key|bpm) via scripts/determinism.py)"
+    },
     "title": {
       "type": "string",
       "minLength": 1
@@ -245,11 +250,38 @@
           "type": "object",
           "description": "v3.2 NarrativeHarmony : variantes de progression par section (intro/verse/pre_chorus/chorus/bridge/outro), ex. {\"chorus\": [\"iv\",\"V\",\"i\",\"VI\"], \"bridge\": [\"bII\",\"V7\",\"i\",\"VI\"]}. Rétro-compatible (optionnel).",
           "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "degrees": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "bass_mode": {
+                    "type": "string",
+                    "enum": [
+                      "root",
+                      "stepwise_inversions",
+                      "tonic_pedal",
+                      "dominant_pedal",
+                      "walking"
+                    ]
+                  }
+                },
+                "required": [
+                  "degrees"
+                ]
+              }
+            ]
           }
         }
       }

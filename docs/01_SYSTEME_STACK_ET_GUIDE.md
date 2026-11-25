@@ -125,7 +125,7 @@ Inventaire exhaustif fonction par fonction → [`docs/00_SOMMAIRE.md §4`](00_SO
 | **Mémoire & Sources** | `audit_project_sources.py` · `select_sample.py` (`< 25 ms`, `samples.db`) · `fetch_samples_api.py --mono-only --no-clap` · `audio_metrics.py` · `index_samples.py --no-clap --workers 6` |
 | **Préparation & Expressivité** | `sample_prep_lib.py` (`process_sample_specs`) · `groove_lib.py` (`apply_micro_strum`, `apply_haas_pocket`, `apply_anti_machine_gun`, `enforce_frequency_inertia`) · `transitions_lib.py` (`beat4_dropout`, `filter_sweep`, `section_gain_arc`, `outro_fade`) |
 | **Validation MIDI & Build** | `midi_autofix.py` (`autofix_midi`) · `studio_lib.py` (`verify_midi_gate(..., auto_fix=...)`) · `gl_dsl.py` · `song_builder.py` (`build_gridline_project`, `run_song_cli`) |
-| **Rendu, Auto-Fix & CI** | `render_and_audit.py` (`--range --no-neural --auto-fix --max-passes 2`) · `bootstrap_golden_refs.py` (`spectral_profiles.json`) · `tests/regression_multi_genre.py` |
+| **Rendu, Auto-Fix & CI** | `render_and_audit.py` (`--range --no-neural --auto-fix --max-passes 2`) · `bootstrap_golden_refs.py` (`spectral_corridors.json` versionné) · `tests/regression_multi_genre.py` |
 
 ```bash
 # 1. Gridline GUI connecté aux agents (port 47390)

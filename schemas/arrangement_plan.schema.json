@@ -385,7 +385,12 @@
             "type": "integer",
             "minimum": 1
           },
-          "active_roles": {
+          "comping_style": {
+          "type": "string",
+          "enum": ["sustained_pad", "broken_arp_up", "broken_arp_pendulum", "rhythmic_comp", "pulse_ostinato", "waltz_bass_chord"],
+          "description": "v3.3 #2 OrchestrationEngine : style de comping de la piste chords pour cette section (défaut: arc automatique default_comping_arc)."
+        },
+        "active_roles": {
             "type": "array",
             "items": {
               "type": "string"

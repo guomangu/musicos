@@ -20,11 +20,11 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 
 | `mix_profile` | Genres Couverts | Cible LUFS | `low_mids` max | `air` min *(adaptatif `V < -0.2`)* | Sharpness max | Arc Dynamique min | Caractère des Buses (`setup_standard_buses`) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`trap_rap`** | Trap, Cloud, Drill, Rap moderne | `-11.0` (`-12..-9.8`) | `<= 24 %` | `>= 3.0 %` *(sombre : **`>= 1.2 %`**)* | `< 1.90` *(sombre `< 1.85`)* | `>= 2.5 dB` | Sidechain Kick→808 doux **`2.4:1`** (`-18 dB`, Release `65–80 ms`), `gl.dist` Soft `8 %` (`Tone <= 7.5k`) avant `gl.eq` LPF, `FX Room` court |
+| **`trap_rap`** | Trap, Cloud, Drill, Rap moderne | `-11.0` (`-12..-9.8`) | `<= 24 %` | `>= 3.0 %` *(sombre : **`>= 1.2 %`**)* | `< 1.90` *(sombre `< 1.85`)* | `>= 2.5 dB` | Sidechain Kick→808 doux **`2.4:1`** (`-18 dB`, Release `65–80 ms`), `gl.dist` Soft `<= 0.04` (`Tone <= 7.5k`) avant `gl.eq` LPF, `FX Room` court |
 | **`pop_rnb`** | Pop, Synthwave, R&B, Afrobeat, Reggaeton | `-10.5` (`-11.5..-9.5`) | `<= 26 %` | `>= 3.0 %` *(mélancolique : **`>= 1.5 %`**)* | `< 1.95` *(sombre `< 1.85`)* | `>= 2.5 dB` | Sidechain modéré `3:1`, `BUS Music` équilibré, poche voix/lead `1.5–2.5 kHz` |
 | **`edm_club`** | House, Techno, EDM, DnB, Rage | `-9.0` (`-10.0..-7.8`) | `<= 24 %` | `>= 3.5 %` *(sombre : `>= 1.75 %`)* | `< 2.05` *(sombre `< 1.90`)* | `>= 2.5 dB` | Sidechain punchy `5:1` sur basse & pads, air contrôlé, sub mono verrouillé |
 | **`rock_metal`** | Rock, Indie, Punk, Metal | `-10.0` (`-11.0..-8.5`) | `<= 28 %` | `>= 2.5 %` *(sombre : `>= 1.25 %`)* | `< 2.10` *(sombre `< 1.90`)* | `>= 2.0 dB` | Sidechain léger `3:1`, médiums guitares riches, batterie organique punchy |
-| **`lofi_chill`** | Lo-Fi, Boom Bap, Chillhop, Downtempo | `-14.0` (`-15.0..-12.5`) | `<= 34 %` | `>= 0.5 %` *(sombre : `>= 0.25 %`)* | `< 1.75` | `>= 1.8 dB` | LPF chaud `8.5–9.5 kHz` sur `BUS Music`, saturation douce `10 %`, 0 boost air agressif |
+| **`lofi_chill`** | Lo-Fi, Boom Bap, Chillhop, Downtempo | `-14.0` (`-15.0..-12.5`) | `<= 34 %` | `>= 0.5 %` *(sombre : `>= 0.25 %`)* | `< 1.75` | `>= 1.8 dB` | LPF chaud `8.5–9.5 kHz` sur `BUS Music`, `gl.dist` saturation douce `<= 0.04`, 0 boost air agressif |
 | **`jazz_acoustic`** | Jazz, Soul acoustique, Folk, Bossa | `-14.5` (`-16.0..-13.0`) | `<= 36 %` | `>= 1.0 %` *(sombre : `>= 0.5 %`)* | `< 1.85` *(sombre `< 1.80`)* | `>= 2.5 dB` | **0 distorsion**, compression douce/transparente, `FX Room` naturel (`0.6–1.0 s`) |
 | **`classical_ambient`** | Classique, Orchestral, Piano solo, Ambient | `-16.0` (`-18.0..-14.0`) | `<= 40 %` | `>= 0.3 %` *(sombre : `>= 0.15 %`)* | `< 1.75` | `>= 3.0 dB` | **0 distorsion**, sidechain minimal, dynamique ample, `FX Room` profond (`0.8–1.1 s`) |
 
@@ -78,7 +78,7 @@ Les seuils de `scripts/render_and_audit.py` et `studio_lib.setup_standard_buses(
 4. **`FX Room` (Insert `20`)** : `gl.reverb` via `gl_dsl.reverb_room()` (`Dry=0`, `Dry (full)=0`, `Decay <= T_noire` rythmique ou `0.7–1.1 s` acoustique/ambient ; jamais de send sur Kick/Sub/Hats).
 5. **`FX Delay` (Insert `21`)** : `gl.delay` via `delay_send_fx(bpm, valence)` (`Tempo sync`, croche pointée par défaut, `Feedback 20–32 %`, `Dry=0`) + `gl.eq` `HPF 400 / LPF 3500` (`2800` si `V<-0.2`). Sends `delay_send` (`0.08–0.18`) réservés à Lead/Pluck/Counter/Voix.
 6. **`FX Hall` (Insert `22`)** : `gl.reverb` Hall via `reverb_hall()` (`Decay 1.6–2.4 s`, `Dry=0`, `HPF 500 / LPF 5500`, `4500` si `V<-0.2`) + `gl.eq`. Sends `hall_send` (`0.14–0.30`) sur Pads/Strings/Ear Candy/Impacts (jamais Kick/Sub/Snare sec).
-5. **`Master` (`0`)** : `gl.eq` (`Quality=1`, `HPF 28`, `LPF 17k`) → `gl.comp` (`1.6:1`) → `gl.limiter` via `gl_dsl.limiter_master()` (`Attack=0.002`, `0.2 dB safety=1`, `Ceiling=-1.2 dBTP` — `config/mix_profiles.json`).
+7. **`Master` (`0`)** : `gl.eq` (`Quality=1`, `HPF 28`, `LPF 17k`) → `gl.comp` (`1.6:1`) → `gl.limiter` via `gl_dsl.limiter_master()` (`Attack=0.002`, `0.2 dB safety=1`, `Ceiling=-1.2 dBTP` — `config/mix_profiles.json`).
 
 ---
 
@@ -90,7 +90,7 @@ Tous les nouveaux outils retournent un **contrat JSON uniforme concis** (`verdic
 | Étage | Outil MCP / Script | Ce qui est vérifié | Action unique / Garde-fou |
 | :---: | :--- | :--- | :--- |
 | **É1** | `audio-analyzer:audit_track_soundcheck` (`scripts/soundcheck_lib.py`, `scripts/listener_backend.py`) | Rendu headless `2–4` mes. par piste isolée : RMS `> -42 dBFS`, justesse jouée `<= 8 ct` (soundcheck), intégrité chromatique, `0` pic `> +5 dB` (`2–5 kHz`) ni glitch, enveloppe vs BPM, fidélité `valence`. | `CHECK_ROUTING_OR_SWAP`, `ADJUST_FINE_TUNE`, `APPLY_LPF`, `ADD_NOTCH_EQ`, `ADJUST_ADSR` · `export_palette_preview.py` (`palette_preview.wav`). |
-| **É2** | `audio-analyzer:audit_vertical_step` (`scripts/vertical_tester.py`, `song_builder.py --core-only`) | Paliers cumulatifs sur `core_loop.gridline` (`4/8` mes.) : `V1_LOW_END` (overlap/phase `<150 Hz`), `V2_GROOVE` (sharpness/mitraillette, sauté si `has_drums=false`), `V3_HARMONY` (conflit chroma CQT basse/accords + `low_mids`), `V4_LEAD` (hiérarchie `>= +2 dB`, pente rose, `spectral_match`). | **Isolation** : `forbidden_tracks` verrouillé (`loop_first_runner.py` bloque toute édition hors couche $k$ ; escalade `SWAP_SAMPLE` après 2 échecs) → `core_loop_locked = true`. |
+| **É2** | `audio-analyzer:audit_vertical_step` (`scripts/vertical_tester.py`, `song_builder.py --core-only`) | Paliers cumulatifs sur `core_loop.gridline` (`4/8` mes.) : `V1_LOW_END` (overlap/phase `<150 Hz`), `V2_GROOVE` (sharpness/mitraillette, sauté si `has_drums=false`), `V3_HARMONY` (conflit chroma CQT basse/accords + `low_mids`), `V4_LEAD` (hiérarchie `>= +3 dB`, pente rose, `spectral_match`). | **Isolation** : `forbidden_tracks` verrouillé (`loop_first_runner.py` bloque toute édition hors couche $k$ ; escalade `SWAP_SAMPLE` après 2 échecs) → `core_loop_locked = true`. |
 | **É3** | `audio-analyzer:audit_horizontal_seam` (`scripts/horizontal_tester.py`) | Fenêtres `4` mes. (`±2` mes.) sur transitions majeures + `Outro` : contraste `ΔLUFS`, événement (`beat4_dropout` / `filter_sweep`), `0` glitch `±150 ms`, RMS dernière seconde Outro `< -45 dBFS`. | `INCREASE_SECTION_CONTRAST`, `ADD_TRANSITION_EVENT`, `CLEAN_SEAM_FADE`, `APPLY_OUTRO_FADE` via `transitions_lib.py`. |
 
 ### 3.1 Critères `render_and_audit.py` + `analyze_stem_hierarchy` + `spectral_match_score`
@@ -114,13 +114,13 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
 | Symptôme (`failures`) | Action Unique (`gl_dsl` / Python) |
 | :--- | :--- |
 | **`clipped > 0` / `true_peak > -1.0`** | `limiter_master(gain, ceiling - 0.4)` (`Attack=0.002`, `safety=1`). |
-| **`lufs` trop bas / haut** | Ajuster `Master slot 3 Gain` de `±Δ` (`|Δ| <= 4 dB`/passe, plafond `-1.2 dBTP`). |
+| **`lufs` trop bas / haut** | Ajuster `Master slot 3 Gain` de `±Δ` (`\|Δ\| <= 4 dB`/passe, plafond `-1.2 dBTP`). |
 | **`low_end_corr < 0.50`** | `BUS Bass Width=0.0`, Kick `pan=0`, `fx_send=0` sur Kick/Basse, `BUS Music HPF >= 120`. |
 | **`stereo_width < min dB`** | `WIDEN_HARMONY_OR_PERC` : `gl.stereo` legacy (`Width 2.0`, `Side level 6-12`, `Mono below 250`) + sends `FX Hall` `+0.06` sur Chords/Pads. |
 | **`stereo_balance > 1.2 dB`** | `FIX_STEREO_BALANCE` : recentrer/nudge `±0.10-0.16` pan sur 1–2 inserts panoramiques, max 2 passes. |
-| **`lead_vs_harmony` hors `[+2.5,+9.5]`** | `ADJUST_TRACK_FADER(target_track, delta_db)` borné `±4 dB/passe` (cumul `8 dB`), `forbidden_tracks` respectés en É2. |
+| **`lead_vs_harmony` hors `[3.0, 9.5]`** | `ADJUST_TRACK_FADER(target_track, delta_db)` borné `±4 dB/passe` (cumul `8 dB`), `forbidden_tracks` respectés en É2. |
 | **`low_mid_corr < 0.55`** | `stabilize_stereo_low_mid()` sur le sample ou `mixer/N/stereo = -0.35`. |
-| **`sharpness >= max`** | Vérifier Lead `<= MIDI 74`, LPF synthé `5–7 kHz`, Peak `-3.5 dB @ 3.2 kHz` (`q=1.4`). |
+| **`sharpness >= max`** | Vérifier Lead `<= MIDI 74`, filtre de synthé musical `5–7 kHz` (pente douce, jamais LPF brique 24 dB/oct < 9 kHz lead), Peak `-3.5 dB @ 3.2 kHz` (`q=1.4`). |
 | **`micro_glitches > 0`** | `audit_project_sources.py --prepare-samples`, `fade_in >= 2 ms`, hats `Attack >= 4 ms`, `LPF 13 kHz`. |
 | **`resonances = [F]`** | `eq_band(slot, "peak", F, -4.0, q=2.4)` sur l'insert dominant (`Chords`/`Bass`/`HiHat`/`BUS Music`). |
 | **`low_mids > max %`** | `BUS Music slot 2` : `HPF 140 Hz` + Peak `-4.0 dB @ 280–330 Hz` (`q=1.2`). |
@@ -200,7 +200,7 @@ En cas d'échec, **`render_and_audit.py --auto-fix --max-passes 2`** applique au
 ## Phase 8 — Équilibre Inter-Pistes, Espace 3D & Références Externes (`Q1..Q7`)
 
 * **Auto-gain staging É1 (`gain_staging_lib.py`)** : `measure_active_loudness()` (K-weighting BS.1770, trames `50 ms/hop 25 ms`, gates `-45 dBFS` + `-20 dB` relatif), 9 rôles canoniques, `ROLE_TARGET_OFFSETS_DB[mix_profile]` (ancre `kick` ou `lead`), peak guard `-2.0 dBFS`, `recommended_volume_auto` et `renders/gain_staging_report.json`.
-* **Matrice multi-stems bornée (`analyze_stem_hierarchy` v2)** : `lead_vs_harmony` `[+2.5,+9.5]`, `bass_vs_kick` `[-3.5,+2.0]`, `snare_vs_kick` `[-4.5,+1.5]`, `hihat_vs_kick` `[-14,-5.5]`, `counter_vs_lead` `[-12,-3]`, `vocals_vs_lead` `[+1,+6]` dB ; toute déviation émet `ADJUST_TRACK_FADER` (`±4 dB/passe`, cumul `8 dB`). `audit_section_track_audibility()` ajoute les planchers `section_lufs -13/-18/-22 dB` (`TRACK_UNDER_AUDIBLE_FLOOR`).
+* **Matrice multi-stems bornée (`analyze_stem_hierarchy` v2)** : `lead_vs_harmony` `[3.0, 9.5]`, `bass_vs_kick` `[-3.5,+2.0]`, `snare_vs_kick` `[-4.5,+1.5]`, `hihat_vs_kick` `[-14,-5.5]`, `counter_vs_lead` `[-12,-3]`, `vocals_vs_lead` `[+1,+6]` dB ; toute déviation émet `ADJUST_TRACK_FADER` (`±4 dB/passe`, cumul `8 dB`). `audit_section_track_audibility()` ajoute les planchers `section_lufs -13/-18/-22 dB` (`TRACK_UNDER_AUDIBLE_FLOOR`).
 * **Audit stéréo (`run_deep_audit`)** : `stereo_balance_db = |LUFS_L - LUFS_R| <= 1.2 dB` (`FIX_STEREO_BALANCE`) et `mid_high_side_to_mid_db` sur `500 Hz-8 kHz` (`[-14,-1.5]` rythmique, `[-18,-1.5]` jazz/classique) → `WIDEN_HARMONY_OR_PERC` / `NARROW_EXCESSIVE_SIDE`.
 * **Références externes (`bootstrap_golden_refs.py --external-dir`)** : `golden_references/external_masters/<profil>/` (2–3 masters, audio **jamais versionné**), empreintes `external_pro_reference` (`bark24`, pente rose, LUFS, LRA, crest, largeur, ratios de bandes) ; `taste_memory.record_validated_taste()` refuse `PQ < 7.8` sauf `--approve-taste` ; fusion `target_fingerprint` plafonnée à `30 %` (ou `60 %` approuvé) de mémoire de goût.
 * **Mémoire de Goût (`scripts/taste_memory.py` → `memory/user_taste_profile.json`)** :

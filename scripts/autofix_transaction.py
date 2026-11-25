@@ -106,6 +106,9 @@ def classify_tiers(report: dict[str, Any], config_path: str | None = None, profi
     v = _get(report, "air_share")
     if v is not None:
         t2_checks.append(float(v) >= float(ps.get("air_min_pct", 3.0)))
+    v = _get(report, "min_short_term_plr_db")
+    if v is not None:
+        t2_checks.append(float(v) >= float(ps.get("min_short_term_plr_db", 7.5)))
     v = _get(report, "lra_lu")
     if v is not None:
         t2_checks.append(float(ps.get("lra_min_lu", 2.5)) <= float(v) <= float(ps.get("lra_max_lu", 9.0)))
@@ -145,7 +148,7 @@ def classify_tiers(report: dict[str, Any], config_path: str | None = None, profi
     }
 
 
-def evaluate_patch(before: dict[str, Any], after: dict[str, Any], epsilon: float = EPSILON, config_path: str | None = None) -> dict[str, Any]:
+def evaluate_patch(before: dict[str, Any], after: dict[str, Any], epsilon: float = EPSILON, config_path: str | None = None, require_progress: bool = True) -> dict[str, Any]:
     """Decide ACCEPTED vs ROLLED_BACK between two audit reports (pure, deterministic)."""
     tb = classify_tiers(before, config_path)
     ta = classify_tiers(after, config_path)
@@ -157,7 +160,7 @@ def evaluate_patch(before: dict[str, Any], after: dict[str, Any], epsilon: float
     composite_after = 0.6 * ta["tier2_score"] + 0.4 * ta["tier3_score"]
     if composite_after < composite_before - 1e-9:
         return {"verdict": "ROLLED_BACK", "reason": f"composite tier2+3 degraded ({composite_before:.4f} -> {composite_after:.4f})"}
-    if composite_after - composite_before < epsilon and ta["tier1_pass"] and tb["tier1_pass"]:
+    if require_progress and composite_after - composite_before < epsilon and ta["tier1_pass"] and tb["tier1_pass"]:
         # no tier1 gain and no composite progress -> useless patch (oscillation guard)
         return {"verdict": "ROLLED_BACK", "reason": f"no progress >= epsilon ({composite_after - composite_before:+.4f} < {epsilon}) — oscillation guard"}
     return {"verdict": "ACCEPTED", "reason": f"tier1 stable, composite {composite_before:.4f} -> {composite_after:.4f}",
@@ -198,6 +201,7 @@ def apply_with_rollback(
     snapshot_fn: Callable[[], Any] | None = None,
     restore_fn: Callable[[Any], None] | None = None,
     epsilon: float = EPSILON,
+    require_progress: bool = True,
 ) -> dict[str, Any]:
     """Transactional autofix: snapshot -> apply -> re-evaluate -> accept or rollback + journal.
 
@@ -212,7 +216,7 @@ def apply_with_rollback(
     snap = snapshot_fn() if snapshot_fn else None
     applied = apply_fn()
     report_after = eval_fn()
-    decision = evaluate_patch(report_before, report_after, epsilon=epsilon)
+    decision = evaluate_patch(report_before, report_after, epsilon=epsilon, require_progress=require_progress)
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "code": code,

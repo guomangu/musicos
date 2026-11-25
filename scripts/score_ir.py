@@ -159,8 +159,11 @@ def _section_progression_for(section_spans: list[Any] | None, section_progressio
                     if k in name.lower().replace("-", "_").replace(" ", "_"):
                         key = k
                         break
-            if key and isinstance(section_progressions.get(key), list) and section_progressions[key]:
-                return [str(x) for x in section_progressions[key]], sb
+            _entry = section_progressions.get(key)
+            if isinstance(_entry, dict):
+                _entry = _entry.get("degrees") or []
+            if key and isinstance(_entry, list) and _entry:
+                return [str(x) for x in _entry], sb
             return None
     return None
 
@@ -249,6 +252,8 @@ def classify_role(track_key: str) -> str:
         return "lead"
     if "counter" in rl:
         return "counter"
+    if "remix" in rl:
+        return "remix_stem"  # v3.3 #5 — scénario C (Remix / Sample Flip)
     if any(k in rl for k in ("vocal", "vox")):
         return "vocals"
     if any(k in rl for k in ("fx", "riser", "ear_candy", "sweep", "impact")):
@@ -627,12 +632,13 @@ def apply_anti_machine_gun_ir(score_ir: ScoreIR, beats_per_bar: float = 4.0,
 
 
 def apply_groove_to_score_ir(score_ir: ScoreIR, swing: float = 0.0, bpm: float | None = None,
-                            profile: str = "trap_rap", beats_per_bar: float = 4.0) -> dict[str, int]:
+                            profile: str = "trap_rap", beats_per_bar: float = 4.0,
+                            seed: int = 42) -> dict[str, int]:
     """Ordre canonique v3.1 : strum -> anti-machine-gun -> haas -> swing (tout en `expression`)."""
     bpm = float(bpm if bpm is not None else score_ir.bpm)
     return {
         "strum": apply_micro_strum_ir(score_ir, strum_ms=15.0, bpm=bpm),
-        "amg": apply_anti_machine_gun_ir(score_ir, beats_per_bar=beats_per_bar, humanize_sparse=True),
+        "amg": apply_anti_machine_gun_ir(score_ir, beats_per_bar=beats_per_bar, humanize_sparse=True, seed=seed),
         "haas": apply_haas_pocket_ir(score_ir, bpm=bpm, profile=profile),
         "swing": apply_swing_ir(score_ir, swing=swing, beats_per_bar=beats_per_bar),
     }

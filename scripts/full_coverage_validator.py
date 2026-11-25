@@ -190,9 +190,14 @@ def _section_roles(sec: dict[str, Any]) -> list[str]:
     return [str(r) for r in (sec.get("active_roles") or [])]
 
 
-def build_probe_plan(plan: dict[str, Any], core_bars: int = 8, probe_bars: int = 4) -> dict[str, Any]:
-    """Plan de sondage composite : 8 mesures du noyau + 1 mesure de silence + 4 mesures
-    d'une section hors-noyau (celle qui a le plus de pistes absentes du noyau)."""
+def build_probe_plan(plan: dict[str, Any], core_bars: int = 8, probe_bars: int = 4,
+                     hall_decay_s: float | None = None, bpm: float | None = None) -> dict[str, Any]:
+    """Plan de sondage composite : 8 mesures du noyau + tampon de silence + 4 mesures
+    d'une section hors-noyau (celle qui a le plus de pistes absentes du noyau).
+
+    v3.3 #3 : le tampon vaut `compute_probe_gap_bars(hall_decay_s, bpm, beats_per_bar)`
+    (>= 2 mesures) pour éteindre FX Hall avant le bloc hors-noyau, et les automations du
+    plan sont remappées vers les offsets de beats de la sonde (`remap_automations_for_probe`)."""
     probe = copy.deepcopy(plan)
     sections = list(probe.get("sections") or [])
     if not sections:
@@ -223,18 +228,38 @@ def build_probe_plan(plan: dict[str, Any], core_bars: int = 8, probe_bars: int =
     new_core = dict(core_sec)
     new_core["start_bar"] = 0
     new_core["bars"] = min(int(core_sec.get("bars", core_bars)), core_bars)
-    gap = {"name": "probe_gap", "start_bar": new_core["bars"], "bars": 1, "kind": "break", "active_roles": []}
+    bpb = max(1, int(plan.get("beats_per_bar", 4) or 4))
+    gap_bars = 1
+    if hall_decay_s and bpm:
+        from dsp_interaction_guards import compute_probe_gap_bars
+        gap_bars = compute_probe_gap_bars(float(hall_decay_s), float(bpm), bpb)
+    gap = {"name": "probe_gap", "start_bar": new_core["bars"], "bars": gap_bars, "kind": "break", "active_roles": []}
     new_probe = dict(probe_sec)
-    new_probe["start_bar"] = new_core["bars"] + 1
+    new_probe["start_bar"] = new_core["bars"] + gap_bars
     new_probe["bars"] = min(int(probe_sec.get("bars", probe_bars)), probe_bars)
     probe["sections"] = [new_core, gap, new_probe]
-    probe["probe"] = {
+    probe_meta: dict[str, Any] = {
         "core_section": str(core_sec.get("name") or core_sec.get("kind") or ""),
         "probe_section": str(probe_sec.get("name") or probe_sec.get("kind") or ""),
         "core_bars": new_core["bars"],
         "probe_bars": new_probe["bars"],
-        "total_bars": new_core["bars"] + 1 + new_probe["bars"],
+        "total_bars": new_core["bars"] + gap_bars + new_probe["bars"],
+        "gap_bars": gap_bars,
     }
+    autos = plan.get("automations") or []
+    if autos:
+        from dsp_interaction_guards import remap_automations_for_probe
+        core_src0 = float(core_start) * bpb
+        probe_src0 = float(sections[best_idx].get("start_bar", 0)) * bpb
+        dst_probe = float(new_core["bars"] + gap_bars) * bpb
+        slice_map = [
+            (core_src0, core_src0 + float(new_core["bars"]) * bpb, 0.0),
+            (probe_src0, probe_src0 + float(new_probe["bars"]) * bpb, dst_probe),
+        ]
+        remapped = remap_automations_for_probe(autos, slice_map)
+        probe["automations"] = remapped
+        probe_meta["automations_remapped"] = sum(1 for a in remapped if isinstance(a, dict) and a.get("_remapped"))
+    probe["probe"] = probe_meta
     return probe
 
 

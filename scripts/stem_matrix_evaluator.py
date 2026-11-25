@@ -273,12 +273,23 @@ def _estimate_root_st(y: np.ndarray, sr: int, lo_hz: float = 30.0, hi_hz: float 
     return 69.0 + 12.0 * np.log2(f / 440.0)
 
 
+def _intersect_windows(s0: float, s1: float, masks: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Intersection de [s0, s1] avec les intervalles stables (secondes) d'une piste."""
+    out = []
+    for a, b in masks or []:
+        lo, hi = max(s0, float(a)), min(s1, float(b))
+        if hi - lo > 0.02:
+            out.append((lo, hi))
+    return out
+
+
 def evaluate_barwise_harmonic_alignment(
     stems_audio: dict[str, tuple[np.ndarray, int]],
     harmonic_grid: list[dict[str, Any]],
     bpm: float,
     valence: float = 0.0,
     sr_fallback: int = 44100,
+    steady_masks: dict[str, list[tuple[float, float]]] | None = None,
 ) -> dict[str, Any]:
     """v3.1 HARM-03 (contrat §4.3) : découpe les stems bass/chords/lead par segment de la
     grille harmonique (marge 50 ms), calcule chroma CQT pondéré par énergie, puis :
@@ -306,6 +317,7 @@ def evaluate_barwise_harmonic_alignment(
     problematic_bars: list[int] = []
     clash_segments = 0
     active_segments = 0
+    glide_excluded = 0  # v3.3 #3 : fenêtres de glide/vibrato exclues de l'audit de justesse
 
     for seg in harmonic_grid or []:
         s0 = float(seg.get("start_beat", 0.0)) * beat_s + margin_s
@@ -326,10 +338,20 @@ def evaluate_barwise_harmonic_alignment(
                     continue
                 y, sr = stems_audio[name]
                 sr = int(sr) if sr else sr_fallback
-                a, b = int(s0 * sr), min(len(_mono(np.asarray(y))), int(s1 * sr))
-                if b - a < 256:
+                windows = [(s0, s1)]
+                if steady_masks and name in steady_masks:
+                    windows = _intersect_windows(s0, s1, steady_masks[name])
+                    if not windows:
+                        glide_excluded += 1
+                        continue  # fenêtre de glide 808 / attaque vibrato : hors audit de justesse
+                parts = []
+                for wa, wb in windows:
+                    a, b = int(wa * sr), min(len(_mono(np.asarray(y))), int(wb * sr))
+                    if b - a >= 256:
+                        parts.append(np.asarray(y)[a:b])
+                if not parts:
                     continue
-                seg_y = np.asarray(y)[a:b]
+                seg_y = parts[0] if len(parts) == 1 else np.concatenate(parts)
                 rms = float(np.sqrt(np.mean(_mono(seg_y) ** 2))) if seg_y.size else 0.0
                 if 20.0 * np.log10(rms + 1e-12) <= -40.0:
                     continue
@@ -425,6 +447,7 @@ def evaluate_barwise_harmonic_alignment(
     return {
         "passed": bool(passed),
         "harmonic_audio_clash_ratio": round(harmonic_audio_clash_ratio, 4),
+        "glide_windows_excluded": glide_excluded,
         "per_track_pitch_bias_st": per_track_bias,
         "problematic_bars": sorted(set(problematic_bars)),
         "recommended_actions": recommended_actions,

@@ -526,6 +526,51 @@ def run_deep_audit(
     room = _analyze_transients_and_roominess(data, mono, sr)
     glitches = _scan_glitches_and_crackle(mono, sr)
     psycho = _compute_psychoacoustics(mono, sr)
+    plr = compute_short_term_plr(mono, sr)  # v3.3 #3 : anti-pompage Climax (PLR court-terme 3 s)
+    plr_min = plr.get("min_short_term_plr_db")
+    if plr_min is not None:
+        _sd = os.path.join(os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+        if _sd not in sys.path:
+            sys.path.insert(0, _sd)
+        try:
+            from mix_config import get_profile_config, get_invariant
+            _thr = float(get_profile_config(target_genre, 0.0).get("min_short_term_plr_db", get_invariant("min_short_term_plr_db", 7.5)))
+        except Exception:
+            _thr = 7.5
+        if plr_min < _thr:
+            issues.append({
+                "category": "climax_pumping",
+                "severity": "medium",
+                "detail": f"min_short_term_plr_db={plr_min} < {_thr} dB (fenêtres 3 s) : le limiteur master s'écrase sur la section la plus forte sans clipping détecté (son étouffé).",
+                "fix": "RELAX_CLIMAX_LIMITING : Master Gain -1.0 dB ou -1.5 dB sur BUS Music/BUS Bass pendant le Climax (via autofix_transaction).",
+            })
+    # v3.3 #4 — translation perceptuelle (niveau master) : mono fold-down + sharpness P95
+    mono_fold = analyze_mono_folddown_loss(data, None, sr)
+    sharp_p95 = compute_momentary_sharpness_p95(mono, sr)
+    if mono_fold["master"] > mono_fold["max_master_db"]:
+        issues.append({
+            "category": "mono_folddown_loss",
+            "severity": "high",
+            "detail": f"perte mono {(L+R)/2} = {mono_fold['master']} dB > {mono_fold['max_master_db']} dB sur le master (annulation de phase mid/high).",
+            "fix": "REDUCE_STEREO_CANCELLATION : resserrer gl.stereo (Side level -25%) sur Chords/Lead.",
+        })
+    _sp95_max = 2.15
+    try:
+        _sd2 = os.path.join(os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+        if _sd2 not in sys.path:
+            sys.path.insert(0, _sd2)
+        from mix_config import get_profile_config
+        _ps2 = get_profile_config(target_genre, 0.0)
+        _sp95_max = float(_ps2.get("sharpness_p95_max", (_ps2.get("sharpness_max") or 1.9) + 0.25))
+    except Exception:
+        pass
+    if sharp_p95.get("sharpness_p95") is not None and sharp_p95["sharpness_p95"] > _sp95_max:
+        issues.append({
+            "category": "local_sharpness_spike",
+            "severity": "medium",
+            "detail": f"sharpness P95 (fenêtres 2 s) = {sharp_p95['sharpness_p95']} > {_sp95_max} : section criarde masquée par la moyenne globale.",
+            "fix": "TAME_PEAK_SHARPNESS : baisser les hats/lead de la section la plus forte, ou LPF synthé musical (pente douce).",
+        })
     hp_sim = _simulate_headphone_translation(third_oct, headphone_target) if headphone_target else None
     stereo_image = analyze_stereo_image(data, sr, target_genre)
     neural = _run_neural_perceptual_audit(audio_path, data, mono, sr) if use_neural else {}
@@ -623,6 +668,9 @@ def run_deep_audit(
         "third_octave_notches": notches,
         "headphone_translation": hp_sim,
         "stereo_image": stereo_image,
+        "short_term_plr": plr,
+        "mono_folddown_loss_db": {"master": mono_fold["master"]},
+        "sharpness_p95": sharp_p95.get("sharpness_p95"),
         "neural_perception": neural,
         "issues_detected": issues,
         "third_octave_bands": third_oct,
@@ -2505,6 +2553,203 @@ def compute_ebu_r128_stats(data: Any, sr: int = 44100) -> dict[str, float]:
                     lra_lu = round(max(0.0, float(np.percentile(stl_rel, 95) - np.percentile(stl_rel, 10))), 2)
 
     return {"integrated_lufs": integrated_lufs, "lra_lu": lra_lu}
+
+
+def compute_short_term_plr(data: Any, sr: int = 44100, window_s: float = 3.0, hop_s: float = 1.0) -> dict[str, Any]:
+    """v3.3 #3 — PLR court-terme sur fenêtres glissantes de 3 s (`min_short_term_plr_db`) :
+    détecte le pompage / l'écrasement du limiteur master au Climax, masqué par les moyennes
+    globales (pas de `clipped > 0` mais un son étouffé et fatigant)."""
+    arr = np.asarray(data)
+    mono = arr.mean(axis=1) if arr.ndim > 1 else arr
+    mono = mono.astype(np.float64)
+    n = len(mono)
+    w = max(1, int(window_s * sr))
+    h = max(1, int(hop_s * sr))
+    if n < w:
+        return {"min_short_term_plr_db": None, "windows": 0}
+    vals: list[float] = []
+    try:
+        import pyloudnorm as pyln
+        meter = pyln.Meter(sr, block_size=window_s)
+        for a in range(0, n - w + 1, h):
+            seg = mono[a:a + w]
+            lufs = float(meter.integrated_loudness(seg))
+            peak_db = 20.0 * math.log10(max(float(np.max(np.abs(seg))), 1e-12))
+            vals.append(peak_db - lufs)
+    except Exception:
+        for a in range(0, n - w + 1, h):
+            seg = mono[a:a + w]
+            rms_db = 20.0 * math.log10(max(float(np.sqrt(np.mean(seg ** 2))), 1e-12))
+            peak_db = 20.0 * math.log10(max(float(np.max(np.abs(seg))), 1e-12))
+            vals.append(peak_db - rms_db)
+    return {"min_short_term_plr_db": round(min(vals), 2) if vals else None, "windows": len(vals)}
+
+
+def _lufs_pyln(arr: np.ndarray, sr: int) -> float:
+    import pyloudnorm as pyln
+    return float(pyln.Meter(sr).integrated_loudness(np.asarray(arr, dtype=np.float64)))
+
+
+def analyze_mono_folddown_loss(master_stereo: Any, stems_audio: dict[str, tuple[np.ndarray, int]] | None = None,
+                               sr: int = 44100, max_master_db: float = 2.5, max_lead_db: float = 3.0) -> dict[str, Any]:
+    """v3.3 #4 — Mono Fold-Down Loss : perte LUFS en sommation mono (L+R)/2 vs stéréo, sur le
+    master et les stems lead/chords. Une piste élargie gl.stereo peut perdre 4-6 dB en mono
+    (enceinte Bluetooth/club) alors que low_end_corr reste à 1.00."""
+    data = np.asarray(master_stereo)
+    out: dict[str, Any] = {"master": 0.0, "lead": None, "chords": None}
+    if data.ndim > 1 and data.shape[1] >= 2:
+        stereo_lufs = _lufs_pyln(data[:, :2], sr)
+        mono_lufs = _lufs_pyln(data[:, :2].mean(axis=1), sr)
+        # loss relative au dual-mono (sommation de puissance = +3.01 dB) : 0 = aucun perte
+        out["master"] = round(max(0.0, (stereo_lufs - 3.0103) - mono_lufs), 3)
+    if stems_audio:
+        for name, (arr, ssr) in stems_audio.items():
+            low = str(name).lower()
+            role = "lead" if ("lead" in low or "melody" in low) else ("chords" if any(k in low for k in ("chord", "pad", "keys", "harmony")) else None)
+            if role is None or out.get(role) is not None:
+                continue
+            a = np.asarray(arr)
+            if a.ndim > 1 and a.shape[1] >= 2:
+                s_lufs = _lufs_pyln(a[:, :2], int(ssr) if ssr else sr)
+                m_lufs = _lufs_pyln(a[:, :2].mean(axis=1), int(ssr) if ssr else sr)
+                out[role] = round(max(0.0, (s_lufs - 3.0103) - m_lufs), 3)
+    out["max_master_db"] = max_master_db
+    out["max_lead_db"] = max_lead_db
+    out["passed"] = bool(out["master"] <= max_master_db and (out["lead"] is None or out["lead"] <= max_lead_db))
+    return out
+
+
+def analyze_small_speaker_translation(stems_audio: dict[str, tuple[np.ndarray, int]], sr: int,
+                                      min_lead_vs_harmony_db: float = 2.0, lo_hz: float = 250.0, hi_hz: float = 7000.0) -> dict[str, Any]:
+    """v3.3 #4 — Small-Speaker Translation : passe-bande Butterworth ordre 4 250 Hz-7 kHz
+    (profil enceinte smartphone/laptop) ; exige lead_vs_harmony >= 2.0 dB dans cette bande."""
+    lead = None
+    chords = None
+    for name, (arr, ssr) in (stems_audio or {}).items():
+        low = str(name).lower()
+        if lead is None and ("lead" in low or "melody" in low):
+            lead = (np.asarray(arr), int(ssr) if ssr else sr)
+        elif chords is None and any(k in low for k in ("chord", "pad", "keys", "harmony")):
+            chords = (np.asarray(arr), int(ssr) if ssr else sr)
+    if lead is None or chords is None:
+        return {"small_speaker_lead_vs_harmony_db": None, "passed": True, "reason": "stems lead/chords absents"}
+    res: dict[str, Any] = {"min_db": min_lead_vs_harmony_db}
+    ratio_db = None
+    try:
+        bands = []
+        for arr, ssr in (lead, chords):
+            mono = arr.mean(axis=1) if arr.ndim > 1 else arr
+            nyq = ssr / 2.0
+            b, a = signal.butter(4, [lo_hz / nyq, min(hi_hz, nyq * 0.95) / nyq], btype="band")
+            y = signal.filtfilt(b, a, mono.astype(np.float64))
+            bands.append(float(np.mean(y ** 2)) + 1e-18)
+        ratio_db = round(10.0 * math.log10(bands[0] / bands[1]), 2)
+    except Exception as exc:
+        res["error"] = str(exc)[:100]
+    res["small_speaker_lead_vs_harmony_db"] = ratio_db
+    res["passed"] = bool(ratio_db is not None and ratio_db >= min_lead_vs_harmony_db)
+    return res
+
+
+def compute_momentary_sharpness_p95(audio: Any, sr: int, window_s: float = 2.0, hop_s: float = 0.5,
+                                   active_floor_db: float = -50.0) -> dict[str, Any]:
+    """v3.3 #4 — sharpness par fenêtres actives de 2 s, rapporte P95 (`sharpness_p95`) :
+    intercepte un Refrain criard masqué par la moyenne globale du morceau."""
+    mono = np.asarray(audio)
+    mono = mono.mean(axis=1) if mono.ndim > 1 else mono
+    mono = mono.astype(np.float64)
+    w = max(1, int(window_s * sr))
+    h = max(1, int(hop_s * sr))
+    vals: list[float] = []
+    mosqito_ok = False
+    try:
+        import mosqito as _mq  # noqa: F401
+        mosqito_ok = True
+    except Exception:
+        mosqito_ok = False
+    for a in range(0, max(1, len(mono) - w + 1), h):
+        seg = mono[a:a + w]
+        rms_db = 20.0 * math.log10(max(float(np.sqrt(np.mean(seg ** 2))), 1e-12))
+        if rms_db < active_floor_db:
+            continue
+        if mosqito_ok:
+            try:
+                import mosqito
+                vals.append(float(mosqito.sharpness_din_st(seg.astype(np.float64), fs=sr, weighting="din")))
+                continue
+            except Exception:
+                pass
+        # repli 0 mosqito : proxy par centroïde spectral (corrélé à l'acum DIN sur 2-5 kHz)
+        try:
+            import librosa
+            cent = float(np.mean(librosa.feature.spectral_centroid(y=seg, sr=sr)))
+            vals.append(round(max(0.0, (cent - 1200.0) / 900.0), 4))
+        except Exception:
+            vals.append(0.0)
+    if not vals:
+        return {"sharpness_p95": None, "windows": 0, "engine": "mosqito" if mosqito_ok else "centroid_proxy"}
+    return {"sharpness_p95": round(float(np.percentile(vals, 95)), 4), "windows": len(vals),
+            "engine": "mosqito" if mosqito_ok else "centroid_proxy"}
+
+
+def run_perceptual_translation_audit(
+    master_stereo: np.ndarray,
+    stems_audio: dict[str, tuple[np.ndarray, int]],
+    sr: int,
+    mix_profile: str,
+    sections: list[dict] | None = None,
+) -> dict[str, Any]:
+    """v3.3 #4 — contrat §6.2 : audit de translation multi-supports (0 GPU, < 150 ms) :
+    mono fold-down, small-speaker 250 Hz-7 kHz, sharpness P95, PLR court-terme au Climax."""
+    _sd = os.path.join(os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+    if _sd not in sys.path:
+        sys.path.insert(0, _sd)
+    try:
+        from mix_config import get_profile_config, get_invariant
+        ps = get_profile_config(mix_profile, 0.0)
+        gi_max_master = float(get_invariant("mono_folddown_loss_max_db", 2.5))
+        gi_max_lead = float(get_invariant("mono_folddown_lead_max_db", 3.0))
+        gi_small = float(get_invariant("small_speaker_lead_vs_harmony_min_db", 2.0))
+        sharp_p95_max = float(ps.get("sharpness_p95_max", (ps.get("sharpness_max") or 1.9) + 0.25))
+        plr_min = float(ps.get("min_short_term_plr_db", 7.5))
+    except Exception:
+        gi_max_master, gi_max_lead, gi_small = 2.5, 3.0, 2.0
+        sharp_p95_max, plr_min = 2.15, 7.5
+    mono = analyze_mono_folddown_loss(master_stereo, stems_audio, sr, gi_max_master, gi_max_lead)
+    small = analyze_small_speaker_translation(stems_audio or {}, sr, gi_small)
+    mono_arr = np.asarray(master_stereo)
+    mono_arr = mono_arr.mean(axis=1) if mono_arr.ndim > 1 else mono_arr
+    sharp = compute_momentary_sharpness_p95(mono_arr, sr)
+    plr = compute_short_term_plr(mono_arr, sr)
+
+    actions: list[dict[str, Any]] = []
+    if not mono["passed"]:
+        worst = "lead" if (mono.get("lead") or 0) > mono["master"] else "master"
+        actions.append({"code": "REDUCE_STEREO_CANCELLATION", "target": worst,
+                        "params": {"action": "resserrer gl.stereo / Side level -25%", "loss_db": mono[worst]}})
+    if not small["passed"] and small.get("small_speaker_lead_vs_harmony_db") is not None:
+        actions.append({"code": "BOOST_LEAD_SMALL_SPEAKER", "target": "lead",
+                        "params": {"band": "250Hz-7kHz", "lead_vs_harmony_db": small["small_speaker_lead_vs_harmony_db"]}})
+    if sharp.get("sharpness_p95") is not None and sharp["sharpness_p95"] > sharp_p95_max:
+        actions.append({"code": "TAME_PEAK_SHARPNESS", "target": "master",
+                        "params": {"sharpness_p95": sharp["sharpness_p95"], "max": sharp_p95_max}})
+    plr_min_v = plr.get("min_short_term_plr_db")
+    climax = None
+    if sections:
+        climax = max(sections, key=lambda s: float(s.get("energy", 0.0) or 0.0)).get("name") if sections else None
+    if plr_min_v is not None and plr_min_v < plr_min:
+        actions.append({"code": "RELAX_CLIMAX_LIMITING", "target": climax or "climax",
+                        "params": {"min_short_term_plr_db": plr_min_v, "min_required": plr_min}})
+    passed = not actions
+    return {
+        "passed": bool(passed),
+        "mono_folddown_loss_db": {"master": mono["master"], "lead": mono.get("lead"), "chords": mono.get("chords")},
+        "small_speaker_lead_vs_harmony_db": small.get("small_speaker_lead_vs_harmony_db"),
+        "sharpness_p95": sharp.get("sharpness_p95"),
+        "min_short_term_plr_db": plr_min_v,
+        "climax_section": climax,
+        "recommended_actions": actions,
+    }
 
 
 def compute_lra_ebu(data: Any, sr: int = 44100) -> float:

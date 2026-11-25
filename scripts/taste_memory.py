@@ -108,6 +108,7 @@ def record_validated_taste(
     taste_path: str | None = None,
     extra_metrics: dict[str, Any] | None = None,
     pq_score: float | None = None,
+    musical_prefs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Record a validated song fingerprint (`quality_gate.passed == True`) into `user_taste_profile.json`.
@@ -215,6 +216,15 @@ def record_validated_taste(
         entry["integrated_lufs"] = round(float(lufs), 2)
     if breath is not None:
         entry["breathing_ratio"] = round(float(breath), 3)
+    # v3.3 #4 — mémoire de goût MUSICALE (au-delà du mixage) : préférences de l'utilisateur
+    _mp = musical_prefs or extra.get("musical_preferences")
+    if isinstance(_mp, dict) and _mp:
+        entry["musical_preferences"] = {
+            k: _mp.get(k) for k in (
+                "mode", "progression_id", "comping_styles", "timbre_archetypes",
+                "groove_template_ids", "melodic_appeal_index", "swing", "tempo_bpm", "user_tags",
+            ) if _mp.get(k) is not None
+        }
 
     kept.append(entry)
     kept.sort(key=lambda e: (str(e.get("timestamp") or ""), float(e.get("weight", 1.0))), reverse=True)
@@ -354,3 +364,54 @@ def query_taste_prior(
     if bpm_avg is not None:
         prior["bpm"] = round(bpm_avg, 2)
     return prior
+
+
+def query_musical_taste_prior(
+    emotion_vector: dict[str, Any] | None,
+    mix_profile: str,
+    taste_path: str | None = None,
+    max_bonus_pct: float = 15.0,
+) -> dict[str, Any] | None:
+    """v3.3 #4 — mémoire de goût musicale : agrège les `musical_preferences` des entrées
+    validées les plus proches (profil + vecteur d'émotion). Le bonus reste borné à
+    `max_bonus_pct` (<= 15 %) pour personnaliser sans enfermer dans la répétition."""
+    prior = query_taste_prior(mix_profile, emotion_vector, top_k=3, taste_path=taste_path)
+    if prior is None:
+        return None
+    eff_taste_path = os.path.abspath(os.path.expanduser(taste_path)) if taste_path else DEFAULT_TASTE_PATH
+    store = _load_taste_store(eff_taste_path)
+    entries = store.get("entries") or []
+    prefs = [e.get("musical_preferences") for e in entries if isinstance(e.get("musical_preferences"), dict)]
+    if not prefs:
+        return None
+
+    def _most_common(key: str) -> Any:
+        from collections import Counter
+        vals = [p.get(key) for p in prefs if p.get(key) is not None]
+        if not vals:
+            return None
+        if isinstance(vals[0], list):
+            flat = [x for v in vals for x in v]
+            return Counter(flat).most_common(3) or None
+        return Counter(vals).most_common(1)[0][0]
+
+    out: dict[str, Any] = {
+        "bonus_max_pct": max_bonus_pct,
+        "n_entries_with_prefs": len(prefs),
+        "mode": _most_common("mode"),
+        "progression_id": _most_common("progression_id"),
+        "comping_styles": _most_common("comping_styles"),
+        "timbre_archetypes": _most_common("timbre_archetypes"),
+        "groove_template_ids": _most_common("groove_template_ids"),
+        "user_tags": _most_common("user_tags"),
+    }
+    mai_vals = [float(p["melodic_appeal_index"]) for p in prefs if p.get("melodic_appeal_index") is not None]
+    if mai_vals:
+        out["melodic_appeal_index_target"] = round(sum(mai_vals) / len(mai_vals), 4)
+    swing_vals = [float(p["swing"]) for p in prefs if p.get("swing") is not None]
+    if swing_vals:
+        out["swing_preferred"] = round(sum(swing_vals) / len(swing_vals), 4)
+    bpm_vals = [float(p["tempo_bpm"]) for p in prefs if p.get("tempo_bpm") is not None]
+    if bpm_vals:
+        out["tempo_bpm_preferred"] = round(sum(bpm_vals) / len(bpm_vals), 1)
+    return out
