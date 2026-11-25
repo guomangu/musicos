@@ -73,7 +73,10 @@ def compile_song(project_dir: str, core_only: bool = False, out_gridline: str = 
             # en UN seul .gridline, pour auditer 100 % des pistes en stems dès le Tour 2.
             from full_coverage_validator import build_probe_plan
             plan_obj, _meta = load_arrangement_plan(plan_path, validate=False)
-            probe_plan = build_probe_plan(plan_obj)
+            # v3.3 #3 : tampon Hall dynamique (>= 2 mes.) selon decay réel + BPM du morceau
+            _bpm = float(plan_obj.get("bpm") or meta.get("bpm") or 120.0)
+            _hall = float((plan_obj.get("fx") or {}).get("hall_decay_s") or 2.4)
+            probe_plan = build_probe_plan(plan_obj, hall_decay_s=_hall, bpm=_bpm)
             out = out_gridline or os.path.join(proj, "core_probe.gridline")
             info = compile_arrangement_plan(probe_plan, proj, out, core_only=False, verify_gate=False, auto_fix_midi=True)
             report.update({"ok": True, "stage": "compile_probe", "out": out,

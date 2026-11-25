@@ -526,6 +526,24 @@ def run_deep_audit(
     room = _analyze_transients_and_roominess(data, mono, sr)
     glitches = _scan_glitches_and_crackle(mono, sr)
     psycho = _compute_psychoacoustics(mono, sr)
+    plr = compute_short_term_plr(mono, sr)  # v3.3 #3 : anti-pompage Climax (PLR court-terme 3 s)
+    plr_min = plr.get("min_short_term_plr_db")
+    if plr_min is not None:
+        _sd = os.path.join(os.environ.get("AI_STUDIO_DIR") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+        if _sd not in sys.path:
+            sys.path.insert(0, _sd)
+        try:
+            from mix_config import get_profile_config, get_invariant
+            _thr = float(get_profile_config(target_genre, 0.0).get("min_short_term_plr_db", get_invariant("min_short_term_plr_db", 7.5)))
+        except Exception:
+            _thr = 7.5
+        if plr_min < _thr:
+            issues.append({
+                "category": "climax_pumping",
+                "severity": "medium",
+                "detail": f"min_short_term_plr_db={plr_min} < {_thr} dB (fenêtres 3 s) : le limiteur master s'écrase sur la section la plus forte sans clipping détecté (son étouffé).",
+                "fix": "RELAX_CLIMAX_LIMITING : Master Gain -1.0 dB ou -1.5 dB sur BUS Music/BUS Bass pendant le Climax (via autofix_transaction).",
+            })
     hp_sim = _simulate_headphone_translation(third_oct, headphone_target) if headphone_target else None
     stereo_image = analyze_stereo_image(data, sr, target_genre)
     neural = _run_neural_perceptual_audit(audio_path, data, mono, sr) if use_neural else {}
@@ -623,6 +641,7 @@ def run_deep_audit(
         "third_octave_notches": notches,
         "headphone_translation": hp_sim,
         "stereo_image": stereo_image,
+        "short_term_plr": plr,
         "neural_perception": neural,
         "issues_detected": issues,
         "third_octave_bands": third_oct,
@@ -2505,6 +2524,36 @@ def compute_ebu_r128_stats(data: Any, sr: int = 44100) -> dict[str, float]:
                     lra_lu = round(max(0.0, float(np.percentile(stl_rel, 95) - np.percentile(stl_rel, 10))), 2)
 
     return {"integrated_lufs": integrated_lufs, "lra_lu": lra_lu}
+
+
+def compute_short_term_plr(data: Any, sr: int = 44100, window_s: float = 3.0, hop_s: float = 1.0) -> dict[str, Any]:
+    """v3.3 #3 — PLR court-terme sur fenêtres glissantes de 3 s (`min_short_term_plr_db`) :
+    détecte le pompage / l'écrasement du limiteur master au Climax, masqué par les moyennes
+    globales (pas de `clipped > 0` mais un son étouffé et fatigant)."""
+    arr = np.asarray(data)
+    mono = arr.mean(axis=1) if arr.ndim > 1 else arr
+    mono = mono.astype(np.float64)
+    n = len(mono)
+    w = max(1, int(window_s * sr))
+    h = max(1, int(hop_s * sr))
+    if n < w:
+        return {"min_short_term_plr_db": None, "windows": 0}
+    vals: list[float] = []
+    try:
+        import pyloudnorm as pyln
+        meter = pyln.Meter(sr, block_size=window_s)
+        for a in range(0, n - w + 1, h):
+            seg = mono[a:a + w]
+            lufs = float(meter.integrated_loudness(seg))
+            peak_db = 20.0 * math.log10(max(float(np.max(np.abs(seg))), 1e-12))
+            vals.append(peak_db - lufs)
+    except Exception:
+        for a in range(0, n - w + 1, h):
+            seg = mono[a:a + w]
+            rms_db = 20.0 * math.log10(max(float(np.sqrt(np.mean(seg ** 2))), 1e-12))
+            peak_db = 20.0 * math.log10(max(float(np.max(np.abs(seg))), 1e-12))
+            vals.append(peak_db - rms_db)
+    return {"min_short_term_plr_db": round(min(vals), 2) if vals else None, "windows": len(vals)}
 
 
 def compute_lra_ebu(data: Any, sr: int = 44100) -> float:

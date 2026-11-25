@@ -1986,10 +1986,18 @@ def compile_arrangement_plan(
     rit_cfg = plan.get("outro_ritardando") or {}
     if isinstance(rit_cfg, dict) and rit_cfg.get("enabled", str(meta["mix_profile"]) in organic_profiles):
         from transitions_lib import apply_outro_ritardando
+        _loop_meta = [
+            {"track": k, "is_audio_loop": ("loop" in k.lower()) or (
+                role_to_ch.get(k) is not None
+                and getattr(role_to_ch[k], "plugin", "") == "gl.sampler"
+                and "loop" in str(getattr(role_to_ch[k], "sample_file", "") or "").lower())}
+            for k in tracks
+        ]
         ritardando_report = apply_outro_ritardando(
             tracks, bpm,
             bars=int(rit_cfg.get("bars", 2)),
             amount=float(rit_cfg.get("amount", 0.06)),
+            tracks_meta=_loop_meta,
         )
     expr_layers = plan.get("expression_layers") or {}
     vel_cutoff_report: dict[str, Any] = {}

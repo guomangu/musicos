@@ -106,6 +106,9 @@ def classify_tiers(report: dict[str, Any], config_path: str | None = None, profi
     v = _get(report, "air_share")
     if v is not None:
         t2_checks.append(float(v) >= float(ps.get("air_min_pct", 3.0)))
+    v = _get(report, "min_short_term_plr_db")
+    if v is not None:
+        t2_checks.append(float(v) >= float(ps.get("min_short_term_plr_db", 7.5)))
     v = _get(report, "lra_lu")
     if v is not None:
         t2_checks.append(float(ps.get("lra_min_lu", 2.5)) <= float(v) <= float(ps.get("lra_max_lu", 9.0)))

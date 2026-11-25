@@ -619,6 +619,7 @@ def apply_outro_ritardando(
     bpm: float,
     bars: int = 2,
     amount: float = 0.06,
+    tracks_meta: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """v3.2 ExpressionArticulations — respiration finale organique (`outro_ritardando`) :
     décélération douce de `amount` (4-8 %) sur les `bars` dernières mesures (styles
@@ -633,6 +634,14 @@ def apply_outro_ritardando(
             total = max(total, float(n["start"]) + _note_len(n))
     if total <= 0.0:
         return {"applied": 0, "amount": amount}
+    plan = None
+    try:
+        from dsp_interaction_guards import plan_safe_ritardando
+        sir_like = {"tracks": {k: {"notes": [{"start": float(n.get("start", 0.0)), "duration_beats": _note_len(n)} for n in notes]}
+                                for k, notes in tracks.items()}}
+        plan = plan_safe_ritardando(sir_like, tracks_meta or [], amount, bars=bars)
+    except Exception:
+        plan = None
     bpb = 4.0
     win_start = max(0.0, total - bars * bpb)
     win_len = total - win_start
@@ -647,4 +656,4 @@ def apply_outro_ritardando(
             n["start"] = round(max(0.0, new_st), 5)
             _set_note_len(n, _note_len(n) * (1.0 + amount * t))
             applied += 1
-    return {"applied": applied, "amount": amount, "window_beats": [round(win_start, 3), round(total, 3)]}
+    return {"applied": applied, "amount": amount, "window_beats": [round(win_start, 3), round(total, 3)], "plan": plan}

@@ -71,7 +71,8 @@
       "air_min_scale": 0.5,
       "sharpness_cap_dark": 1.85
     },
-    "soundcheck_tuning_max_ct": 8.0
+    "soundcheck_tuning_max_ct": 8.0,
+    "min_short_term_plr_db": 7.5
   },
   "default_profile": {
     "target_lufs": -11.0,
@@ -106,7 +107,8 @@
       "lra_min_lu": 2.5,
       "dynamic_arc_min_db": 2.5,
       "bus_music_dist_mix_max": 0.04,
-      "bus_music_hpf_hz": 135.0
+      "bus_music_hpf_hz": 135.0,
+      "min_short_term_plr_db": 7.5
     },
     "pop_rnb": {
       "target_lufs": -10.5,
@@ -120,7 +122,8 @@
       "lra_min_lu": 2.5,
       "dynamic_arc_min_db": 2.5,
       "bus_music_dist_mix_max": 0.04,
-      "bus_music_hpf_hz": 140.0
+      "bus_music_hpf_hz": 140.0,
+      "min_short_term_plr_db": 7.5
     },
     "edm_club": {
       "target_lufs": -9.0,
@@ -139,7 +142,8 @@
         "ratio": 5.0,
         "threshold_db": -20.0,
         "release_ms": 85.0
-      }
+      },
+      "min_short_term_plr_db": 7.0
     },
     "rock_metal": {
       "target_lufs": -10.0,
@@ -158,7 +162,8 @@
         "ratio": 3.0,
         "threshold_db": -16.0,
         "release_ms": 60.0
-      }
+      },
+      "min_short_term_plr_db": 7.5
     },
     "lofi_chill": {
       "target_lufs": -14.0,
@@ -172,7 +177,8 @@
       "lra_min_lu": 2.0,
       "dynamic_arc_min_db": 1.8,
       "bus_music_dist_mix_max": 0.03,
-      "bus_music_hpf_hz": 160.0
+      "bus_music_hpf_hz": 160.0,
+      "min_short_term_plr_db": 9.5
     },
     "jazz_acoustic": {
       "target_lufs": -14.5,
@@ -186,7 +192,8 @@
       "lra_min_lu": 2.5,
       "dynamic_arc_min_db": 2.5,
       "bus_music_dist_mix_max": 0.02,
-      "bus_music_hpf_hz": 110.0
+      "bus_music_hpf_hz": 110.0,
+      "min_short_term_plr_db": 9.5
     },
     "classical_ambient": {
       "target_lufs": -16.0,
@@ -200,7 +207,8 @@
       "lra_min_lu": 2.5,
       "dynamic_arc_min_db": 3.0,
       "bus_music_dist_mix_max": 0.0,
-      "bus_music_hpf_hz": 100.0
+      "bus_music_hpf_hz": 100.0,
+      "min_short_term_plr_db": 9.5
     }
   }
 }
