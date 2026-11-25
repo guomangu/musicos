@@ -72,7 +72,10 @@
       "sharpness_cap_dark": 1.85
     },
     "soundcheck_tuning_max_ct": 8.0,
-    "min_short_term_plr_db": 7.5
+    "min_short_term_plr_db": 7.5,
+    "mono_folddown_loss_max_db": 2.5,
+    "mono_folddown_lead_max_db": 3.0,
+    "small_speaker_lead_vs_harmony_min_db": 2.0
   },
   "default_profile": {
     "target_lufs": -11.0,
@@ -108,7 +111,8 @@
       "dynamic_arc_min_db": 2.5,
       "bus_music_dist_mix_max": 0.04,
       "bus_music_hpf_hz": 135.0,
-      "min_short_term_plr_db": 7.5
+      "min_short_term_plr_db": 7.5,
+      "sharpness_p95_max": 2.15
     },
     "pop_rnb": {
       "target_lufs": -10.5,
@@ -123,7 +127,8 @@
       "dynamic_arc_min_db": 2.5,
       "bus_music_dist_mix_max": 0.04,
       "bus_music_hpf_hz": 140.0,
-      "min_short_term_plr_db": 7.5
+      "min_short_term_plr_db": 7.5,
+      "sharpness_p95_max": 2.2
     },
     "edm_club": {
       "target_lufs": -9.0,
@@ -143,7 +148,8 @@
         "threshold_db": -20.0,
         "release_ms": 85.0
       },
-      "min_short_term_plr_db": 7.0
+      "min_short_term_plr_db": 7.0,
+      "sharpness_p95_max": 2.3
     },
     "rock_metal": {
       "target_lufs": -10.0,
@@ -163,7 +169,8 @@
         "threshold_db": -16.0,
         "release_ms": 60.0
       },
-      "min_short_term_plr_db": 7.5
+      "min_short_term_plr_db": 7.5,
+      "sharpness_p95_max": 2.35
     },
     "lofi_chill": {
       "target_lufs": -14.0,
@@ -178,7 +185,8 @@
       "dynamic_arc_min_db": 1.8,
       "bus_music_dist_mix_max": 0.03,
       "bus_music_hpf_hz": 160.0,
-      "min_short_term_plr_db": 9.5
+      "min_short_term_plr_db": 9.5,
+      "sharpness_p95_max": 2.0
     },
     "jazz_acoustic": {
       "target_lufs": -14.5,
@@ -193,7 +201,8 @@
       "dynamic_arc_min_db": 2.5,
       "bus_music_dist_mix_max": 0.02,
       "bus_music_hpf_hz": 110.0,
-      "min_short_term_plr_db": 9.5
+      "min_short_term_plr_db": 9.5,
+      "sharpness_p95_max": 2.1
     },
     "classical_ambient": {
       "target_lufs": -16.0,
@@ -208,7 +217,8 @@
       "dynamic_arc_min_db": 3.0,
       "bus_music_dist_mix_max": 0.0,
       "bus_music_hpf_hz": 100.0,
-      "min_short_term_plr_db": 9.5
+      "min_short_term_plr_db": 9.5,
+      "sharpness_p95_max": 2.0
     }
   }
 }
