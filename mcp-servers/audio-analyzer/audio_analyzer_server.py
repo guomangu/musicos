@@ -902,10 +902,19 @@ def studio_build_and_validate_core(project_dir: str, palette_id: str = "") -> st
                 probe_out = prep.get("out") if prep.get("ok") else None
             except Exception:
                 probe_out = None
+        _enr = None
+        try:
+            _enr_path = os.path.join(os.path.abspath(os.path.expanduser(project_dir)), "renders", "diagnostics", "enrichment_report.json")
+            if os.path.isfile(_enr_path):
+                with open(_enr_path, encoding="utf-8") as _fh:
+                    _enr = json.load(_fh)
+        except Exception:
+            _enr = None
         return _compact_json({
             "ok": True,
             "tour": 2,
             "stage": rep.get("stage"),
+            "enrichment": ({"n_decisions": _enr.get("n_decisions"), "summary": str(_enr.get("summary"))[:200]} if isinstance(_enr, dict) else None),
             "out": rep.get("out"),
             "full_coverage": ({"passed": full_cov.get("passed"), "n_issues": full_cov.get("n_issues"),
                                "issues": (full_cov.get("issues") or [])[:3]} if isinstance(full_cov, dict) and full_cov.get("passed") is not None else full_cov),

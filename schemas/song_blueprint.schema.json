@@ -14,6 +14,11 @@
     "tracks"
   ],
   "properties": {
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "v3.3 : graine de reproductibilité bit-à-bit (défaut dérivé SHA-256(title|key|bpm) via scripts/determinism.py)"
+    },
     "title": {
       "type": "string",
       "minLength": 1

@@ -52,8 +52,26 @@ def compile_song(project_dir: str, core_only: bool = False, out_gridline: str = 
                  probe: bool = False, validate_full: bool = True) -> dict:
     """Compile `<project_dir>` déclarativement. Retourne un rapport JSON compact."""
     proj = os.path.abspath(os.path.expanduser(project_dir))
-    bp_path = os.path.join(proj, "song_blueprint.json")
     report: dict = {"project_dir": proj, "pipeline_order": CANONICAL_MIDI_PIPELINE}
+    bp_path = os.path.join(proj, "song_blueprint.json")
+    # v3.3 #1 — enricher d'intention créative (Tour 2) : complète UNIQUEMENT les champs omis
+    # (jamais d'écrasement) + journal renders/diagnostics/enrichment_report.json
+    try:
+        import json as _json
+        from blueprint_enricher import enrich_blueprint, write_enrichment_report
+        from determinism import resolve_seed
+        with open(bp_path, encoding="utf-8") as _fh:
+            _bp_raw = _json.load(_fh)
+        _bp_enriched, _enr_report = enrich_blueprint(_bp_raw, project_dir=proj)
+        report["seed"] = resolve_seed(_bp_enriched)
+        if _enr_report["n_decisions"]:
+            with open(bp_path, "w", encoding="utf-8") as _fh:
+                _json.dump(_bp_enriched, _fh, ensure_ascii=False, indent=2)
+                _fh.write("\n")
+            write_enrichment_report(proj, _enr_report)
+            report["enrichment"] = {"n_decisions": _enr_report["n_decisions"], "summary": _enr_report["summary"][:300]}
+    except Exception as _exc:
+        report["enrichment"] = {"error": str(_exc)[:120]}
     if not os.path.isfile(bp_path):
         report.update({"ok": False, "stage": "blueprint_missing", "error": bp_path})
         return report

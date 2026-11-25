@@ -1570,6 +1570,7 @@ def compile_arrangement_plan(
     limiter_gain_db: float | None = None,
     fx_room_vol: float = 0.30,
     auto_gain_stage: bool = True,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     """
     Phase 7 P1 compiler: validate `arrangement_plan.json`, expand motifs & `role_modifiers`,
@@ -1579,6 +1580,18 @@ def compile_arrangement_plan(
     abs_proj = os.path.abspath(os.path.expanduser(proj_dir))
     os.makedirs(abs_proj, exist_ok=True)
     plan, meta = load_arrangement_plan(plan_path, validate=True)
+
+    # v3.3 #5 — déterminisme strict : seed du blueprint (ou dérivé SHA-256), propagé au groove
+    _bp_raw: dict[str, Any] = {}
+    try:
+        with open(os.path.join(abs_proj, "song_blueprint.json"), encoding="utf-8") as _fh:
+            _bp_raw = json.load(_fh)
+    except Exception:
+        _bp_raw = {}
+    if seed is None:
+        from determinism import resolve_seed
+        seed = resolve_seed(_bp_raw if isinstance(_bp_raw, dict) and _bp_raw else meta)
+    seed = int(seed)
 
     bpm = float(meta["bpm"])
     bpb = int(meta["beats_per_bar"])
@@ -1713,7 +1726,14 @@ def compile_arrangement_plan(
         except Exception as exc:
             motif_selection_report = {"error": str(exc)[:120]}
     swing = float(meta.get("swing", 0.0) or (plan.get("meta") or {}).get("swing", 0.0) or 0.0)
-    groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb))
+    # v3.3 #1 — enricher : glides 808 subtils au Climax si expression_defaults (jamais d'écrasement)
+    try:
+        from blueprint_enricher import inject_climax_glides
+        if isinstance(_bp_raw, dict) and _bp_raw.get("expression_defaults"):
+            inject_climax_glides(score_ir, _bp_raw, sections_tuples)
+    except Exception:
+        pass
+    groove_counts = apply_groove_to_score_ir(score_ir, swing=swing, bpm=bpm, profile=meta["mix_profile"], beats_per_bar=float(bpb), seed=seed)
     tracks, score_ir_report = compile_score_ir_to_notes(score_ir)
     try:
         score_ir.save(os.path.join(abs_proj, "score_ir.json"))
