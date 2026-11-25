@@ -797,9 +797,74 @@ def _compact_json(obj: Any, limit: int = 1500) -> str:
 
 
 @mcp.tool()
-def studio_prepare_session(project_dir: str, style_intent: str = "", reference_paths: list[str] | None = None) -> str:
+def _analyze_remix_source(remix_source_path: str) -> dict[str, Any]:
+    """v3.3 #5 scénario C — diagnostic tonal/BPM d'une source à remixer + grille d'accords
+    prête à copier dans `song_blueprint.json` `harmonic_core` (0 GPU)."""
+    import numpy as _np
+    import soundfile as _sf
+    src = os.path.abspath(os.path.expanduser(remix_source_path))
+    data, sr = _sf.read(src, always_2d=True, dtype="float32")
+    mono = data.mean(axis=1).astype(_np.float64)
+    out: dict[str, Any] = {"source": src, "duration_s": round(len(mono) / float(sr), 2)}
+    try:
+        import librosa as _lb
+        tempo, _beats = _lb.beat.beat_track(y=mono, sr=sr)
+        out["bpm"] = round(float(tempo), 1)
+        chroma = _lb.feature.chroma_cqt(y=mono, sr=sr).mean(axis=1)
+        maj = _np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+        minw = _np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+        scores = [float(_np.dot(chroma, _np.roll(maj, -i))) for i in range(12)]
+        scores_min = [float(_np.dot(chroma, _np.roll(minw, -i))) for i in range(12)]
+        best_maj = int(_np.argmax(scores))
+        best_min = int(_np.argmax(scores_min))
+        names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+        if scores[best_maj] >= scores_min[best_min]:
+            out["key"] = f"{names[best_maj]} major"
+            out["suggested_mode"] = "ionian"
+            out["suggested_degree_progression"] = ["I", "V", "vi", "IV"]
+        else:
+            out["key"] = f"{names[best_min]} minor"
+            out["suggested_mode"] = "aeolian"
+            out["suggested_degree_progression"] = ["i", "bVI", "III", "VII"]
+    except Exception as exc:
+        out["error"] = str(exc)[:100]
+    out["suggested_harmonic_core"] = {
+        "key": out.get("key", "C minor"),
+        "mode": out.get("suggested_mode", "aeolian"),
+        "degree_progression": out.get("suggested_degree_progression", ["i", "bVI", "III", "VII"]),
+    }
+    return out
+
+
+def _plan_lyrics(lyrics_spec: dict[str, Any], bpm: float) -> dict[str, Any]:
+    """v3.3 #5 scénario D — syllabation + fenêtres respiratoires + tessiture cible
+    (`vocal_range_midi`). Repli déterministe si le serveur vocaloid est indisponible."""
+    text = str(lyrics_spec.get("text") or lyrics_spec.get("lyrics") or "")
+    words = [w for w in text.replace("\n", " ").split() if w.strip()]
+    syllables = sum(max(1, len([c for c in w if c.lower() in "aeiouyàâäéèêëîïôöùûüÿ"]) or 1) for w in words)
+    beat_s = 60.0 / max(40.0, float(bpm))
+    breath_every_syll = 8
+    breaths = []
+    acc = 0
+    for i in range(syllables):
+        acc += 1
+        if acc % breath_every_syll == 0:
+            breaths.append(round((i + 1) * 0.45 * 4 * beat_s, 2))  # ~1 mesure tous les 8 syllabes
+    return {
+        "n_words": len(words),
+        "n_syllables": syllables,
+        "breath_windows_s": breaths[:16],
+        "vocal_range_midi": lyrics_spec.get("vocal_range_midi") or [48, 72],
+        "language": lyrics_spec.get("language", "fr"),
+    }
+
+
+def studio_prepare_session(project_dir: str, style_intent: str = "", reference_paths: list[str] | None = None,
+                           remix_source_path: str | None = None, lyrics_spec: dict[str, Any] | None = None) -> str:
     """v3.0 Tour 1/3 — Préparation: indexe Samples/ (scénario B, user_samples_locked), propose 3 palettes
-    avec root_note/BPM, calcule le profil cible. Retour JSON compact <= 1500 cars, 0 token LLM côté chaîne."""
+    avec root_note/BPM, calcule le profil cible. v3.3 : `remix_source_path` (scénario C) renvoie
+    BPM/clé/grille de départ ; `lyrics_spec` (scénario D) renvoie syllabes/pauses/tessiture.
+    Retour JSON compact <= 1500 cars, 0 token LLM côté chaîne."""
     import shutil as _sh
     try:
         proj = os.path.abspath(os.path.expanduser(project_dir))
@@ -844,6 +909,18 @@ def studio_prepare_session(project_dir: str, style_intent: str = "", reference_p
                     })
             except Exception as exc:
                 palettes_summary = [{"error": str(exc)[:120]}]
+        remix_analysis = None
+        if remix_source_path:
+            try:
+                remix_analysis = _analyze_remix_source(remix_source_path)
+            except Exception as exc:
+                remix_analysis = {"error": str(exc)[:160]}
+        lyrics_plan = None
+        if lyrics_spec:
+            try:
+                lyrics_plan = _plan_lyrics(lyrics_spec, bpm)
+            except Exception as exc:
+                lyrics_plan = {"error": str(exc)[:160]}
         return _compact_json({
             "ok": True,
             "tour": 1,
@@ -856,6 +933,9 @@ def studio_prepare_session(project_dir: str, style_intent: str = "", reference_p
             "valence": (bp.get("emotion_vector") or {}).get("valence"),
             "palettes": palettes_summary,
             "gridline_available": bool(_sh.which("gridline")),
+            "scenario": ("C" if remix_source_path else ("D" if lyrics_spec else "A/B")),
+            "remix_analysis": remix_analysis,
+            "lyrics_plan": lyrics_plan,
         })
     except Exception as exc:
         return _compact_json({"ok": False, "tour": 1, "error": str(exc)[:300]})
@@ -929,6 +1009,44 @@ def studio_build_and_validate_core(project_dir: str, palette_id: str = "") -> st
         return _compact_json({"ok": False, "tour": 2, "error": str(exc)[:300]})
 
 
+def _build_preview_safe(master_wav: str) -> dict[str, Any] | None:
+    """v3.3 #5 — génère renders/preview_highlights.wav (24 s) si un master existe."""
+    try:
+        if not os.path.isfile(master_wav):
+            return None
+        _sd = os.path.join(_ROOT_DIR, "scripts")
+        if _sd not in sys.path:
+            sys.path.insert(0, _sd)
+        from preview_lib import build_preview_highlights
+        r = build_preview_highlights(master_wav)
+        if r.get("ok"):
+            return {"out": os.path.basename(r["out"]), "duration_s": r["duration_s"]}
+    except Exception:
+        pass
+    return None
+
+
+def cleanup_temp_dirs(project_dir: str, keep_stems: bool = False) -> dict[str, Any]:
+    """v3.3 #5 — hygiène disque : supprime `.tmp_soundcheck/`, `.tmp_probe/` et les stems
+    intermédiaires (hors `--keep-stems`) à la fin du Tour 3."""
+    import shutil as _sh2
+    proj = os.path.abspath(os.path.expanduser(project_dir))
+    removed: list[str] = []
+    for d in (".tmp_soundcheck", ".tmp_probe"):
+        p = os.path.join(proj, d)
+        if os.path.isdir(p):
+            _sh2.rmtree(p, ignore_errors=True)
+            removed.append(d)
+    if not keep_stems:
+        rd = os.path.join(proj, "renders")
+        for d in ("stems_core", "stems_probe", "stems_final"):
+            p = os.path.join(rd, d)
+            if os.path.isdir(p):
+                _sh2.rmtree(p, ignore_errors=True)
+                removed.append(f"renders/{d}")
+    return {"removed": removed}
+
+
 @mcp.tool()
 def studio_render_final_master(project_dir: str, export_mp3: bool = True, profile: str = "") -> str:
     """v3.0 Tour 3/3 — Master final: compile_song complet puis UN SEUL rendu Gridline master
@@ -968,9 +1086,144 @@ def studio_render_final_master(project_dir: str, export_mp3: bool = True, profil
             "gate_failures": summary["quality_gate"]["failures"][:5],
             "musical_safety_ok": (summary.get("musical_safety") or {}).get("ok", True),
             "render_count": 1,
+            "temp_cleaned": cleanup_temp_dirs(proj, keep_stems=False)["removed"],
+            "preview_highlights": _build_preview_safe(out_wav),
         })
     except Exception as exc:
         return _compact_json({"ok": False, "tour": 3, "error": str(exc)[:300]})
+
+
+@mcp.tool()
+def studio_refine_track(project_dir: str, delta_intent: Any = "", export_mp3: bool = False) -> str:
+    """v3.3 #5 Tour 3b — raffinement chirurgical post-écoute humaine (contrat §6.1) :
+    applique UNIQUEMENT le delta déclaré (`mix_adjustments_db`, `section_overrides` avec
+    `comping_style`/`energy_delta`/`brightness_shift`, `swap_role`, `feedback_tags`),
+    via `autofix_transaction.apply_with_rollback` (aucun invariant Palier 1 ne régresse),
+    réutilise le cache SHA-256, enregistre les `feedback_tags` dans la mémoire de goût et
+    regénère `renders/preview_highlights.wav` (24 s). Retour <= 1500 cars."""
+    try:
+        proj = os.path.abspath(os.path.expanduser(project_dir))
+        delta = delta_intent
+        if isinstance(delta, str):
+            delta = json.loads(delta) if delta.strip() else {}
+        if not isinstance(delta, dict):
+            delta = {}
+        sys.path.insert(0, os.path.join(_ROOT_DIR, "scripts")) if os.path.join(_ROOT_DIR, "scripts") not in sys.path else None
+        from artifact_cache import sha256_json
+        from autofix_transaction import apply_with_rollback
+        bp_path = os.path.join(proj, "song_blueprint.json")
+        plan_path = os.path.join(proj, "arrangement_plan.json")
+
+        def _read(p: str) -> dict:
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8") as fh:
+                    return json.load(fh)
+            return {}
+
+        def _snapshot() -> dict[str, str]:
+            snap = {}
+            for p in (bp_path, plan_path):
+                if os.path.isfile(p):
+                    with open(p, encoding="utf-8") as fh:
+                        snap[p] = fh.read()
+            return snap
+
+        def _restore(snap: dict[str, str]) -> None:
+            for p, content in snap.items():
+                with open(p, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+
+        def _apply() -> list[str]:
+            applied: list[str] = []
+            bp = _read(bp_path)
+            if bp and isinstance(delta.get("mix_adjustments_db"), dict):
+                for tname, ddb in delta["mix_adjustments_db"].items():
+                    for t in bp.get("tracks") or []:
+                        if str(t.get("name", "")).lower() == str(tname).lower() or str(tname).lower() in str(t.get("role", "")).lower():
+                            t["volume_db"] = round(float(t.get("volume_db", 0.0)) + float(ddb), 2)
+                            applied.append(f"mix:{t.get('name')}{float(ddb):+.1f}dB")
+            if bp:
+                with open(bp_path, "w", encoding="utf-8") as fh:
+                    json.dump(bp, fh, ensure_ascii=False, indent=2)
+                    fh.write("\n")
+            plan = _read(plan_path)
+            if plan and isinstance(delta.get("section_overrides"), dict):
+                for sec_name, ov in delta["section_overrides"].items():
+                    if not isinstance(ov, dict):
+                        continue
+                    for sec in plan.get("sections") or []:
+                        if str(sec.get("name", "")).lower() == str(sec_name).lower():
+                            if ov.get("comping_style"):
+                                sec["comping_style"] = str(ov["comping_style"])
+                                applied.append(f"comping:{sec_name}={ov['comping_style']}")
+                            if ov.get("energy_delta") is not None:
+                                sec["energy"] = round(float(sec.get("energy", 0.5)) + float(ov["energy_delta"]), 3)
+                                applied.append(f"energy:{sec_name}{float(ov['energy_delta']):+.2f}")
+                            if ov.get("brightness_shift"):
+                                sec["brightness_shift"] = str(ov["brightness_shift"])
+                                applied.append(f"brightness:{sec_name}={ov['brightness_shift']}")
+                with open(plan_path, "w", encoding="utf-8") as fh:
+                    json.dump(plan, fh, ensure_ascii=False, indent=2)
+                    fh.write("\n")
+            swap = delta.get("swap_role")
+            if swap and bp:
+                for t in bp.get("tracks") or []:
+                    if str(t.get("name", "")).lower() == str(swap).lower():
+                        applied.append(f"swap_role:{swap} (marqué, appliqué à la recompilation)")
+            return applied
+
+        def _eval() -> dict[str, Any]:
+            if not os.path.isfile(bp_path):
+                return {"ok": True}
+            from song_builder import load_blueprint
+            try:
+                _bp, meta = load_blueprint(bp_path, validate=True)
+            except Exception:
+                return {"ok": False, "musical_safety": {"errors": 1}}
+            return {"ok": True, "musical_safety": meta.get("musical_safety") or {}}
+
+        before = _eval()
+        res = apply_with_rollback(
+            proj,
+            {"code": "REFINE_TRACK", "target": "project", "params": {"delta_hash": sha256_json(delta)[:16]}},
+            _apply, _eval, before,
+            snapshot_fn=_snapshot, restore_fn=_restore,
+            require_progress=False,
+        )
+        tags = delta.get("feedback_tags") or []
+        taste_recorded = False
+        if tags:
+            try:
+                from taste_memory import record_validated_taste
+                r = record_validated_taste(
+                    proj, approved_by_user=True,
+                    extra_metrics={"pq_score": 8.0, "musical_preferences": {"user_tags": list(tags)}},
+                    taste_path=os.path.join(proj, "user_taste_profile.json"),
+                )
+                taste_recorded = bool(r.get("recorded"))
+            except Exception:
+                taste_recorded = False
+        preview = None
+        master = os.path.join(proj, "renders", "master.wav")
+        if os.path.isfile(master):
+            from preview_lib import build_preview_highlights
+            pr = build_preview_highlights(master)
+            if pr.get("ok"):
+                preview = {"out": os.path.basename(pr["out"]), "duration_s": pr["duration_s"]}
+        return _compact_json({
+            "ok": True,
+            "tour": "3b",
+            "verdict": res.get("verdict"),
+            "applied": res.get("applied") or [],
+            "delta_hash": sha256_json(delta)[:16],
+            "seed_lock": bool(delta.get("seed_lock", True)),
+            "taste_recorded": taste_recorded,
+            "preview_highlights": preview,
+        })
+    except Exception as exc:
+        return _compact_json({"ok": False, "tour": "3b", "error": str(exc)[:300]})
+
+
 
 
 if __name__ == "__main__":

@@ -252,6 +252,8 @@ def classify_role(track_key: str) -> str:
         return "lead"
     if "counter" in rl:
         return "counter"
+    if "remix" in rl:
+        return "remix_stem"  # v3.3 #5 — scénario C (Remix / Sample Flip)
     if any(k in rl for k in ("vocal", "vox")):
         return "vocals"
     if any(k in rl for k in ("fx", "riser", "ear_candy", "sweep", "impact")):
